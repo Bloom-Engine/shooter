@@ -284,6 +284,7 @@ let fireCD = 0;
 
 let playerHP = PLAYER_HP_MAX;
 let gameOver = false;
+const MUZZLE_FLASH_DUR = 0.08;
 let muzzleFlashT = 0;
 let damageFlashT = 0;
 let shotsFired = 0;
@@ -581,7 +582,7 @@ while (!windowShouldClose()) {
                      (isRifle ? input.fireDown : input.firePressed);
   if (fireIntent || (forceFire && haveAmmo && combatActive)) {
     shotsFired = shotsFired + 1;
-    muzzleFlashT = 0.05;
+    muzzleFlashT = MUZZLE_FLASH_DUR;
     playSound(sfxFire);
     // Third-person aiming: the crosshair is at screen centre, so
     // trace the camera-forward line out to a far point, treat that
@@ -703,16 +704,18 @@ while (!windowShouldClose()) {
   addPointLight(-18, 3.0,  18, 18, 1.0, 0.75, 0.45, 0.9);
   addPointLight( 18, 3.0,  18, 18, 1.0, 0.75, 0.45, 0.9);
 
-  // Muzzle flare at the player's muzzle when firing. Matches the
-  // shoulder offset used by the fire code + the drawn weapon cubes
-  // so the flash sits at the gun barrel, not just "near the body".
+  // Muzzle flare point light — sits just past the barrel tip so
+  // the warm splash of light hits the gun body and the floor in
+  // front of the player when firing.
   if (muzzleFlashT > 0) {
     const pp = playerPosition();
     const sy = Math.sin(CAM[0]), cy = Math.cos(CAM[0]);
-    const mx = pp.x + cy * 0.30 + sy * 0.60;
+    const tipOffset = currentWeapon === WEAPON_RIFLE ? 0.78 : 0.43;
+    const mx = pp.x + cy * 0.30 + sy * tipOffset;
     const my = pp.y + 0.95;
-    const mz = pp.z + sy * 0.30 + (-cy) * 0.60;
-    addPointLight(mx, my, mz, 6, 1.0, 0.85, 0.5, 3.5);
+    const mz = pp.z + sy * 0.30 + (-cy) * tipOffset;
+    const k = muzzleFlashT / MUZZLE_FLASH_DUR;
+    addPointLight(mx, my, mz, 6, 1.0, 0.85, 0.5, 4.0 * k);
   }
 
   drawModel(mdlArena, vec3(0, 0, 0), 1.0, WHITE);
@@ -728,17 +731,15 @@ while (!windowShouldClose()) {
     const camYaw = CAM[0];
     // Player_bsuit's rest pose faces +X in model space (Unvanquished
     // convention, preserved through our X90 Z-up→Y-up root fix).
-    // Camera-yaw's "forward" is -Z at yaw=0, so offset the model by
-    // +π/2 to line the character's front with the camera direction.
-    // Add MUZZLE_BURST_ANIM mix while firing so the character visibly
-    // braces the weapon instead of just walking through the shot.
-    const modelYaw = camYaw - Math.PI / 2;
+    // Camera-yaw forward at yaw=0 is -Z, so rotate the model by
+    // +π/2 about Y to line the character's front with the camera
+    // direction. The bsuit's only "attack" animation is a melee
+    // swing — a ranged shooter shouldn't use it; keep the walk/idle
+    // pose and fake recoil + muzzle flash on the weapon itself.
+    const modelYaw = camYaw + Math.PI / 2;
     const fsin = Math.sin(modelYaw);
     const fcos = -Math.cos(modelYaw);
-    const firing = muzzleFlashT > 0;
-    const panim = firing
-      ? PLAYER_ANIM_ATTACK
-      : (moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE);
+    const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
     updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, fsin, fcos);
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
@@ -747,34 +748,59 @@ while (!windowShouldClose()) {
     // Held weapon — sketched from cubes since we don't yet have a
     // converted tpweapon GLB. Rifle is a long grey body + thin
     // barrel; blaster is a short stubby pistol. Positioned at the
-    // character's right shoulder, pitched with the camera so it
-    // tracks where the crosshair is looking.
+    // character's right shoulder. On fire the weapon recoils
+    // backward for one MUZZLE_FLASH_DUR tick (≈0.08s) and a warm
+    // flash sprite appears at the barrel tip — the exponential
+    // falloff on recoilT reads as a snap-back rather than a slide.
     const shy = Math.sin(camYaw), chy = Math.cos(camYaw);
-    const pitch = CAM[1];
     const fx = shy;         // camera forward (horizontal) at this yaw
     const fz = -chy;
     const rx = chy;         // camera right
     const rz = shy;
+    const recoilT = muzzleFlashT > 0 ? muzzleFlashT / MUZZLE_FLASH_DUR : 0;
+    const recoilK = recoilT * recoilT;        // snappier than linear
+    const recoilBack = recoilK * 0.18;        // metres pulled toward shooter
     const shoulder = vec3(
-      pp.x + rx * 0.30 + fx * 0.15,
+      pp.x + rx * 0.30 + fx * (0.15 - recoilBack),
       pp.y + 0.95,
-      pp.z + rz * 0.30 + fz * 0.15,
+      pp.z + rz * 0.30 + fz * (0.15 - recoilBack),
     );
     const bodyDark = { r: 55, g: 55, b: 60, a: 255 };
     const bodyMid  = { r: 90, g: 90, b: 100, a: 255 };
+    let muzzleX = shoulder.x, muzzleY = shoulder.y, muzzleZ = shoulder.z;
     if (currentWeapon === WEAPON_RIFLE) {
       drawCube(shoulder, 0.12, 0.10, 0.55, bodyMid);
-      // Barrel — offset along camera forward, rotated with cam yaw.
-      const barrelX = shoulder.x + fx * 0.45;
-      const barrelY = shoulder.y + Math.sin(-pitch) * 0.1;
-      const barrelZ = shoulder.z + fz * 0.45;
+      const barrelLen = 0.45;
+      const barrelX = shoulder.x + fx * barrelLen;
+      const barrelY = shoulder.y;
+      const barrelZ = shoulder.z + fz * barrelLen;
       drawCube(vec3(barrelX, barrelY, barrelZ), 0.06, 0.06, 0.35, bodyDark);
+      muzzleX = shoulder.x + fx * (barrelLen + 0.18);
+      muzzleY = shoulder.y;
+      muzzleZ = shoulder.z + fz * (barrelLen + 0.18);
     } else {
-      // Blaster — compact pistol silhouette.
       drawCube(shoulder, 0.10, 0.14, 0.22, bodyMid);
       const bx = shoulder.x + fx * 0.18;
       const bz = shoulder.z + fz * 0.18;
       drawCube(vec3(bx, shoulder.y + 0.02, bz), 0.05, 0.05, 0.15, bodyDark);
+      muzzleX = shoulder.x + fx * 0.28;
+      muzzleY = shoulder.y + 0.02;
+      muzzleZ = shoulder.z + fz * 0.28;
+    }
+
+    // Muzzle flash — bright yellow core + wider orange halo that
+    // fades with muzzleFlashT. Two overlapping spheres read as a
+    // burst of flame even at small pixel sizes.
+    if (muzzleFlashT > 0) {
+      const k = muzzleFlashT / MUZZLE_FLASH_DUR;
+      const coreA = Math.min(255, Math.floor(k * 255));
+      const haloA = Math.min(200, Math.floor(k * 170));
+      const coreR = 0.10 + (1 - k) * 0.04;       // quick puff-out
+      const haloR = 0.22 + (1 - k) * 0.10;
+      drawSphere(vec3(muzzleX, muzzleY, muzzleZ), haloR,
+        { r: 255, g: 130, b:  40, a: haloA });
+      drawSphere(vec3(muzzleX, muzzleY, muzzleZ), coreR,
+        { r: 255, g: 240, b: 170, a: coreA });
     }
   }
   // Per-enemy: drive the skinned skeleton via updateModelAnimation (picks
@@ -840,7 +866,7 @@ while (!windowShouldClose()) {
   drawCircle(sw / 2, sh / 2, 3, { r: 255, g: 255, b: 255, a: crossA });
   // Muzzle flash — small warm smudge near the crosshair, not full-screen.
   if (muzzleFlashT > 0) {
-    const fa = Math.floor((muzzleFlashT / 0.05) * 180);
+    const fa = Math.floor((muzzleFlashT / MUZZLE_FLASH_DUR) * 180);
     drawCircle(sw / 2, sh / 2 + 4, 14, { r: 255, g: 220, b: 120, a: fa });
   }
 
