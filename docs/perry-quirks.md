@@ -68,7 +68,34 @@ function validate(xs: string[]) {
 }
 ```
 
-## 3. `JSON.parse` arrays have no `.length`
+## 3. Module-scope state writes don't propagate across module boundaries
+
+**Symptom.** A function in `./camera-tp.ts` mutates a module-level
+variable (either `let` scalar reassignment or `const` array index
+write). When another module calls it repeatedly and then reads the
+state, the reads return the initial value — as if the writes never
+happened.
+
+We confirmed this three ways:
+
+1. `let camX = 0; export function update() { camX = player.x; }
+   export function getX() { return camX; }` — getX always returns 0.
+2. `const CAM = [0,0,0]; export function update(x) { CAM[0] = x; }
+   export function getX() { return CAM[0]; }` — same behaviour,
+   getX returns 0.
+3. Inlining the same state + mutation into the calling module (the
+   game's `main.ts`) works correctly — index-assigned `const` arrays
+   persist across frames.
+
+**Workaround.** Keep mutable state in the module that actually needs
+to read it. Our third-person camera is defined inline in
+`src/main.ts` as a 9-element `const CAM` array (yaw, pitch,
+camXYZ, tgtXYZ, initialised flag) with the orbit math unrolled in
+the game loop. Helper modules are fine for stateless logic — camera
+math + input aggregation could live in a module — but any state that
+must update over time needs to be local to its reader.
+
+## 4. `JSON.parse` arrays have no `.length`
 
 **Symptom.** `const data = JSON.parse(text); data.entities.length`
 returns `undefined`. Any `for (let i = 0; i < data.entities.length;

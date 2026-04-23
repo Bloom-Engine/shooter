@@ -6,7 +6,7 @@ import {
   setAmbientLight, setDirectionalLight,
   getScreenWidth, getScreenHeight,
   vec3,
-  isKeyPressed, Key, Vec3,
+  isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   loadModel, drawModel, loadModelAnimation, updateModelAnimation,
   initAudio, loadSound, playSound, setSoundVolume,
@@ -21,11 +21,6 @@ import {
   setBodyPosition,
 } from 'bloom/physics';
 import { initInput, readInput } from './input';
-import {
-  initCameraTp, applyLookTp, updateCameraTp, cameraTp3D,
-  forwardFlatTp, rightFlatTp, yawValueTp, pitchValueTp,
-  cameraPosTp, cameraAimTp,
-} from './camera-tp';
 import { createPlayer, updatePlayerController, playerPosition } from './player';
 
 // Colour-coded debug cubes for collider_box entities (real meshes land in later
@@ -91,7 +86,24 @@ const worldStatus = debugBoxes.length + ' colliders (hardcoded)';
 const mdlArena = loadModel('assets/models/arena.glb');
 
 createPlayer(physics, spawnPos);
-initCameraTp(spawnYaw);
+
+// ---- Third-person orbit camera (inline; see perry-quirks.md) --------------
+// Array-slot state because Perry 0.5.158 doesn't propagate module-scope
+// `let` reassignments across function calls. Cross-module array writes
+// are even more fragile; keeping everything local to main.ts so the
+// compiler has no excuse to lose the writes.
+//   CAM[0] yaw           CAM[5] tgtX
+//   CAM[1] pitch         CAM[6] tgtY
+//   CAM[2] camX          CAM[7] tgtZ
+//   CAM[3] camY          CAM[8] initialised (0/1)
+//   CAM[4] camZ
+const CAM = [spawnYaw, 0.35, 0, 0, 0, 0, 0, 0, 0];
+const TP_PITCH_MIN = -0.25;
+const TP_PITCH_MAX = 1.20;
+const TP_ORBIT_DIST = 6.0;
+const TP_EYE_HEIGHT = 1.4;
+const TP_SMOOTH = 10.0;
+const TP_FOVY = 70;
 
 // ---- Third-person player model (human_bsuit) -----------------------------
 // Converted via tools/convert-aliens-anim.ts. Drawn at the physics-character
@@ -406,8 +418,16 @@ while (!windowShouldClose()) {
 
   const input = readInput();
   // Only apply mouse look when cursor is captured — avoids jumpy yaw/pitch
-  // when the user is moving the mouse outside the window.
-  if (cursorLocked) applyLookTp(input.lookX, input.lookY);
+  // when the user is moving the mouse outside the window. The first ~10
+  // frames after window creation often report giant mouse deltas (system
+  // cursor settling into the captured state), which can fling the camera
+  // to a useless angle before the player even sees the scene.
+  testFrame = testFrame + 1;
+  if (cursorLocked && testFrame > 10) {
+    CAM[0] = CAM[0] + input.lookX;
+    const np = CAM[1] + input.lookY;
+    CAM[1] = np < TP_PITCH_MIN ? TP_PITCH_MIN : (np > TP_PITCH_MAX ? TP_PITCH_MAX : np);
+  }
 
   // Restart on R when the run has ended (died or won); otherwise R reloads
   // the currently-equipped weapon.
@@ -422,13 +442,38 @@ while (!windowShouldClose()) {
 
   // Freeze player movement while dead or after victory; physics still steps.
   if (!gameOver && !gameWon) {
-    const fwd = forwardFlatTp();
-    const rgt = rightFlatTp();
+    const yawNow = CAM[0];
+    const fwd = vec3(Math.sin(yawNow), 0, -Math.cos(yawNow));
+    const rgt = vec3(Math.cos(yawNow), 0, Math.sin(yawNow));
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump);
   }
   stepPhysics(physics, dt);
   // Smooth orbit camera follow after physics step.
-  updateCameraTp(playerPosition(), dt);
+  // Inline orbit-camera follow.
+  {
+    const pp0 = playerPosition();
+    const ya = CAM[0], pi = CAM[1];
+    const cpi = Math.cos(pi), spi = Math.sin(pi);
+    const fX = pp0.x;
+    const fY = pp0.y + TP_EYE_HEIGHT;
+    const fZ = pp0.z;
+    const wX = fX - Math.sin(ya) * cpi * TP_ORBIT_DIST;
+    const wY = fY + spi * TP_ORBIT_DIST;
+    const wZ = fZ + Math.cos(ya) * cpi * TP_ORBIT_DIST;
+    if (CAM[8] === 0) {
+      CAM[2] = wX; CAM[3] = wY; CAM[4] = wZ;
+      CAM[5] = fX; CAM[6] = fY; CAM[7] = fZ;
+      CAM[8] = 1;
+    } else {
+      const t = 1 - Math.exp(-TP_SMOOTH * dt);
+      CAM[2] = CAM[2] + (wX - CAM[2]) * t;
+      CAM[3] = CAM[3] + (wY - CAM[3]) * t;
+      CAM[4] = CAM[4] + (wZ - CAM[4]) * t;
+      CAM[5] = CAM[5] + (fX - CAM[5]) * t;
+      CAM[6] = CAM[6] + (fY - CAM[6]) * t;
+      CAM[7] = CAM[7] + (fZ - CAM[7]) * t;
+    }
+  }
   playerAnimT = playerAnimT + dt;
 
   // ---- Enemy AI + wave director (M5 / M6) -------------------------------
@@ -504,20 +549,16 @@ while (!windowShouldClose()) {
     }
   }
 
-  // Self-test harness: force-spawn a dretch in front of the player, fire
-  // several times, screenshot at key moments, then quit.
-  testFrame = testFrame + 1;
+  // testFrame is incremented above the input block so the mouse-settle
+  // grace period uses the same counter.
   let forceFire = false;
   if (SELFTEST) {
-    if (testFrame < 30) {
-      initCameraTp(0);                      // keep camera stable
-      waveBreakTimer = 9999;                // suppress wave spawns during test
-    }
-    if (testFrame === 30) {
-      screenshotSeq = screenshotSeq + 1;
-      takeScreenshot('shooter_selftest_' + screenshotSeq + '_tp.png');
-    }
-    if (testFrame === 60) break;
+    waveBreakTimer = 9999;                  // suppress wave spawns during test
+    if (testFrame < 5) { CAM[0] = 0; CAM[1] = 0.35; CAM[8] = 0; }   // reset camera each settle-frame
+    if (testFrame === 5)  injectKeyDown(Key.W);    // hold W from frame 5
+    if (testFrame === 30) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_tp_moving.png'); }
+    if (testFrame === 60) { injectKeyUp(Key.W); screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_tp_stopped.png'); }
+    if (testFrame === 90) break;
   }
 
   // ---- Fire (M4 / M7) ---------------------------------------------------
@@ -535,8 +576,10 @@ while (!windowShouldClose()) {
     // Raycast from the camera along its aim direction, offset past the
     // player so we don't hit our own capsule. Orbit distance is ~4.5m;
     // 5m offset clears the player body reliably.
-    const camOrigin = cameraPosTp();
-    const aim = cameraAimTp();
+    const camOrigin = vec3(CAM[2], CAM[3], CAM[4]);
+    const adx = CAM[5] - CAM[2], ady = CAM[6] - CAM[3], adz = CAM[7] - CAM[4];
+    const alen = Math.sqrt(adx*adx + ady*ady + adz*adz);
+    const aim = alen > 0 ? vec3(adx/alen, ady/alen, adz/alen) : vec3(0, 0, -1);
     const originX = camOrigin.x + aim.x * 5.0;
     const originY = camOrigin.y + aim.y * 5.0;
     const originZ = camOrigin.z + aim.z * 5.0;
@@ -621,7 +664,13 @@ while (!windowShouldClose()) {
   setAmbientLight({ r: 120, g: 130, b: 160, a: 255 }, 0.35);
   setDirectionalLight(vec3(-0.3, -0.9, -0.2), { r: 255, g: 245, b: 220, a: 255 }, 0.9);
 
-  beginMode3D(cameraTp3D());
+  beginMode3D({
+    position: vec3(CAM[2], CAM[3], CAM[4]),
+    target:   vec3(CAM[5], CAM[6], CAM[7]),
+    up: vec3(0, 1, 0),
+    fovy: TP_FOVY,
+    projection: 0,
+  });
 
   // M8: warm amber fills at the 4 arena corners — mood lighting.
   addPointLight(-18, 3.0, -18, 18, 1.0, 0.75, 0.45, 0.9);
@@ -639,13 +688,14 @@ while (!windowShouldClose()) {
 
   // Player: skinned + animated. Face the camera's horizontal yaw (so the
   // character always looks "away from the camera"). Walk if input is
-  // nonzero, idle otherwise.
+  // nonzero, idle otherwise. A debug sphere at the capsule centre is
+  // always drawn as a fallback so the player's position is visible even
+  // if the skinned model fails to render.
   {
     const pp = playerPosition();
+    drawSphere(vec3(pp.x, pp.y, pp.z), 0.25, { r: 255, g: 120, b: 120, a: 180 });
     const moving = input.moveX !== 0 || input.moveZ !== 0;
-    const camYaw = yawValueTp();
-    // Convert camera yaw to the (sin, cos) pair updateModelAnimation wants.
-    // The player looks in the direction of the camera's forward.
+    const camYaw = CAM[0];
     const fsin = Math.sin(camYaw);
     const fcos = -Math.cos(camYaw);
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
@@ -794,7 +844,8 @@ while (!windowShouldClose()) {
     + '  fire:' + (input.fireDown ? '1' : '0')
     + '  mouse:' + (cursorLocked ? 'locked (Tab to free)' : 'free (Tab to lock)');
   const diag2 = 'pos ' + pp.x.toFixed(1) + ',' + pp.y.toFixed(1) + ',' + pp.z.toFixed(1)
-    + '  yaw ' + yawValueTp().toFixed(2) + '  pitch ' + pitchValueTp().toFixed(2)
+    + '  yaw ' + CAM[0].toFixed(2) + '  pitch ' + CAM[1].toFixed(2)
+    + '  cam ' + CAM[2].toFixed(1) + ',' + CAM[3].toFixed(1) + ',' + CAM[4].toFixed(1)
     + '  shots ' + shotsHit + '/' + shotsFired;
 
   drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
