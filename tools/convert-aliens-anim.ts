@@ -31,6 +31,7 @@ const ALIENS: AlienSpec[] = [
   { name: 'enemy_marauder', dir: 'level2' },
   { name: 'enemy_dragoon',  dir: 'level3' },
   { name: 'enemy_tyrant',   dir: 'level4' },
+  { name: 'player_bsuit',   dir: 'human_bsuit' },   // 3rd-person player model
 ];
 
 // ===========================================================================
@@ -226,12 +227,14 @@ const X90_Q: [number, number, number, number] = [-S, 0, 0, S];
 function quatMul(a: [number, number, number, number], b: [number, number, number, number]): [number, number, number, number] {
   const [ax, ay, az, aw] = a;
   const [bx, by, bz, bw] = b;
-  return [
-    aw*bx + ax*bw + ay*bz - az*by,
-    aw*by - ax*bz + ay*bw + az*bx,
-    aw*bz + ax*by - ay*bx + az*bw,
-    aw*bw - ax*bx - ay*by - az*bz,
-  ];
+  const qx = aw*bx + ax*bw + ay*bz - az*by;
+  const qy = aw*by - ax*bz + ay*bw + az*bx;
+  const qz = aw*bz + ax*by - ay*bx + az*bw;
+  const qw = aw*bw - ax*bx - ay*by - az*bz;
+  // Renormalise — the product of two unit quats should be unit-length,
+  // but FP error accumulates and gltf-validator rejects |q| > 1.0 + ε.
+  const inv = 1 / Math.sqrt(qx*qx + qy*qy + qz*qz + qw*qw);
+  return [qx * inv, qy * inv, qz * inv, qw * inv];
 }
 function x90Prefix(tx: number, ty: number, tz: number,
                    qx: number, qy: number, qz: number, qw: number):

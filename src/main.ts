@@ -22,10 +22,11 @@ import {
 } from 'bloom/physics';
 import { initInput, readInput } from './input';
 import {
-  initCameraFp, applyLook, makeCamera3D, forwardFlat, rightFlat, forward,
-  yawValue, pitchValue,
-} from './camera-fp';
-import { createPlayer, updatePlayerController, playerEye, playerPosition } from './player';
+  initCameraTp, applyLookTp, updateCameraTp, cameraTp3D,
+  forwardFlatTp, rightFlatTp, yawValueTp, pitchValueTp,
+  cameraPosTp, cameraAimTp,
+} from './camera-tp';
+import { createPlayer, updatePlayerController, playerPosition } from './player';
 
 // Colour-coded debug cubes for collider_box entities (real meshes land in later
 // milestones; for M2 we just render the collision geometry itself).
@@ -90,7 +91,23 @@ const worldStatus = debugBoxes.length + ' colliders (hardcoded)';
 const mdlArena = loadModel('assets/models/arena.glb');
 
 createPlayer(physics, spawnPos);
-initCameraFp(spawnYaw);
+initCameraTp(spawnYaw);
+
+// ---- Third-person player model (human_bsuit) -----------------------------
+// Converted via tools/convert-aliens-anim.ts. Drawn at the physics-character
+// position, facing the camera's horizontal yaw so the player always looks
+// "away from the camera" (classic 3rd-person over-the-shoulder feel).
+const mdlPlayer  = loadModel('assets/models/player_bsuit.glb');
+const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
+// human_bsuit animation indices (IQE declaration order):
+//   0 idle, 7 attack, 8 run, 12 walk.
+const PLAYER_ANIM_IDLE   = 0;
+const PLAYER_ANIM_WALK   = 12;
+const PLAYER_ANIM_RUN    = 8;
+const PLAYER_ANIM_ATTACK = 7;
+const PLAYER_SCALE = 1.0;
+const PLAYER_MODEL_Y_OFFSET = -0.95;    // character capsule center -> feet
+let playerAnimT = 0;
 
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
@@ -390,7 +407,7 @@ while (!windowShouldClose()) {
   const input = readInput();
   // Only apply mouse look when cursor is captured — avoids jumpy yaw/pitch
   // when the user is moving the mouse outside the window.
-  if (cursorLocked) applyLook(input.lookX, input.lookY);
+  if (cursorLocked) applyLookTp(input.lookX, input.lookY);
 
   // Restart on R when the run has ended (died or won); otherwise R reloads
   // the currently-equipped weapon.
@@ -405,11 +422,14 @@ while (!windowShouldClose()) {
 
   // Freeze player movement while dead or after victory; physics still steps.
   if (!gameOver && !gameWon) {
-    const fwd = forwardFlat();
-    const rgt = rightFlat();
+    const fwd = forwardFlatTp();
+    const rgt = rightFlatTp();
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump);
   }
   stepPhysics(physics, dt);
+  // Smooth orbit camera follow after physics step.
+  updateCameraTp(playerPosition(), dt);
+  playerAnimT = playerAnimT + dt;
 
   // ---- Enemy AI + wave director (M5 / M6) -------------------------------
   if (!gameOver && !gameWon) {
@@ -489,23 +509,13 @@ while (!windowShouldClose()) {
   testFrame = testFrame + 1;
   let forceFire = false;
   if (SELFTEST) {
-    if (testFrame < 25) initCameraFp(0);   // force camera straight ahead
-    if (testFrame === 5) {
-      waveBreakTimer = 0;
-      for (let k = 0; k < KIND_COUNT; k++) {
-        const slot = k * BODIES_PER_KIND;
-        enX[slot] = (k - 2) * 5.0;
-        enY[slot] = 0; enZ[slot] = -12;
-        enHP[slot] = KIND_HP[k];
-        enAlive[slot] = 1;
-        enAttackCD[slot] = 999;
-        setBodyPosition(enBody[slot],
-          vec3(enX[slot], enY[slot] + KIND_Y_OFF[k], enZ[slot]), true);
-      }
+    if (testFrame < 30) {
+      initCameraTp(0);                      // keep camera stable
+      waveBreakTimer = 9999;                // suppress wave spawns during test
     }
     if (testFrame === 30) {
       screenshotSeq = screenshotSeq + 1;
-      takeScreenshot('shooter_selftest_' + screenshotSeq + '_anim.png');
+      takeScreenshot('shooter_selftest_' + screenshotSeq + '_tp.png');
     }
     if (testFrame === 60) break;
   }
@@ -522,11 +532,14 @@ while (!windowShouldClose()) {
     shotsFired = shotsFired + 1;
     muzzleFlashT = 0.05;
     playSound(sfxFire);
-    const eye = playerEye();
-    const aim = forward();
-    const originX = eye.x + aim.x * 0.6;
-    const originY = eye.y + aim.y * 0.6;
-    const originZ = eye.z + aim.z * 0.6;
+    // Raycast from the camera along its aim direction, offset past the
+    // player so we don't hit our own capsule. Orbit distance is ~4.5m;
+    // 5m offset clears the player body reliably.
+    const camOrigin = cameraPosTp();
+    const aim = cameraAimTp();
+    const originX = camOrigin.x + aim.x * 5.0;
+    const originY = camOrigin.y + aim.y * 5.0;
+    const originZ = camOrigin.z + aim.z * 5.0;
 
     if (isRifle) {
       rifleAmmo = rifleAmmo - 1;
@@ -608,22 +621,39 @@ while (!windowShouldClose()) {
   setAmbientLight({ r: 120, g: 130, b: 160, a: 255 }, 0.35);
   setDirectionalLight(vec3(-0.3, -0.9, -0.2), { r: 255, g: 245, b: 220, a: 255 }, 0.9);
 
-  beginMode3D(makeCamera3D(playerEye()));
+  beginMode3D(cameraTp3D());
 
   // M8: warm amber fills at the 4 arena corners — mood lighting.
-  // Bright red pulse on the corner whose spawner just produced an enemy.
   addPointLight(-18, 3.0, -18, 18, 1.0, 0.75, 0.45, 0.9);
   addPointLight( 18, 3.0, -18, 18, 1.0, 0.75, 0.45, 0.9);
   addPointLight(-18, 3.0,  18, 18, 1.0, 0.75, 0.45, 0.9);
   addPointLight( 18, 3.0,  18, 18, 1.0, 0.75, 0.45, 0.9);
 
-  // M8: a bright warm flare at the camera when the rifle/blaster fires.
+  // Muzzle flare at the player's torso when firing.
   if (muzzleFlashT > 0) {
-    const eye = playerEye();
-    addPointLight(eye.x, eye.y, eye.z, 6, 1.0, 0.85, 0.5, 3.5);
+    const pp = playerPosition();
+    addPointLight(pp.x, pp.y + 1.2, pp.z, 6, 1.0, 0.85, 0.5, 3.5);
   }
 
   drawModel(mdlArena, vec3(0, 0, 0), 1.0, WHITE);
+
+  // Player: skinned + animated. Face the camera's horizontal yaw (so the
+  // character always looks "away from the camera"). Walk if input is
+  // nonzero, idle otherwise.
+  {
+    const pp = playerPosition();
+    const moving = input.moveX !== 0 || input.moveZ !== 0;
+    const camYaw = yawValueTp();
+    // Convert camera yaw to the (sin, cos) pair updateModelAnimation wants.
+    // The player looks in the direction of the camera's forward.
+    const fsin = Math.sin(camYaw);
+    const fcos = -Math.cos(camYaw);
+    const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
+    updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
+      pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, fsin, fcos);
+    drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
+              PLAYER_SCALE, WHITE);
+  }
   // Per-enemy: drive the skinned skeleton via updateModelAnimation (picks
   // attack vs walk anim), then drawModel renders with the pose from the
   // joint matrices set by the update. Both calls use the same position so
@@ -764,7 +794,7 @@ while (!windowShouldClose()) {
     + '  fire:' + (input.fireDown ? '1' : '0')
     + '  mouse:' + (cursorLocked ? 'locked (Tab to free)' : 'free (Tab to lock)');
   const diag2 = 'pos ' + pp.x.toFixed(1) + ',' + pp.y.toFixed(1) + ',' + pp.z.toFixed(1)
-    + '  yaw ' + yawValue().toFixed(2) + '  pitch ' + pitchValue().toFixed(2)
+    + '  yaw ' + yawValueTp().toFixed(2) + '  pitch ' + pitchValueTp().toFixed(2)
     + '  shots ' + shotsHit + '/' + shotsFired;
 
   drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
