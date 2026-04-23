@@ -1,0 +1,8 @@
+[build]
+opt_level = 2
+out_dir = "dist"
+
+[project]
+entry = "src/main.ts"
+name = "bloom-shooter"
+bundle_id = "com.bloomengine.shooter"

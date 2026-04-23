@@ -1,0 +1,15 @@
+node_modules/
+package-lock.json
+target/
+dist/
+*.o
+/main
+.DS_Store
+
+# Converted-from-Unvanquished source tree (huge, re-cloneable)
+vendor/
+tools/.cache/
+
+# Test + screenshot artefacts
+shooter_*.png
+shooter_selftest_*.png

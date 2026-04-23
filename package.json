@@ -1,0 +1,12 @@
+{
+  "name": "bloom-shooter",
+  "version": "0.1.0",
+  "main": "src/main.ts",
+  "scripts": {
+    "convert": "bun tools/convert-assets.ts",
+    "dev": "perry compile src/main.ts -o main && ./main"
+  },
+  "dependencies": {
+    "bloom": "file:../engine/"
+  }
+}
