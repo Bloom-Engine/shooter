@@ -4,7 +4,9 @@
   "main": "src/main.ts",
   "scripts": {
     "convert": "bun tools/convert-assets.ts",
-    "dev": "perry compile src/main.ts -o main && ./main"
+    "world": "bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts",
+    "build": "bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts && perry compile src/main.ts -o main",
+    "dev": "bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts && perry compile src/main.ts -o main && ./main"
   },
   "dependencies": {
     "bloom": "file:../engine/"

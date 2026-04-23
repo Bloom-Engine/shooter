@@ -11,11 +11,16 @@ runnable with `perry compile src/main.ts -o main && ./main`.
 
 ## Where things live
 
-- `src/main.ts` — single-file game (~800 LOC). Flat-array state per
-  Perry convention. Arena geometry, wave plan, and pickup positions are
-  **hardcoded** in TypeScript (see Perry quirks below).
-- `src/input.ts` / `src/camera-fp.ts` / `src/player.ts` — small
-  single-purpose modules; the rest is in `main.ts`.
+- `src/main.ts` — single-file game (~900 LOC). Flat-array state per
+  Perry convention.
+- `src/input.ts` / `src/player.ts` — small single-purpose modules.
+- `src/generated/world.ts` — **generated, do not edit**. Built from
+  `assets/worlds/arena_02.world.json` by `tools/build-world.ts`. The
+  runtime reads world geometry, lighting, spawners, pickups, and the
+  wave plan from this module.
+- `assets/worlds/*.world.json` — authored level data using the engine's
+  standard world schema (`engine/src/world/types.ts`). The editor at
+  `../editor/` round-trips these files unmodified.
 - `tools/` — offline converters + glTF diagnostics. Run with `bun`.
 - `assets/models/` — committed GLBs. Regenerate via
   `bun tools/convert-aliens-anim.ts` and `bun tools/convert-arena.ts`.
@@ -42,12 +47,30 @@ runnable with `perry compile src/main.ts -o main && ./main`.
 ## Build commands
 
 ```
-perry compile src/main.ts -o main      # build
+npm run dev                            # build world + compile + run
+npm run build                          # build world + compile only
+npm run world                          # regenerate src/generated/world.ts
+perry compile src/main.ts -o main      # raw compile (skip world build)
 ./main                                  # play
 bun tools/convert-aliens-anim.ts       # regenerate animated alien GLBs
 bun tools/convert-arena.ts             # regenerate textured arena
 bun tools/validate-glb.ts <path>       # glTF-validator report
 ```
+
+## World pipeline
+
+`assets/worlds/<name>.world.json` is authored by hand (later: by the
+bloom editor). Every `npm run dev` re-runs `tools/build-world.ts`,
+which buckets entities by `userData.kind` and emits a Perry-safe
+TypeScript module of parallel flat arrays at `src/generated/world.ts`.
+Perry can't parse JSON at runtime (arrays from `JSON.parse` have no
+`.length`), so the generator is a hard requirement — never import the
+JSON directly. Supported kinds today: `player_spawn`, `collider_box`,
+`static_mesh` (with optional box collider + tag-driven paint
+category), `prop_tree`, `point_light`, `enemy_spawner`,
+`weapon_pickup`, `wave_config`. Water volumes and environment settings
+come from the top-level fields. Adding a new kind = add a bucket in
+`tools/build-world.ts` + consume the generated arrays in `main.ts`.
 
 ## Conventions
 
