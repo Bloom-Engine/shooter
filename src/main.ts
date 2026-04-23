@@ -417,12 +417,16 @@ while (!windowShouldClose()) {
   }
 
   const input = readInput();
+  testFrame = testFrame + 1;
+  // Selftest: drive the player forward so screenshots can verify
+  // walk direction. Runs before the player controller update so
+  // the override actually reaches updatePlayerController.
+  if (SELFTEST && testFrame >= 20) input.moveZ = -1;
   // Only apply mouse look when cursor is captured — avoids jumpy yaw/pitch
   // when the user is moving the mouse outside the window. The first ~10
   // frames after window creation often report giant mouse deltas (system
   // cursor settling into the captured state), which can fling the camera
   // to a useless angle before the player even sees the scene.
-  testFrame = testFrame + 1;
   if (cursorLocked && testFrame > 10) {
     CAM[0] = CAM[0] + input.lookX;
     const np = CAM[1] + input.lookY;
@@ -561,8 +565,10 @@ while (!windowShouldClose()) {
       enHP[0] = 3; enAlive[0] = 1; enAttackCD[0] = 999;
       setBodyPosition(enBody[0], vec3(-6, KIND_Y_OFF[0], -6), true);
     }
-    if (testFrame === 30)  { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t0_5s.png'); }
-    if (testFrame === 180) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t3_0s.png'); break; }
+    if (testFrame === 60) forceFire = true;
+    if (testFrame === 40) takeScreenshot('selftest_walk.png');
+    if (testFrame === 60) takeScreenshot('selftest_fire.png');
+    if (testFrame === 100) { takeScreenshot('selftest_walk2s.png'); break; }
   }
 
   // ---- Fire (M4 / M7) ---------------------------------------------------
@@ -577,16 +583,31 @@ while (!windowShouldClose()) {
     shotsFired = shotsFired + 1;
     muzzleFlashT = 0.05;
     playSound(sfxFire);
-    // Raycast from the camera along its aim direction, offset past the
-    // player so we don't hit our own capsule. Orbit distance is ~4.5m;
-    // 5m offset clears the player body reliably.
-    const camOrigin = vec3(CAM[2], CAM[3], CAM[4]);
+    // Third-person aiming: the crosshair is at screen centre, so
+    // trace the camera-forward line out to a far point, treat that
+    // as the aim target, and fire from the player's shoulder toward
+    // it. This way visible tracers / sparks line up with the gun
+    // barrel in the world, not with the orbit-camera position. The
+    // parallax between camera ray and muzzle ray is tiny at normal
+    // engagement ranges and is what gives the shot its "from the
+    // player" feel.
+    const camOriginV = vec3(CAM[2], CAM[3], CAM[4]);
     const adx = CAM[5] - CAM[2], ady = CAM[6] - CAM[3], adz = CAM[7] - CAM[4];
     const alen = Math.sqrt(adx*adx + ady*ady + adz*adz);
-    const aim = alen > 0 ? vec3(adx/alen, ady/alen, adz/alen) : vec3(0, 0, -1);
-    const originX = camOrigin.x + aim.x * 5.0;
-    const originY = camOrigin.y + aim.y * 5.0;
-    const originZ = camOrigin.z + aim.z * 5.0;
+    const camFwd = alen > 0 ? vec3(adx/alen, ady/alen, adz/alen) : vec3(0, 0, -1);
+    const aimTargetFar = 200;
+    const tgtX = camOriginV.x + camFwd.x * aimTargetFar;
+    const tgtY = camOriginV.y + camFwd.y * aimTargetFar;
+    const tgtZ = camOriginV.z + camFwd.z * aimTargetFar;
+    // Muzzle = player shoulder offset (matches the drawn weapon).
+    const ppF = playerPosition();
+    const sy = Math.sin(CAM[0]), cy = Math.cos(CAM[0]);
+    const originX = ppF.x + cy * 0.30 + sy * 0.60;
+    const originY = ppF.y + 0.95;
+    const originZ = ppF.z + sy * 0.30 + (-cy) * 0.60;
+    const mdx = tgtX - originX, mdy = tgtY - originY, mdz = tgtZ - originZ;
+    const mlen = Math.sqrt(mdx*mdx + mdy*mdy + mdz*mdz);
+    const aim = mlen > 0 ? vec3(mdx/mlen, mdy/mlen, mdz/mlen) : camFwd;
 
     if (isRifle) {
       rifleAmmo = rifleAmmo - 1;
@@ -682,10 +703,16 @@ while (!windowShouldClose()) {
   addPointLight(-18, 3.0,  18, 18, 1.0, 0.75, 0.45, 0.9);
   addPointLight( 18, 3.0,  18, 18, 1.0, 0.75, 0.45, 0.9);
 
-  // Muzzle flare at the player's torso when firing.
+  // Muzzle flare at the player's muzzle when firing. Matches the
+  // shoulder offset used by the fire code + the drawn weapon cubes
+  // so the flash sits at the gun barrel, not just "near the body".
   if (muzzleFlashT > 0) {
     const pp = playerPosition();
-    addPointLight(pp.x, pp.y + 1.2, pp.z, 6, 1.0, 0.85, 0.5, 3.5);
+    const sy = Math.sin(CAM[0]), cy = Math.cos(CAM[0]);
+    const mx = pp.x + cy * 0.30 + sy * 0.60;
+    const my = pp.y + 0.95;
+    const mz = pp.z + sy * 0.30 + (-cy) * 0.60;
+    addPointLight(mx, my, mz, 6, 1.0, 0.85, 0.5, 3.5);
   }
 
   drawModel(mdlArena, vec3(0, 0, 0), 1.0, WHITE);
@@ -699,13 +726,56 @@ while (!windowShouldClose()) {
     const pp = playerPosition();
     const moving = input.moveX !== 0 || input.moveZ !== 0;
     const camYaw = CAM[0];
-    const fsin = Math.sin(camYaw);
-    const fcos = -Math.cos(camYaw);
-    const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
+    // Player_bsuit's rest pose faces +X in model space (Unvanquished
+    // convention, preserved through our X90 Z-up→Y-up root fix).
+    // Camera-yaw's "forward" is -Z at yaw=0, so offset the model by
+    // +π/2 to line the character's front with the camera direction.
+    // Add MUZZLE_BURST_ANIM mix while firing so the character visibly
+    // braces the weapon instead of just walking through the shot.
+    const modelYaw = camYaw - Math.PI / 2;
+    const fsin = Math.sin(modelYaw);
+    const fcos = -Math.cos(modelYaw);
+    const firing = muzzleFlashT > 0;
+    const panim = firing
+      ? PLAYER_ANIM_ATTACK
+      : (moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE);
     updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, fsin, fcos);
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
               PLAYER_SCALE, WHITE);
+
+    // Held weapon — sketched from cubes since we don't yet have a
+    // converted tpweapon GLB. Rifle is a long grey body + thin
+    // barrel; blaster is a short stubby pistol. Positioned at the
+    // character's right shoulder, pitched with the camera so it
+    // tracks where the crosshair is looking.
+    const shy = Math.sin(camYaw), chy = Math.cos(camYaw);
+    const pitch = CAM[1];
+    const fx = shy;         // camera forward (horizontal) at this yaw
+    const fz = -chy;
+    const rx = chy;         // camera right
+    const rz = shy;
+    const shoulder = vec3(
+      pp.x + rx * 0.30 + fx * 0.15,
+      pp.y + 0.95,
+      pp.z + rz * 0.30 + fz * 0.15,
+    );
+    const bodyDark = { r: 55, g: 55, b: 60, a: 255 };
+    const bodyMid  = { r: 90, g: 90, b: 100, a: 255 };
+    if (currentWeapon === WEAPON_RIFLE) {
+      drawCube(shoulder, 0.12, 0.10, 0.55, bodyMid);
+      // Barrel — offset along camera forward, rotated with cam yaw.
+      const barrelX = shoulder.x + fx * 0.45;
+      const barrelY = shoulder.y + Math.sin(-pitch) * 0.1;
+      const barrelZ = shoulder.z + fz * 0.45;
+      drawCube(vec3(barrelX, barrelY, barrelZ), 0.06, 0.06, 0.35, bodyDark);
+    } else {
+      // Blaster — compact pistol silhouette.
+      drawCube(shoulder, 0.10, 0.14, 0.22, bodyMid);
+      const bx = shoulder.x + fx * 0.18;
+      const bz = shoulder.z + fz * 0.18;
+      drawCube(vec3(bx, shoulder.y + 0.02, bz), 0.05, 0.05, 0.15, bodyDark);
+    }
   }
   // Per-enemy: drive the skinned skeleton via updateModelAnimation (picks
   // attack vs walk anim), then drawModel renders with the pose from the
