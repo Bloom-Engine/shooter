@@ -553,12 +553,14 @@ while (!windowShouldClose()) {
   // grace period uses the same counter.
   let forceFire = false;
   if (SELFTEST) {
-    waveBreakTimer = 9999;                  // suppress wave spawns during test
-    if (testFrame < 5) { CAM[0] = 0; CAM[1] = 0.35; CAM[8] = 0; }   // reset camera each settle-frame
-    if (testFrame === 5)  injectKeyDown(Key.W);    // hold W from frame 5
-    if (testFrame === 30) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_tp_moving.png'); }
-    if (testFrame === 60) { injectKeyUp(Key.W); screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_tp_stopped.png'); }
-    if (testFrame === 90) break;
+    waveBreakTimer = 9999;
+    if (testFrame < 5) { CAM[0] = 0; CAM[1] = 0.35; CAM[8] = 0; }
+    // Simulate the user: press W starting frame 5, gently yaw the camera
+    // starting frame 15 (mimic mouse look).
+    if (testFrame === 5) injectKeyDown(Key.W);
+    if (testFrame >= 15) CAM[0] = CAM[0] + 0.02;   // ~1.2° per frame
+    if (testFrame === 50) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_combined.png'); }
+    if (testFrame === 90) { injectKeyUp(Key.W); break; }
   }
 
   // ---- Fire (M4 / M7) ---------------------------------------------------
@@ -693,7 +695,9 @@ while (!windowShouldClose()) {
   // if the skinned model fails to render.
   {
     const pp = playerPosition();
-    drawSphere(vec3(pp.x, pp.y, pp.z), 0.25, { r: 255, g: 120, b: 120, a: 180 });
+    // Debug beacon floating above the player so it's always visible —
+    // helps confirm position even if the skinned mesh doesn't render.
+    drawSphere(vec3(pp.x, pp.y + 2.4, pp.z), 0.15, { r: 255, g: 120, b: 120, a: 220 });
     const moving = input.moveX !== 0 || input.moveZ !== 0;
     const camYaw = CAM[0];
     const fsin = Math.sin(camYaw);
