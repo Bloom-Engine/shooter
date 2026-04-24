@@ -12,7 +12,7 @@ import {
   createMesh, createMeshExplicit, compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
-  setProfilerEnabled, getProfilerOverlay,
+  setProfilerEnabled, getProfilerOverlay, splatImpulse,
 } from 'bloom';
 import { setVignette, setFilmGrain } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
@@ -339,6 +339,20 @@ const WATER_WGSL =
   '  let shore_t    = smoothstep(0.0, 0.15, column);\n' +
   '  let rim        = (1.0 - shore_t) * 0.25;\n' +
   '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), rim);\n' +
+  '\n' +
+  '  // Phase 7 — sample the world-space impulse field for ripples.\n' +
+  '  // The engine maps the 128 m centred square to [0,1] UVs; we use\n' +
+  '  // textureLoad because the field is R32Float (non-filterable).\n' +
+  '  let imp_uv   = clamp(in.world_pos.xz / 128.0 + vec2<f32>(0.5), vec2<f32>(0.0), vec2<f32>(0.999));\n' +
+  '  let imp_dims = textureDimensions(impulse_tex);\n' +
+  '  let imp_ix   = vec2<i32>(imp_uv * vec2<f32>(imp_dims));\n' +
+  '  let imp      = textureLoad(impulse_tex, imp_ix, 0).r;\n' +
+  '  // Splat contributions — whiten where impulses hit, multiplied\n' +
+  '  // against the existing shore rim so water already near the shore\n' +
+  '  // gets an extra-bright footprint but deep water rings stay\n' +
+  '  // subtle.\n' +
+  '  let imp_mix = clamp(imp * 1.2, 0.0, 1.0);\n' +
+  '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), imp_mix * 0.85);\n' +
   '  let alpha = mix(0.45, 0.92, shore_t);\n' +
   '  return vec4<f32>(water, alpha);\n' +
   '}\n';
@@ -804,6 +818,22 @@ while (!windowShouldClose()) {
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump);
   }
   stepPhysics(physics, dt);
+
+  // Phase 7 — footstep / water-entry splats. When the player is
+  // inside the river band, submit an impulse at their XZ every
+  // frame they're moving. The compute pass decays these over ~2s
+  // so the water shader can render persistent ripples.
+  {
+    const pp = playerPosition();
+    const inRiver = pp.z > WATER_CZ - WATER_D * 0.5 &&
+                    pp.z < WATER_CZ + WATER_D * 0.5 &&
+                    Math.abs(pp.x) < WATER_W * 0.5;
+    const moving = Math.abs(input.moveX) + Math.abs(input.moveZ) > 0.1;
+    if (inRiver && moving) {
+      splatImpulse(pp.x, pp.z, 1.2, 0.6);
+    }
+  }
+
   // Smooth orbit camera follow after physics step.
   // Inline orbit-camera follow.
   {
@@ -918,7 +948,8 @@ while (!windowShouldClose()) {
       setBodyPosition(enBody[0], vec3(-6, KIND_Y_OFF[0], -6), true);
     }
     if (testFrame === 30)  { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t0_5s.png'); }
-    if (testFrame === 180) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t3_0s.png'); break; }
+    if (testFrame === 180) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t3_0s.png'); }
+    if (testFrame === 185) { break; }
   }
 
   // ---- Fire (M4 / M7) ---------------------------------------------------
