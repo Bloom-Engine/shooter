@@ -77,14 +77,20 @@ for (let i = 0; i < W.COLLIDER_COUNT; i++) {
   });
 }
 
-// Drawable box meshes — currently rendered as drawCube primitives since the
-// world references _gizmo_box.glb as a placeholder. Each also gets a static
-// collider if userData.collider === 'box' (bucketed into MESH_COLLIDER[i]=1).
-// Category tints: building = sandy stone, terrain = grassy green, prop =
-// wooden brown, default = neutral grey.
+// Drawable meshes: each static_mesh entity references a modelRef via
+// MESH_MODEL_IDX → UNIQUE_MODELS. Real GLBs are loaded once here and
+// drawn via drawModel each frame. Box-placeholder entries (modelRef
+// `_gizmo_box.glb`) get a coloured drawCube fallback at draw time,
+// tinted by category (0 = generic, 1 = building stone, 2 = terrain
+// green, 3 = prop brown).
 const MESH_TINT_R = [150, 196, 120, 130];
 const MESH_TINT_G = [148, 168,  90,  95];
 const MESH_TINT_B = [140, 130,  70,  80];
+const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
+for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
+  meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
+}
+// Per-mesh collider from userData.collider === 'box'.
 for (let i = 0; i < W.MESH_COUNT; i++) {
   if (W.MESH_COLLIDER[i] === 1) {
     const shape = boxShape(vec3(W.MESH_COLLIDER_HX[i], W.MESH_COLLIDER_HY[i], W.MESH_COLLIDER_HZ[i]));
@@ -98,18 +104,6 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
 }
 const worldStatus = W.WORLD_NAME + ' (' + W.COLLIDER_COUNT + '+' + W.MESH_COUNT + ' bodies)';
 
-// Tree colliders — small box at the trunk so the player can't walk through.
-for (let i = 0; i < W.TREE_COUNT; i++) {
-  const r = W.TREE_RADIUS[i] * 0.25;
-  const h = W.TREE_HEIGHT[i] * 0.5;
-  const shape = boxShape(vec3(r, h, r));
-  createBody(physics, shape, {
-    motionType: MotionType.STATIC,
-    position: vec3(W.TREE_X[i], W.TREE_Y[i] + h, W.TREE_Z[i]),
-    objectLayer: Layer.NON_MOVING,
-    friction: 0.9,
-  });
-}
 
 createPlayer(physics, spawnPos);
 
@@ -702,7 +696,9 @@ while (!windowShouldClose()) {
     if (sparkT[i] > 0) sparkT[i] = sparkT[i] - dt;
   }
 
-  clearBackground({ r: 22, g: 25, b: 35, a: 255 });
+  clearBackground({ r: Math.floor(W.ENV_SKY_R * 255),
+                    g: Math.floor(W.ENV_SKY_G * 255),
+                    b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
   setAmbientLight({ r: 120, g: 130, b: 160, a: 255 }, 0.35);
   setDirectionalLight(vec3(-0.3, -0.9, -0.2), { r: 255, g: 245, b: 220, a: 255 }, 0.9);
 
@@ -728,28 +724,29 @@ while (!windowShouldClose()) {
     addPointLight(mx, my, mz, 6, 1.0, 0.85, 0.5, 4.0 * k);
   }
 
-  // ---- World: floor + static mesh boxes + trees + water + lights ----------
-  // All geometry is driven by src/generated/world.ts (built from the JSON).
-  // Ground plate — one big cube sized to the COLLIDER[0] floor extents.
+  // ---- World: static meshes + water + lights (all from generated/world.ts) -
+  // Ground plate — big drawCube beneath the terrain mesh so the full
+  // 80×80 collider floor reads as a solid plane even where the hills
+  // haven't lifted anything off it. Matches COLLIDER[0] (the plaza floor).
   drawCube(vec3(W.COLLIDER_X[0], W.COLLIDER_Y[0], W.COLLIDER_Z[0]),
            W.COLLIDER_HALF_X[0] * 2, W.COLLIDER_HALF_Y[0] * 2, W.COLLIDER_HALF_Z[0] * 2,
-           { r: 90, g: 95, b: 85, a: 255 });
-  // Static meshes — coloured boxes by category.
+           { r: 85, g: 95, b: 75, a: 255 });
+  // Static meshes — either drawModel for real GLBs, or coloured drawCube
+  // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
+  // tint (0 generic / 1 building / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
-    const c = W.MESH_CATEGORY[i];
-    const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
-    drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
-             W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
-             col);
-  }
-  // Trees — cube trunk + sphere canopy.
-  for (let i = 0; i < W.TREE_COUNT; i++) {
-    const tx = W.TREE_X[i], ty = W.TREE_Y[i], tz = W.TREE_Z[i];
-    const h = W.TREE_HEIGHT[i], rad = W.TREE_RADIUS[i];
-    drawCube(vec3(tx, ty + h * 0.4, tz), rad * 0.4, h * 0.8, rad * 0.4,
-             { r: 95, g: 60, b: 35, a: 255 });
-    drawSphere(vec3(tx, ty + h, tz), rad,
-             { r: 60, g: 120, b: 55, a: 255 });
+    const mi = W.MESH_MODEL_IDX[i];
+    if (W.MODEL_IS_BOX[mi] === 1) {
+      const c = W.MESH_CATEGORY[i];
+      const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
+      drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+               W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
+               col);
+    } else {
+      drawModel(meshModelHandles[mi],
+                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+                W.MESH_SCALE[i], WHITE);
+    }
   }
   // Water — flat quad at surfaceHeight with a slight vertical bob animation.
   {

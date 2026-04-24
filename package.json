@@ -4,7 +4,9 @@
   "main": "src/main.ts",
   "scripts": {
     "convert": "bun tools/convert-assets.ts",
+    "props": "bun tools/build-props.ts && bun tools/build-terrain.ts",
     "world": "bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts",
+    "assets": "bun tools/build-props.ts && bun tools/build-terrain.ts && bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts",
     "build": "bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts && perry compile src/main.ts -o main",
     "dev": "bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts && perry compile src/main.ts -o main && ./main"
   },

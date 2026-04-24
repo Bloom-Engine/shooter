@@ -171,20 +171,42 @@ function main() {
 
   // --- static_mesh — drawable, optional box collider ------------------------
   //
-  // Until we wire proper model loading here, static_mesh entities render as
-  // coloured boxes sized by userData.halfExtents. The paint category picks
-  // the tint: 0 = default grey, 1 = building (tan), 2 = terrain (green),
-  // 3 = prop (brown). Derived from the entity's first tag so the editor
-  // doesn't need to duplicate color data.
+  // Each static_mesh entity's modelRef is resolved to an index into a flat
+  // UNIQUE_MODELS[] list. The runtime loadModel's each unique ref once at
+  // startup and drawModel's by index per frame. The special placeholder
+  // path "_gizmo_box.glb" signals "no real model, render as a coloured box"
+  // — the runtime checks this with a sentinel MODEL_IS_BOX[] array so it
+  // doesn't have to string-compare every frame.
+  //
+  // Paint category is still available on box-placeholder meshes: 0 = grey,
+  // 1 = building (tan stone), 2 = terrain (green), 3 = prop (brown),
+  // derived from the entity's first tag.
   const MESH_CATEGORY_MAP: Record<string, number> = { building: 1, terrain: 2, prop: 3 };
   const meshes = buckets['static_mesh'] || [];
-  out.push('// Drawable meshes — optional box collider via userData.collider = "box".');
+
+  const uniqueModels: string[] = [];
+  for (const e of meshes) {
+    const m = e.modelRef || '';
+    if (uniqueModels.indexOf(m) < 0) uniqueModels.push(m);
+  }
+  const isBoxModel = (path: string) => path === '' || path.endsWith('_gizmo_box.glb');
+
+  out.push('// Unique model paths referenced by static_mesh entities. The runtime');
+  out.push('// calls loadModel() for each at startup, except for paths flagged as');
+  out.push('// box placeholders (MODEL_IS_BOX[i] === 1), which render as drawCube.');
+  out.push(`export const UNIQUE_MODEL_COUNT = ${uniqueModels.length};`);
+  out.push(`export const UNIQUE_MODELS      = ${fmtStrList(uniqueModels)};`);
+  out.push(`export const MODEL_IS_BOX       = ${fmtNumList(uniqueModels.map(m => isBoxModel(m) ? 1 : 0))};`);
+  out.push('');
+
+  out.push('// Static-mesh instances — one row per placed entity.');
   out.push('// MESH_CATEGORY: 0=generic, 1=building, 2=terrain, 3=prop.');
   out.push(`export const MESH_COUNT = ${meshes.length};`);
-  out.push(`export const MESH_MODEL       = ${fmtStrList(meshes.map(e => e.modelRef || ''))};`);
+  out.push(`export const MESH_MODEL_IDX   = ${fmtNumList(meshes.map(e => uniqueModels.indexOf(e.modelRef || '')))};`);
   out.push(`export const MESH_X           = ${fmtNumList(meshes.map(e => e.transform.position[0]))};`);
   out.push(`export const MESH_Y           = ${fmtNumList(meshes.map(e => e.transform.position[1]))};`);
   out.push(`export const MESH_Z           = ${fmtNumList(meshes.map(e => e.transform.position[2]))};`);
+  out.push(`export const MESH_ROT_Y       = ${fmtNumList(meshes.map(e => e.transform.rotation[1]))};`);
   out.push(`export const MESH_SCALE       = ${fmtNumList(meshes.map(e => e.transform.scale[0]))};`);
   out.push(`export const MESH_COLLIDER    = ${fmtNumList(meshes.map(e => e.userData.collider === 'box' ? 1 : 0))};`);
   out.push(`export const MESH_COLLIDER_HX = ${fmtNumList(meshes.map(e => parseVec3Str(e.userData.halfExtents, [0.5, 0.5, 0.5])[0]))};`);
