@@ -16,13 +16,14 @@ import { setVignette, setFilmGrain } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
-  boxShape, createBody, MotionType, Layer,
+  boxShape, heightfieldShape, createBody, MotionType, Layer,
   setLayerCollides, raycast, ALL_LAYERS_MASK, BodyHandle,
   setBodyPosition,
 } from 'bloom/physics';
 import { initInput, readInput } from './input';
 import { createPlayer, updatePlayerController, playerPosition } from './player';
 import * as W from './generated/world';
+import * as T from './generated/terrain';
 
 initWindow(1024, 640, 'Bloom Shooter');
 setTargetFPS(60);
@@ -74,6 +75,23 @@ for (let i = 0; i < W.COLLIDER_COUNT; i++) {
     position: vec3(W.COLLIDER_X[i], W.COLLIDER_Y[i], W.COLLIDER_Z[i]),
     objectLayer: Layer.NON_MOVING,
     friction: 0.9,
+  });
+}
+
+// Heightfield terrain collider — matches assets/models/terrain_hills.glb.
+// Samples in TERRAIN_HEIGHTS are row-major z*width+x; engine's heightfield
+// shape takes an origin + scale (cellSize in X/Z, Y=1 since the heights
+// are already in world units) and builds a Jolt HeightFieldShape.
+{
+  const shape = heightfieldShape(
+    T.TERRAIN_HEIGHTS, T.TERRAIN_SAMPLE_COUNT,
+    vec3(T.TERRAIN_ORIGIN_X, T.TERRAIN_ORIGIN_Y, T.TERRAIN_ORIGIN_Z),
+    vec3(T.TERRAIN_CELL_SIZE, 1, T.TERRAIN_CELL_SIZE));
+  createBody(physics, shape, {
+    motionType: MotionType.STATIC,
+    position: vec3(0, 0, 0),
+    objectLayer: Layer.NON_MOVING,
+    friction: 0.95,
   });
 }
 

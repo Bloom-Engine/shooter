@@ -12,15 +12,23 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const OUT = 'assets/models/terrain_hills.glb';
+const OUT_GLB = 'assets/models/terrain_hills.glb';
+const OUT_TS  = 'src/generated/terrain.ts';
 
 // Grid parameters. 96 × 96 cells = 9,216 verts, 18,050 tris — well within
-// one draw call. At cellSize 0.83 m the mesh spans ~80 × 80 m.
+// one draw call. At cellSize 0.83 m the mesh spans ~80 × 80 m. The
+// physics collider samples the same height function at a coarser grid
+// (PHYS_WIDTH² samples) and is written to a TS module so the runtime
+// can build a Jolt heightfield without reading the GLB — see
+// src/generated/terrain.ts.
 const WIDTH = 96;
 const DEPTH = 96;
 const CELL = 80 / (WIDTH - 1);
 const ORIGIN_X = -40;
 const ORIGIN_Z = -40;
+
+const PHYS_WIDTH = 64;                           // 64 × 64 = 4096 samples
+const PHYS_CELL  = 80 / (PHYS_WIDTH - 1);        // ≈ 1.27 m per cell
 
 // Two axis-aligned "hill" centres plus a long ridge. The plaza itself (a
 // ring around the origin with radius 15 m) stays flat so gameplay colliders
@@ -183,20 +191,55 @@ odv.setUint32(binOff,     bin.length,  true);
 odv.setUint32(binOff + 4, 0x004E4942,  true);
 out.set(bin, binOff + 8);
 
-mkdirSync(dirname(OUT), { recursive: true });
-writeFileSync(OUT, out);
-console.log('wrote', OUT, '(' + out.length, 'bytes,', vertCount, 'verts,', triCount, 'tris)');
+mkdirSync(dirname(OUT_GLB), { recursive: true });
+writeFileSync(OUT_GLB, out);
+console.log('wrote', OUT_GLB, '(' + out.length, 'bytes,', vertCount, 'verts,', triCount, 'tris)');
 console.log('  y range:', minY.toFixed(2), '...', maxY.toFixed(2));
 
-// Also export the collider samples so the world file can put box colliders
-// over the tallest hills. Sampling peaks on the heightmap itself would be
-// cleaner — for now we emit the hard-coded centres from heightAt().
-const colliders = [
-  { x:  26, z: -24, r: 10, h: 3.2 },
-  { x: -24, z:  26, r:  9, h: 2.6 },
-  { x:  30, z:  28, r:  7, h: 1.8 },
-];
-console.log('  suggested box colliders:');
-for (const c of colliders) {
-  console.log(`    center=(${c.x}, ${(c.h / 2).toFixed(2)}, ${c.z}) halfExtents=(${c.r.toFixed(1)}, ${(c.h / 2).toFixed(2)}, ${c.r.toFixed(1)})`);
+// --- Physics heightfield -----------------------------------------------------
+// Sample heightAt() on a coarser grid and emit as a literal-init TS array.
+// Perry's JSON.parse bug doesn't apply to module-load-time literal arrays,
+// so this is the safe way to ship 4 k samples to the runtime. The engine's
+// heightfieldShape() consumes them directly (see engine/src/physics/index.ts).
+const physSamples = new Array<number>(PHYS_WIDTH * PHYS_WIDTH);
+for (let z = 0; z < PHYS_WIDTH; z++) {
+  for (let x = 0; x < PHYS_WIDTH; x++) {
+    const wx = ORIGIN_X + x * PHYS_CELL;
+    const wz = ORIGIN_Z + z * PHYS_CELL;
+    physSamples[z * PHYS_WIDTH + x] = heightAt(wx, wz);
+  }
 }
+
+const tsLines: string[] = [];
+tsLines.push('// GENERATED — do not edit by hand. Regenerate with: bun tools/build-terrain.ts');
+tsLines.push('//');
+tsLines.push(`// Heightfield samples for the Jolt heightfieldShape collider in main.ts.`);
+tsLines.push(`// Grid is ${PHYS_WIDTH} × ${PHYS_WIDTH}, row-major (z * width + x). Cell size`);
+tsLines.push(`// ${PHYS_CELL.toFixed(4)} m. Origin (world position of sample [0, 0]) is`);
+tsLines.push(`// (${ORIGIN_X}, 0, ${ORIGIN_Z}).`);
+tsLines.push('');
+tsLines.push(`export const TERRAIN_SAMPLE_COUNT = ${PHYS_WIDTH};`);
+tsLines.push(`export const TERRAIN_CELL_SIZE   = ${PHYS_CELL};`);
+tsLines.push(`export const TERRAIN_ORIGIN_X    = ${ORIGIN_X};`);
+tsLines.push(`export const TERRAIN_ORIGIN_Y    = 0;`);
+tsLines.push(`export const TERRAIN_ORIGIN_Z    = ${ORIGIN_Z};`);
+tsLines.push('');
+tsLines.push('// Row-major height samples. One number per cell, ~4 KB total.');
+tsLines.push('export const TERRAIN_HEIGHTS: number[] = [');
+// Emit 16 samples per line for readability + to keep lines shorter than most
+// compile-time literal-size limits.
+for (let i = 0; i < physSamples.length; i += 16) {
+  const chunk = physSamples.slice(i, i + 16).map(n => n.toFixed(4)).join(', ');
+  tsLines.push('  ' + chunk + (i + 16 < physSamples.length ? ',' : ''));
+}
+tsLines.push('];');
+
+mkdirSync(dirname(OUT_TS), { recursive: true });
+writeFileSync(OUT_TS, tsLines.join('\n') + '\n');
+console.log('wrote', OUT_TS, `(${physSamples.length} samples)`);
+let pmin = physSamples[0], pmax = physSamples[0];
+for (let i = 1; i < physSamples.length; i++) {
+  if (physSamples[i] < pmin) pmin = physSamples[i];
+  if (physSamples[i] > pmax) pmax = physSamples[i];
+}
+console.log(`  physics y range: ${pmin.toFixed(2)} ... ${pmax.toFixed(2)}`);

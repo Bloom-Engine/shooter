@@ -33,13 +33,13 @@ export const SPAWN_Z = 20;
 export const SPAWN_YAW = 0;
 
 // Static box colliders — walls, floors, invisible terrain bounds
-export const COLLIDER_COUNT = 8;
-export const COLLIDER_X      = [0.0, 0.0, 0.0, 40.0, -40.0, 26.0, -24.0, 30.0];
-export const COLLIDER_Y      = [-0.5, 3.0, 3.0, 3.0, 3.0, 1.6, 1.3, 0.9];
-export const COLLIDER_Z      = [0.0, -40.0, 40.0, 0.0, 0.0, -24.0, 26.0, 28.0];
-export const COLLIDER_HALF_X = [40.0, 40.0, 40.0, 0.5, 0.5, 10.0, 9.0, 7.0];
-export const COLLIDER_HALF_Y = [0.5, 4.0, 4.0, 4.0, 4.0, 1.6, 1.3, 0.9];
-export const COLLIDER_HALF_Z = [40.0, 0.5, 0.5, 40.0, 40.0, 10.0, 9.0, 7.0];
+export const COLLIDER_COUNT = 5;
+export const COLLIDER_X      = [0.0, 0.0, 0.0, 40.0, -40.0];
+export const COLLIDER_Y      = [-0.5, 3.0, 3.0, 3.0, 3.0];
+export const COLLIDER_Z      = [0.0, -40.0, 40.0, 0.0, 0.0];
+export const COLLIDER_HALF_X = [40.0, 40.0, 40.0, 0.5, 0.5];
+export const COLLIDER_HALF_Y = [0.5, 4.0, 4.0, 4.0, 4.0];
+export const COLLIDER_HALF_Z = [40.0, 0.5, 0.5, 40.0, 40.0];
 
 // Unique model paths referenced by static_mesh entities. The runtime
 // calls loadModel() for each at startup, except for paths flagged as
