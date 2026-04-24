@@ -9,6 +9,7 @@ import {
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   loadModel, drawModel, loadModelAnimation, updateModelAnimation,
+  createMesh, compileMaterial, drawMeshWithMaterial,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
 } from 'bloom';
@@ -158,6 +159,78 @@ const PLAYER_ANIM_ATTACK = 7;
 const PLAYER_SCALE = 1.0;
 const PLAYER_MODEL_Y_OFFSET = -0.95;    // character capsule center -> feet
 let playerAnimT = 0;
+
+// ---- Phase 1c smoke: material shader + cube mesh -------------------------
+// Compiles a tiny ABI-compliant shader through the new material
+// pipeline and draws a rotating colour-pulsed cube in front of the
+// player spawn. First visible consumer of the material-system path;
+// only exists to verify end-to-end compile → submit → dispatch works.
+
+const MAT_TEST_WGSL = '#include "material_abi.wgsl"\n' +
+  'struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) n: vec3<f32>, @location(1) c: vec3<f32> };\n' +
+  '@vertex fn vs_main(in: VertexInput) -> VsOut {\n' +
+  '  var o: VsOut;\n' +
+  '  o.pos = draw.mvp * vec4<f32>(in.position, 1.0);\n' +
+  '  o.n = normalize((draw.model * vec4<f32>(in.normal, 0.0)).xyz);\n' +
+  '  let p = 0.5 + 0.5 * sin(frame.time * 1.5);\n' +
+  '  o.c = vec3<f32>(p, 0.4, 1.0 - p) * draw.model_tint.rgb;\n' +
+  '  return o;\n' +
+  '}\n' +
+  '@fragment fn fs_main(in: VsOut) -> OpaqueOut {\n' +
+  '  var out: OpaqueOut;\n' +
+  '  let ndl = max(dot(normalize(in.n), normalize(vec3<f32>(0.3, 0.7, 0.4))), 0.0);\n' +
+  '  let lit = in.c * (0.3 + 0.7 * ndl);\n' +
+  '  out.hdr = vec4<f32>(lit, 1.0);\n' +
+  '  out.material = vec2<f32>(0.0, 0.9);\n' +
+  '  out.velocity = vec2<f32>(0.0, 0.0);\n' +
+  '  out.albedo = vec4<f32>(in.c, 1.0);\n' +
+  '  return out;\n' +
+  '}\n';
+const matTest = compileMaterial(MAT_TEST_WGSL);
+// Minimal cube: 24 verts (one per face-corner so UVs / normals split
+// cleanly) × 12 floats (pos, nrm, col, uv) = 288 floats. 6 faces × 2
+// tris × 3 idx = 36 indices.
+const MAT_TEST_VERTS: number[] = [
+  // +X face (nrm = +1, 0, 0)
+   0.5, -0.5, -0.5,  1,0,0,  1,1,1,1,  0,0,
+   0.5, -0.5,  0.5,  1,0,0,  1,1,1,1,  1,0,
+   0.5,  0.5,  0.5,  1,0,0,  1,1,1,1,  1,1,
+   0.5,  0.5, -0.5,  1,0,0,  1,1,1,1,  0,1,
+  // -X
+  -0.5, -0.5,  0.5, -1,0,0,  1,1,1,1,  0,0,
+  -0.5, -0.5, -0.5, -1,0,0,  1,1,1,1,  1,0,
+  -0.5,  0.5, -0.5, -1,0,0,  1,1,1,1,  1,1,
+  -0.5,  0.5,  0.5, -1,0,0,  1,1,1,1,  0,1,
+  // +Y (top)
+  -0.5,  0.5,  0.5,  0,1,0,  1,1,1,1,  0,0,
+   0.5,  0.5,  0.5,  0,1,0,  1,1,1,1,  1,0,
+   0.5,  0.5, -0.5,  0,1,0,  1,1,1,1,  1,1,
+  -0.5,  0.5, -0.5,  0,1,0,  1,1,1,1,  0,1,
+  // -Y
+  -0.5, -0.5, -0.5,  0,-1,0, 1,1,1,1,  0,0,
+   0.5, -0.5, -0.5,  0,-1,0, 1,1,1,1,  1,0,
+   0.5, -0.5,  0.5,  0,-1,0, 1,1,1,1,  1,1,
+  -0.5, -0.5,  0.5,  0,-1,0, 1,1,1,1,  0,1,
+  // +Z
+   0.5, -0.5,  0.5,  0,0,1,  1,1,1,1,  0,0,
+  -0.5, -0.5,  0.5,  0,0,1,  1,1,1,1,  1,0,
+  -0.5,  0.5,  0.5,  0,0,1,  1,1,1,1,  1,1,
+   0.5,  0.5,  0.5,  0,0,1,  1,1,1,1,  0,1,
+  // -Z
+  -0.5, -0.5, -0.5,  0,0,-1, 1,1,1,1,  0,0,
+   0.5, -0.5, -0.5,  0,0,-1, 1,1,1,1,  1,0,
+   0.5,  0.5, -0.5,  0,0,-1, 1,1,1,1,  1,1,
+  -0.5,  0.5, -0.5,  0,0,-1, 1,1,1,1,  0,1,
+];
+const MAT_TEST_INDS: number[] = [
+   0, 1, 2,  0, 2, 3,
+   4, 5, 6,  4, 6, 7,
+   8, 9,10,  8,10,11,
+  12,13,14, 12,14,15,
+  16,17,18, 16,18,19,
+  20,21,22, 20,22,23,
+];
+const matTestMesh = createMesh(MAT_TEST_VERTS, MAT_TEST_INDS);
 
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
@@ -749,6 +822,17 @@ while (!windowShouldClose()) {
   drawCube(vec3(W.COLLIDER_X[0], W.COLLIDER_Y[0], W.COLLIDER_Z[0]),
            W.COLLIDER_HALF_X[0] * 2, W.COLLIDER_HALF_Y[0] * 2, W.COLLIDER_HALF_Z[0] * 2,
            { r: 85, g: 95, b: 75, a: 255 });
+
+  // Phase 1c smoke test — colour-pulsed cube in front of spawn,
+  // rendered via the new material pipeline. Proves the compile →
+  // submit → dispatch path works on a real frame.
+  if (matTest > 0) {
+    drawMeshWithMaterial(matTest, matTestMesh,
+      vec3(0, 3, 15), 3.0, { r: 255, g: 255, b: 255, a: 255 });
+  } else {
+    drawText('material compile failed (handle=0)', 20, 100, 20,
+             { r: 255, g: 80, b: 80, a: 255 });
+  }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
   // tint (0 generic / 1 building / 2 terrain / 3 prop).
