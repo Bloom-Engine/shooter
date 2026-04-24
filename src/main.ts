@@ -9,7 +9,7 @@ import {
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   loadModel, drawModel, loadModelAnimation, updateModelAnimation,
-  createMesh, compileMaterial, drawMeshWithMaterial,
+  createMesh, createMeshExplicit, compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
 } from 'bloom';
@@ -231,6 +231,147 @@ const MAT_TEST_INDS: number[] = [
   20,21,22, 20,22,23,
 ];
 const matTestMesh = createMesh(MAT_TEST_VERTS, MAT_TEST_INDS);
+
+// ---- Phase 9 water — real shader-based river ----------------------------
+// Replaces the ~1800-cube tessellated river from earlier with a proper
+// WGSL material: three Gerstner waves for vertex displacement, per-vertex
+// normal from the wave derivatives, Fresnel-blended refraction (sampling
+// the SceneColor snapshot) and sky reflection (from the engine's env
+// cubemap), plus foam on high-slope crests. Single drawMeshWithMaterial
+// call; Phase 4b handles the snapshot + translucent pass automatically.
+
+const WATER_WGSL =
+  '#include "material_abi.wgsl"\n' +
+  '#include "common/pbr.wgsl"\n' +
+  '\n' +
+  'struct VsOut {\n' +
+  '  @builtin(position) clip_pos: vec4<f32>,\n' +
+  '  @location(0) world_pos: vec3<f32>,\n' +
+  '  @location(1) world_normal: vec3<f32>,\n' +
+  '  @location(2) screen_uv: vec2<f32>,\n' +
+  '};\n' +
+  '\n' +
+  'fn gerstner(\n' +
+  '  pos: vec2<f32>, dir: vec2<f32>, wavelength: f32,\n' +
+  '  steepness: f32, time: f32,\n' +
+  '  tangent_accum:  ptr<function, vec3<f32>>,\n' +
+  '  binormal_accum: ptr<function, vec3<f32>>,\n' +
+  ') -> vec3<f32> {\n' +
+  '  let k = 6.28318 / wavelength;\n' +
+  '  let c = sqrt(9.81 / k);\n' +
+  '  let f = k * (dot(dir, pos) - c * time);\n' +
+  '  let a = steepness / k;\n' +
+  '  let cos_f = cos(f);\n' +
+  '  let sin_f = sin(f);\n' +
+  '  (*tangent_accum) = (*tangent_accum) + vec3<f32>(\n' +
+  '    -dir.x * dir.x * steepness * sin_f,\n' +
+  '     dir.x * steepness * cos_f,\n' +
+  '    -dir.x * dir.y * steepness * sin_f,\n' +
+  '  );\n' +
+  '  (*binormal_accum) = (*binormal_accum) + vec3<f32>(\n' +
+  '    -dir.x * dir.y * steepness * sin_f,\n' +
+  '     dir.y * steepness * cos_f,\n' +
+  '    -dir.y * dir.y * steepness * sin_f,\n' +
+  '  );\n' +
+  '  return vec3<f32>(dir.x * a * cos_f, a * sin_f, dir.y * a * cos_f);\n' +
+  '}\n' +
+  '\n' +
+  '@vertex\n' +
+  'fn vs_main(in: VertexInput) -> VsOut {\n' +
+  '  var out: VsOut;\n' +
+  '  var local = in.position;\n' +
+  '  let world_xz = (draw.model * vec4<f32>(local, 1.0)).xz;\n' +
+  '  let t = frame.time;\n' +
+  '  var tangent  = vec3<f32>(1.0, 0.0, 0.0);\n' +
+  '  var binormal = vec3<f32>(0.0, 0.0, 1.0);\n' +
+  '  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0,  0.3)), 5.0, 0.25, t, &tangent, &binormal);\n' +
+  '  local = local + gerstner(world_xz, normalize(vec2<f32>( 0.4,  1.0)), 3.5, 0.20, t, &tangent, &binormal);\n' +
+  '  local = local + gerstner(world_xz, normalize(vec2<f32>(-0.5,  0.8)), 2.2, 0.15, t, &tangent, &binormal);\n' +
+  '  let normal = normalize(cross(binormal, tangent));\n' +
+  '  let world  = draw.model * vec4<f32>(local, 1.0);\n' +
+  '  out.world_pos    = world.xyz;\n' +
+  '  out.world_normal = normalize((draw.model * vec4<f32>(normal, 0.0)).xyz);\n' +
+  '  out.clip_pos     = view.view_proj * world;\n' +
+  '  out.screen_uv    = out.clip_pos.xy / out.clip_pos.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);\n' +
+  '  return out;\n' +
+  '}\n' +
+  '\n' +
+  '@fragment\n' +
+  'fn fs_main(in: VsOut) -> @location(0) vec4<f32> {\n' +
+  '  let n = normalize(in.world_normal);\n' +
+  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
+  '\n' +
+  '  // Refraction — perturb screen UV by wave normal xz.\n' +
+  '  let refract_uv = clamp(in.screen_uv + n.xz * 0.04, vec2<f32>(0.001), vec2<f32>(0.999));\n' +
+  '  let refracted  = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;\n' +
+  '\n' +
+  '  // Sky reflection from the engine env — roughness-biased LOD fakes a softer highlight.\n' +
+  '  let r   = reflect(-v, n);\n' +
+  '  let sky = sample_env(r, 2.0);\n' +
+  '\n' +
+  '  // Schlick Fresnel.\n' +
+  '  let cos_theta = max(dot(n, v), 0.0);\n' +
+  '  let fresnel   = 0.02 + (1.0 - 0.02) * pow(1.0 - cos_theta, 5.0);\n' +
+  '\n' +
+  '  // Absorption — blue-green tint mixed with the refracted scene.\n' +
+  '  let tinted = mix(vec3<f32>(0.10, 0.30, 0.40), refracted, 0.55);\n' +
+  '  var water  = mix(tinted, sky, fresnel);\n' +
+  '\n' +
+  '  // Foam on wave crests (slope proxy — high when normal tilts off +Y).\n' +
+  '  let crestness = clamp(1.0 - n.y, 0.0, 1.0);\n' +
+  '  let foam      = smoothstep(0.08, 0.25, crestness);\n' +
+  '  water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * 0.6);\n' +
+  '\n' +
+  '  return vec4<f32>(water, 0.92);\n' +
+  '}\n';
+const matWater = compileRefractiveMaterial(WATER_WGSL);
+
+// ---- Water plane mesh — tessellated for Gerstner displacement ----------
+// One flat XZ plane covering the whole river footprint in arena_02.
+// Drawn at origin with scale 1, so the mesh's native dimensions are the
+// visible river size. Subdivide finely enough that the longest
+// Gerstner wave (~5 m wavelength) shows smooth wave peaks.
+const WATER_W = 80;   // metres along X — spans the arena's boundary walls
+const WATER_D = 5;    // metres along Z — river width
+const WATER_CX = 0;   // world X centre
+const WATER_CZ = 12;  // world Z centre (matches arena_02's river band)
+const WATER_Y  = 0.05;
+const WATER_COLS = 80;
+const WATER_ROWS = 10;
+const _wvc = (WATER_COLS + 1) * (WATER_ROWS + 1);
+const _wic = WATER_COLS * WATER_ROWS * 2 * 3;
+const WATER_VERTS = new Array<number>(_wvc * 12);
+const WATER_INDS  = new Array<number>(_wic);
+{
+  let vi = 0;
+  for (let r = 0; r <= WATER_ROWS; r++) {
+    for (let c = 0; c <= WATER_COLS; c++) {
+      const u = c / WATER_COLS;
+      const vv = r / WATER_ROWS;
+      // World-space positions — mesh has its own real extent.
+      WATER_VERTS[vi++] = -WATER_W * 0.5 + u * WATER_W;
+      WATER_VERTS[vi++] = 0;
+      WATER_VERTS[vi++] = -WATER_D * 0.5 + vv * WATER_D;
+      WATER_VERTS[vi++] = 0; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 0;
+      WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1;
+      WATER_VERTS[vi++] = u; WATER_VERTS[vi++] = vv;
+    }
+  }
+  let ii = 0;
+  const nc = WATER_COLS + 1;
+  for (let r = 0; r < WATER_ROWS; r++) {
+    for (let c = 0; c < WATER_COLS; c++) {
+      const tl = r * nc + c;
+      const tr = tl + 1;
+      const bl = tl + nc;
+      const br = bl + 1;
+      // CCW-from-above so default backface culling doesn't cull them.
+      WATER_INDS[ii++] = tl; WATER_INDS[ii++] = br; WATER_INDS[ii++] = bl;
+      WATER_INDS[ii++] = tl; WATER_INDS[ii++] = tr; WATER_INDS[ii++] = br;
+    }
+  }
+}
+const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
 
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
@@ -497,7 +638,7 @@ setFilmGrain(0.06);        // very subtle noise
 // When SELFTEST is true the game auto-fires a shot on frame 30, screenshots
 // the scene on frame 60, and exits on frame 90. Used while investigating the
 // engine's deferred-render green-screen bug — kept dormant for future debug.
-const SELFTEST = false;
+const SELFTEST = true;
 let testFrame = 0;
 
 
@@ -823,15 +964,14 @@ while (!windowShouldClose()) {
            W.COLLIDER_HALF_X[0] * 2, W.COLLIDER_HALF_Y[0] * 2, W.COLLIDER_HALF_Z[0] * 2,
            { r: 85, g: 95, b: 75, a: 255 });
 
-  // Phase 1c smoke test — colour-pulsed cube in front of spawn,
-  // rendered via the new material pipeline. Proves the compile →
-  // submit → dispatch path works on a real frame.
-  if (matTest > 0) {
-    drawMeshWithMaterial(matTest, matTestMesh,
-      vec3(0, 3, 15), 3.0, { r: 255, g: 255, b: 255, a: 255 });
-  } else {
-    drawText('material compile failed (handle=0)', 20, 100, 20,
-             { r: 255, g: 80, b: 80, a: 255 });
+  // Phase 9 — real river. Single drawMeshWithMaterial replaces the old
+  // 1800-cube tessellated grid. Shader handles Gerstner-wave
+  // displacement, per-vertex normal, Fresnel-blended refraction (from
+  // the scene-colour snapshot), sky reflection, and foam on crests.
+  if (matWater > 0) {
+    drawMeshWithMaterial(matWater, matWaterMesh,
+      vec3(WATER_CX, WATER_Y, WATER_CZ), 1.0,
+      { r: 255, g: 255, b: 255, a: 255 });
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
@@ -850,63 +990,8 @@ while (!windowShouldClose()) {
                 W.MESH_SCALE[i], WHITE);
     }
   }
-  // Water — tessellate each segment into a grid of small flat tiles
-  // whose Y sits on a travelling wave. Colour blends deep-indigo trough
-  // → pale cyan crest on a smooth height term. A second high-frequency
-  // ripple crosses the surface. Flow is encoded as a wave phase that
-  // advances in +X with time, so crests visibly travel downstream.
-  // Tiles overlap their neighbours (×1.08) so the grid edges disappear
-  // into the blend.
-  //
-  // ≈ 0.35 m tiles × 6 segments ≈ 1800 cubes/frame. Free at our
-  // draw-call budget; no engine shader work required.
-  {
-    const tNow = getTime();
-    const TILE = 0.35;
-    const baseA = 205;
-    const foamA = 200;
-    for (let i = 0; i < W.WATER_COUNT; i++) {
-      const cx = W.WATER_CX[i], cy = W.WATER_CY[i], cz = W.WATER_CZ[i];
-      const sx = W.WATER_SX[i], sz = W.WATER_SZ[i];
-      const amp = W.WATER_WAVE_AMP[i];
-      const spd = W.WATER_WAVE_SPD[i];
-      const nx = Math.max(1, Math.floor(sx / TILE));
-      const nz = Math.max(1, Math.floor(sz / TILE));
-      const stepX = sx / nx;
-      const stepZ = sz / nz;
-      // Downstream wave — long wavelength so adjacent tiles share close
-      // heights and the grid reads as a continuous wave, not a checker.
-      const kx = 0.45;
-      const kz = 0.75;
-      for (let ix = 0; ix < nx; ix++) {
-        for (let iz = 0; iz < nz; iz++) {
-          const x = cx - sx * 0.5 + stepX * (ix + 0.5);
-          const z = cz - sz * 0.5 + stepZ * (iz + 0.5);
-          const w1 = Math.sin(x * kx + tNow * spd * 1.6);
-          const w2 = Math.sin(z * kz + x * 0.18 + tNow * spd * 2.1);
-          const w3 = Math.sin(x * 2.1 + z * 1.7 + tNow * spd * 3.5) * 0.25;
-          const waveN = (w1 + w2 + w3 * 4) * 0.25; // -1..~1
-          const h01 = (waveN + 1) * 0.5;                 // 0..1
-          const dy = waveN * amp;
-          // Deep-water blue at troughs, pale cyan at crests.
-          const r = Math.floor(18 + h01 * 55);
-          const g = Math.floor(75 + h01 * 105);
-          const b = Math.floor(125 + h01 * 85);
-          drawCube(vec3(x, cy + dy, z),
-                   stepX * 1.08, 0.03, stepZ * 1.08,
-                   { r: r, g: g, b: b, a: baseA });
-          // Foam: smooth falloff from h01=0.75 upward; no hard threshold.
-          if (h01 > 0.75) {
-            const fh = (h01 - 0.75) / 0.25;
-            drawCube(vec3(x, cy + dy + 0.025, z),
-                     stepX * 0.85, 0.015, stepZ * 0.85,
-                     { r: 230, g: 240, b: 250,
-                       a: Math.floor(foamA * fh * fh) });
-          }
-        }
-      }
-    }
-  }
+  // (Water rendering moved up — Phase 9 drawMeshWithMaterial replaces
+  // the old cube-grid loop that used to live here.)
   // Point lights from the world file — static scene lights.
   for (let i = 0; i < W.LIGHT_COUNT; i++) {
     addPointLight(W.LIGHT_X[i], W.LIGHT_Y[i], W.LIGHT_Z[i],
