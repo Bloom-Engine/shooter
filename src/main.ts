@@ -373,6 +373,89 @@ const WATER_INDS  = new Array<number>(_wic);
 }
 const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
 
+// ---- Phase 10 glass — second material consumer, proves the ABI works -----
+// Second material using the Phase 4b refractive path (scene-colour snapshot
+// at group 4). No Gerstner waves; flat normal, heavier Fresnel so edges
+// reflect the sky and the centre of the pane stays clearest. Placed in the
+// south-wall door opening of the h1 house (gap at x=-22..-20, y=0..2.4,
+// z=-10) so the player can see the interior refracted through it on the
+// approach. Phase 10's acceptance criterion: no engine change between
+// Phase 9 and 10 — only TypeScript.
+
+const GLASS_WGSL =
+  '#include "material_abi.wgsl"\n' +
+  '#include "common/pbr.wgsl"\n' +
+  '\n' +
+  'struct GlassVsOut {\n' +
+  '  @builtin(position) clip_pos: vec4<f32>,\n' +
+  '  @location(0) world_pos:    vec3<f32>,\n' +
+  '  @location(1) world_normal: vec3<f32>,\n' +
+  '  @location(2) screen_uv:    vec2<f32>,\n' +
+  '};\n' +
+  '\n' +
+  '@vertex\n' +
+  'fn vs_main(in: VertexInput) -> GlassVsOut {\n' +
+  '  var out: GlassVsOut;\n' +
+  '  let world  = draw.model * vec4<f32>(in.position, 1.0);\n' +
+  '  out.world_pos    = world.xyz;\n' +
+  '  out.world_normal = normalize((draw.model * vec4<f32>(in.normal, 0.0)).xyz);\n' +
+  '  out.clip_pos     = view.view_proj * world;\n' +
+  '  out.screen_uv    = out.clip_pos.xy / out.clip_pos.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);\n' +
+  '  return out;\n' +
+  '}\n' +
+  '\n' +
+  '@fragment\n' +
+  'fn fs_main(in: GlassVsOut) -> @location(0) vec4<f32> {\n' +
+  '  let n = normalize(in.world_normal);\n' +
+  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
+  '\n' +
+  '  // Subtle refraction through the pane — glass bends light far less\n' +
+  '  // than water, so 0.008 gets the parallax look without distorting the\n' +
+  '  // scene into abstraction.\n' +
+  '  let refract_uv = clamp(in.screen_uv + n.xy * 0.008,\n' +
+  '                         vec2<f32>(0.001), vec2<f32>(0.999));\n' +
+  '  let refracted  = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;\n' +
+  '\n' +
+  '  // Sharp sky reflection on the front face — clear glass is nearly\n' +
+  '  // mirror-smooth at grazing angles.\n' +
+  '  let r   = reflect(-v, n);\n' +
+  '  let sky = sample_env(r, 0.5);\n' +
+  '\n' +
+  '  // Glass F0 is ~0.04. Schlick Fresnel — grazing angles turn\n' +
+  '  // near-mirror, face-on is ~4%.\n' +
+  '  let cos_theta = max(dot(n, v), 0.0);\n' +
+  '  let fresnel   = 0.04 + (1.0 - 0.04) * pow(1.0 - cos_theta, 5.0);\n' +
+  '\n' +
+  '  // Faint cyan tint in the transmitted colour — window glass is never\n' +
+  '  // perfectly neutral.\n' +
+  '  let tinted = refracted * vec3<f32>(0.92, 0.96, 0.98);\n' +
+  '  let glass  = mix(tinted, sky, fresnel);\n' +
+  '\n' +
+  '  // Alpha follows the Fresnel curve: face-on we see mostly through,\n' +
+  '  // glancing angles go opaque with reflection.\n' +
+  '  // Face-on: ~25% alpha (mostly transparent, slight tint). Grazing:\n' +
+  '  // near-opaque as the reflection dominates.\n' +
+  '  let alpha = 0.25 + 0.75 * fresnel;\n' +
+  '  return vec4<f32>(glass, alpha);\n' +
+  '}\n';
+const matGlass = compileRefractiveMaterial(GLASS_WGSL);
+
+// Glass pane mesh — a single 2m × 2.4m quad on the XY plane, normal +Z.
+// Subdivided 1×1 (two triangles) because glass has no per-vertex
+// displacement; the shader runs entirely in fs_main.
+const GLASS_W = 2.0;   // metres along X — door opening width
+const GLASS_H = 2.4;   // metres along Y — door opening height
+const GLASS_VERTS: number[] = [
+  // pos(3)         normal(3)   color(4)     uv(2)
+  -GLASS_W*0.5, 0,        0,  0,0,1,  1,1,1,1,  0,0,
+   GLASS_W*0.5, 0,        0,  0,0,1,  1,1,1,1,  1,0,
+   GLASS_W*0.5, GLASS_H,  0,  0,0,1,  1,1,1,1,  1,1,
+  -GLASS_W*0.5, GLASS_H,  0,  0,0,1,  1,1,1,1,  0,1,
+];
+// CCW from +Z so the pane is front-facing when viewed from outside.
+const GLASS_INDS: number[] = [0, 1, 2, 0, 2, 3];
+const matGlassMesh = createMesh(GLASS_VERTS, GLASS_INDS);
+
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
 // with the Unvanquished alien classes:
@@ -971,6 +1054,14 @@ while (!windowShouldClose()) {
   if (matWater > 0) {
     drawMeshWithMaterial(matWater, matWaterMesh,
       vec3(WATER_CX, WATER_Y, WATER_CZ), 1.0,
+      { r: 255, g: 255, b: 255, a: 255 });
+  }
+  // Phase 10 — glass pane in the south-wall door opening of house h1.
+  // Second consumer of the material ABI, proves the infrastructure
+  // works for a different shader without any engine change.
+  if (matGlass > 0) {
+    drawMeshWithMaterial(matGlass, matGlassMesh,
+      vec3(-21, 0, -10), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
