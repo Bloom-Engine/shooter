@@ -12,6 +12,7 @@ import {
   createMesh, createMeshExplicit, compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
+  setProfilerEnabled, getProfilerOverlay,
 } from 'bloom';
 import { setVignette, setFilmGrain } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
@@ -726,6 +727,7 @@ function spawnSpark(p: Vec3): void {
 
 let cursorLocked = true;
 let screenshotSeq = 0;
+let perfOverlayOn = false;
 disableCursor();
 
 // ---- M8 polish: post-FX ---------------------------------------------------
@@ -759,6 +761,11 @@ while (!windowShouldClose()) {
   if (isKeyPressed(Key.F12)) {
     screenshotSeq = screenshotSeq + 1;
     takeScreenshot('shooter_' + screenshotSeq + '.png');
+  }
+  // F3 toggles the Phase 8 profiler overlay.
+  if (isKeyPressed(Key.F3)) {
+    perfOverlayOn = !perfOverlayOn;
+    setProfilerEnabled(perfOverlayOn);
   }
 
   const input = readInput();
@@ -1338,6 +1345,28 @@ while (!windowShouldClose()) {
   drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
   drawText(diag1, 10, sh - 40, 13, { r: 200, g: 210, b: 230, a: 220 });
   drawText(diag2, 10, sh - 20, 13, { r: 180, g: 200, b: 220, a: 220 });
+
+  // Phase 8 — profiler overlay (F3). Lists every engine pass with
+  // CPU and GPU (µs) averaged over the profiler's 120-frame rolling
+  // window, sorted by CPU time descending.
+  if (perfOverlayOn) {
+    const rows = getProfilerOverlay();
+    const rowH = 16;
+    const ox = sw - 360;
+    const oy = 60;
+    drawRect(ox - 8, oy - 8, 360, rowH * (rows.length + 2) + 12,
+             { r: 0, g: 0, b: 0, a: 180 });
+    drawText('pass                    cpu µs    gpu µs',
+             ox, oy, 13, { r: 220, g: 220, b: 255, a: 255 });
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const gpuStr = r.gpuUs < 0 ? '     -' : r.gpuUs.toFixed(1);
+      const line = r.label.padEnd(22, ' ') + r.cpuUs.toFixed(1).padStart(9, ' ') +
+                   '  ' + gpuStr.padStart(8, ' ');
+      drawText(line, ox, oy + rowH * (i + 1), 13,
+               { r: 200, g: 210, b: 230, a: 230 });
+    }
+  }
 
   if (isKeyPressed(Key.ESCAPE)) break;
   endDrawing();
