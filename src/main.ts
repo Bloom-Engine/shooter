@@ -322,7 +322,24 @@ const WATER_WGSL =
   '  let foam      = smoothstep(0.08, 0.25, crestness);\n' +
   '  water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * 0.6);\n' +
   '\n' +
-  '  return vec4<f32>(water, 0.92);\n' +
+  '  // Phase 4c — shoreline fade. Sample the opaque-depth snapshot,\n' +
+  '  // linearise both that and the fragment depth to view-space Z\n' +
+  '  // (metres), and fade out as the water column thins.\n' +
+  '  let depth_dims = textureDimensions(scene_depth_tex);\n' +
+  '  let depth_ix   = vec2<i32>(in.screen_uv * vec2<f32>(depth_dims));\n' +
+  '  let scene_d    = textureLoad(scene_depth_tex, depth_ix, 0);\n' +
+  '  let ndc_xy     = vec2<f32>(in.screen_uv.x * 2.0 - 1.0, 1.0 - in.screen_uv.y * 2.0);\n' +
+  '  let floor_v    = view.inv_proj * vec4<f32>(ndc_xy, scene_d, 1.0);\n' +
+  '  let surf_v     = view.inv_proj * vec4<f32>(ndc_xy, in.clip_pos.z, 1.0);\n' +
+  '  let floor_z    = floor_v.z / floor_v.w;\n' +
+  '  let surf_z     = surf_v.z / surf_v.w;\n' +
+  '  // Both z are negative (wgpu looks down -Z); water column = surf - floor.\n' +
+  '  let column     = max(surf_z - floor_z, 0.0);\n' +
+  '  let shore_t    = smoothstep(0.0, 0.15, column);\n' +
+  '  let rim        = (1.0 - shore_t) * 0.25;\n' +
+  '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), rim);\n' +
+  '  let alpha = mix(0.45, 0.92, shore_t);\n' +
+  '  return vec4<f32>(water, alpha);\n' +
   '}\n';
 const matWater = compileRefractiveMaterial(WATER_WGSL);
 
