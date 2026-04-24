@@ -11,6 +11,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { encodePng, grassTexture } from './png';
 
 const OUT_GLB = 'assets/models/terrain_hills.glb';
 const OUT_TS  = 'src/generated/terrain.ts';
@@ -64,7 +65,11 @@ const triCount = (WIDTH - 1) * (DEPTH - 1) * 2;
 
 const positions = new Float32Array(vertCount * 3);
 const normals   = new Float32Array(vertCount * 3);
+const uvs       = new Float32Array(vertCount * 2);
 const indices   = new Uint32Array(triCount * 3);
+
+// UV tile rate — 1 texture repeat per UV_TILE world metres.
+const UV_TILE = 4;
 
 // First pass: positions only.
 const heights = new Float32Array(vertCount);
@@ -78,6 +83,8 @@ for (let z = 0; z < DEPTH; z++) {
     positions[i * 3]     = wx;
     positions[i * 3 + 1] = wy;
     positions[i * 3 + 2] = wz;
+    uvs[i * 2]     = wx / UV_TILE;
+    uvs[i * 2 + 1] = wz / UV_TILE;
   }
 }
 
@@ -126,18 +133,28 @@ for (let v = 1; v < vertCount; v++) {
 // GLB assembly.
 function align4(n: number): number { return (n + 3) & ~3; }
 
+// Procedural grass texture — tiled across the whole terrain via UVs above.
+const TEX_SIZE = 256;
+const grassPng = encodePng(TEX_SIZE, TEX_SIZE, grassTexture(TEX_SIZE));
+
 const idxOff = 0;
 const idxLen = indices.byteLength;
 const posOff = align4(idxOff + idxLen);
 const posLen = positions.byteLength;
 const nrmOff = align4(posOff + posLen);
 const nrmLen = normals.byteLength;
-const binLen = align4(nrmOff + nrmLen);
+const uvOff  = align4(nrmOff + nrmLen);
+const uvLen  = uvs.byteLength;
+const imgOff = align4(uvOff + uvLen);
+const imgLen = grassPng.length;
+const binLen = align4(imgOff + imgLen);
 
 const bin = new Uint8Array(binLen);
 bin.set(new Uint8Array(indices.buffer),   idxOff);
 bin.set(new Uint8Array(positions.buffer), posOff);
 bin.set(new Uint8Array(normals.buffer),   nrmOff);
+bin.set(new Uint8Array(uvs.buffer),       uvOff);
+bin.set(grassPng,                         imgOff);
 
 const gltf = {
   asset: { version: '2.0', generator: 'shooter-build-terrain' },
@@ -145,7 +162,7 @@ const gltf = {
   scenes: [{ nodes: [0] }],
   nodes:  [{ mesh: 0, name: 'terrain_hills' }],
   meshes: [{ primitives: [{
-    attributes: { POSITION: 1, NORMAL: 2 },
+    attributes: { POSITION: 1, NORMAL: 2, TEXCOORD_0: 3 },
     indices: 0,
     material: 0,
     mode: 4,
@@ -153,22 +170,29 @@ const gltf = {
   materials: [{
     name: 'grass',
     pbrMetallicRoughness: {
-      baseColorFactor: [0.22, 0.42, 0.22, 1.0],
+      baseColorFactor: [1.0, 1.0, 1.0, 1.0],
+      baseColorTexture: { index: 0 },
       metallicFactor: 0.0,
       roughnessFactor: 0.95,
     },
   }],
+  textures: [{ source: 0, sampler: 0 }],
+  images: [{ bufferView: 4, mimeType: 'image/png' }],
+  samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }], // REPEAT
   buffers: [{ byteLength: binLen }],
   bufferViews: [
     { buffer: 0, byteOffset: idxOff, byteLength: idxLen, target: 34963 },
     { buffer: 0, byteOffset: posOff, byteLength: posLen, target: 34962 },
     { buffer: 0, byteOffset: nrmOff, byteLength: nrmLen, target: 34962 },
+    { buffer: 0, byteOffset: uvOff,  byteLength: uvLen,  target: 34962 },
+    { buffer: 0, byteOffset: imgOff, byteLength: imgLen },
   ],
   accessors: [
     { bufferView: 0, componentType: 5125, count: indices.length,  type: 'SCALAR' },
     { bufferView: 1, componentType: 5126, count: vertCount,       type: 'VEC3',
       min: [minX, minY, minZ], max: [maxX, maxY, maxZ] },
     { bufferView: 2, componentType: 5126, count: vertCount,       type: 'VEC3' },
+    { bufferView: 3, componentType: 5126, count: vertCount,       type: 'VEC2' },
   ],
 };
 

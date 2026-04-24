@@ -766,18 +766,29 @@ while (!windowShouldClose()) {
                 W.MESH_SCALE[i], WHITE);
     }
   }
-  // Water — flat quad at surfaceHeight with a slight vertical bob animation.
+  // Water — each box is a flat quad at surfaceHeight with a vertical bob
+  // animation. Phase is offset by the box's X position so adjacent boxes
+  // bob slightly out of sync, which reads as a wave propagating
+  // downstream — the cheap flow effect. Stacking a dimmer "ripple" cube
+  // slightly higher sells it as a surface, not a flat colour chip.
   {
     const tNow = getTime();
     for (let i = 0; i < W.WATER_COUNT; i++) {
-      const phase = tNow * W.WATER_WAVE_SPD[i];
+      const phase = tNow * W.WATER_WAVE_SPD[i] - W.WATER_CX[i] * 0.35;
       const dy = Math.sin(phase) * W.WATER_WAVE_AMP[i];
+      const dy2 = Math.sin(phase * 1.7 + 1.3) * W.WATER_WAVE_AMP[i] * 0.6;
+      const r = Math.floor(W.WATER_R[i] * 255);
+      const g = Math.floor(W.WATER_G[i] * 255);
+      const b = Math.floor(W.WATER_B[i] * 255);
+      const a = Math.floor(W.WATER_A[i] * 255);
       drawCube(vec3(W.WATER_CX[i], W.WATER_CY[i] + dy, W.WATER_CZ[i]),
                W.WATER_SX[i], 0.05, W.WATER_SZ[i],
-               { r: Math.floor(W.WATER_R[i] * 255),
-                 g: Math.floor(W.WATER_G[i] * 255),
-                 b: Math.floor(W.WATER_B[i] * 255),
-                 a: Math.floor(W.WATER_A[i] * 255) });
+               { r: r, g: g, b: b, a: a });
+      drawCube(vec3(W.WATER_CX[i], W.WATER_CY[i] + dy + 0.04 + dy2 * 0.5,
+                    W.WATER_CZ[i] + Math.sin(phase * 0.7) * 0.2),
+               W.WATER_SX[i] * 0.9, 0.02, W.WATER_SZ[i] * 0.8,
+               { r: Math.min(255, r + 40), g: Math.min(255, g + 50),
+                 b: Math.min(255, b + 40), a: Math.floor(a * 0.55) });
     }
   }
   // Point lights from the world file — static scene lights.
