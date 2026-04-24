@@ -766,29 +766,61 @@ while (!windowShouldClose()) {
                 W.MESH_SCALE[i], WHITE);
     }
   }
-  // Water — each box is a flat quad at surfaceHeight with a vertical bob
-  // animation. Phase is offset by the box's X position so adjacent boxes
-  // bob slightly out of sync, which reads as a wave propagating
-  // downstream — the cheap flow effect. Stacking a dimmer "ripple" cube
-  // slightly higher sells it as a surface, not a flat colour chip.
+  // Water — tessellate each segment into a grid of small flat tiles
+  // whose Y sits on a travelling wave. Colour blends deep-indigo trough
+  // → pale cyan crest on a smooth height term. A second high-frequency
+  // ripple crosses the surface. Flow is encoded as a wave phase that
+  // advances in +X with time, so crests visibly travel downstream.
+  // Tiles overlap their neighbours (×1.08) so the grid edges disappear
+  // into the blend.
+  //
+  // ≈ 0.35 m tiles × 6 segments ≈ 1800 cubes/frame. Free at our
+  // draw-call budget; no engine shader work required.
   {
     const tNow = getTime();
+    const TILE = 0.35;
+    const baseA = 205;
+    const foamA = 200;
     for (let i = 0; i < W.WATER_COUNT; i++) {
-      const phase = tNow * W.WATER_WAVE_SPD[i] - W.WATER_CX[i] * 0.35;
-      const dy = Math.sin(phase) * W.WATER_WAVE_AMP[i];
-      const dy2 = Math.sin(phase * 1.7 + 1.3) * W.WATER_WAVE_AMP[i] * 0.6;
-      const r = Math.floor(W.WATER_R[i] * 255);
-      const g = Math.floor(W.WATER_G[i] * 255);
-      const b = Math.floor(W.WATER_B[i] * 255);
-      const a = Math.floor(W.WATER_A[i] * 255);
-      drawCube(vec3(W.WATER_CX[i], W.WATER_CY[i] + dy, W.WATER_CZ[i]),
-               W.WATER_SX[i], 0.05, W.WATER_SZ[i],
-               { r: r, g: g, b: b, a: a });
-      drawCube(vec3(W.WATER_CX[i], W.WATER_CY[i] + dy + 0.04 + dy2 * 0.5,
-                    W.WATER_CZ[i] + Math.sin(phase * 0.7) * 0.2),
-               W.WATER_SX[i] * 0.9, 0.02, W.WATER_SZ[i] * 0.8,
-               { r: Math.min(255, r + 40), g: Math.min(255, g + 50),
-                 b: Math.min(255, b + 40), a: Math.floor(a * 0.55) });
+      const cx = W.WATER_CX[i], cy = W.WATER_CY[i], cz = W.WATER_CZ[i];
+      const sx = W.WATER_SX[i], sz = W.WATER_SZ[i];
+      const amp = W.WATER_WAVE_AMP[i];
+      const spd = W.WATER_WAVE_SPD[i];
+      const nx = Math.max(1, Math.floor(sx / TILE));
+      const nz = Math.max(1, Math.floor(sz / TILE));
+      const stepX = sx / nx;
+      const stepZ = sz / nz;
+      // Downstream wave — long wavelength so adjacent tiles share close
+      // heights and the grid reads as a continuous wave, not a checker.
+      const kx = 0.45;
+      const kz = 0.75;
+      for (let ix = 0; ix < nx; ix++) {
+        for (let iz = 0; iz < nz; iz++) {
+          const x = cx - sx * 0.5 + stepX * (ix + 0.5);
+          const z = cz - sz * 0.5 + stepZ * (iz + 0.5);
+          const w1 = Math.sin(x * kx + tNow * spd * 1.6);
+          const w2 = Math.sin(z * kz + x * 0.18 + tNow * spd * 2.1);
+          const w3 = Math.sin(x * 2.1 + z * 1.7 + tNow * spd * 3.5) * 0.25;
+          const waveN = (w1 + w2 + w3 * 4) * 0.25; // -1..~1
+          const h01 = (waveN + 1) * 0.5;                 // 0..1
+          const dy = waveN * amp;
+          // Deep-water blue at troughs, pale cyan at crests.
+          const r = Math.floor(18 + h01 * 55);
+          const g = Math.floor(75 + h01 * 105);
+          const b = Math.floor(125 + h01 * 85);
+          drawCube(vec3(x, cy + dy, z),
+                   stepX * 1.08, 0.03, stepZ * 1.08,
+                   { r: r, g: g, b: b, a: baseA });
+          // Foam: smooth falloff from h01=0.75 upward; no hard threshold.
+          if (h01 > 0.75) {
+            const fh = (h01 - 0.75) / 0.25;
+            drawCube(vec3(x, cy + dy + 0.025, z),
+                     stepX * 0.85, 0.015, stepZ * 0.85,
+                     { r: 230, g: 240, b: 250,
+                       a: Math.floor(foamA * fh * fh) });
+          }
+        }
+      }
     }
   }
   // Point lights from the world file — static scene lights.
