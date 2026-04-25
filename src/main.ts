@@ -634,6 +634,95 @@ const GRASS_INDS  = new Array<number>(_gic);
 }
 const matGrassMesh = createMeshExplicit(GRASS_VERTS, _gvc, GRASS_INDS, _gic);
 
+// ---- Building stone material — bake all box-placeholder building
+// entries into a single static mesh, drawn once per frame against
+// a noise + horizontal-band material. Replaces the flat-beige
+// drawCube path for category-1 (building) entities.
+const matBuilding = compileMaterialFromFile('assets/materials/building.wgsl', 'opaque');
+const BUILDING_PARAMS = [
+  // base rgb (warm sandstone)        noise mix
+  0.72, 0.66, 0.55,                   0.55,
+  // band rgb (darker mortar line)    band tightness (higher = sharper)
+  0.40, 0.34, 0.28,                   1.4,
+  // noise_freq, band_period (m), unused, unused
+  0.50, 3.0,                          0.0,   0.0,
+];
+if (matBuilding > 0) setMaterialParams(matBuilding, BUILDING_PARAMS);
+
+// Count the building boxes first so we can size the arrays.
+let _bldgCount = 0;
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  const mi = W.MESH_MODEL_IDX[i];
+  if (W.MODEL_IS_BOX[mi] === 1 && W.MESH_CATEGORY[i] === 1) _bldgCount++;
+}
+const _bvc = _bldgCount * 24;     // 24 verts per cube (4 per face × 6 faces)
+const _bic = _bldgCount * 36;     // 36 indices per cube (2 tris × 6 faces)
+const BUILDING_VERTS = new Array<number>(_bvc * 12);
+const BUILDING_INDS  = new Array<number>(_bic);
+{
+  let vi = 0, ii = 0, vbase = 0;
+  for (let i = 0; i < W.MESH_COUNT; i++) {
+    const mi = W.MESH_MODEL_IDX[i];
+    if (W.MODEL_IS_BOX[mi] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
+    const cx = W.MESH_X[i], cy = W.MESH_Y[i], cz = W.MESH_Z[i];
+    const hx = W.MESH_COLLIDER_HX[i];
+    const hy = W.MESH_COLLIDER_HY[i];
+    const hz = W.MESH_COLLIDER_HZ[i];
+    const xn = cx - hx, xp = cx + hx;
+    const yn = cy - hy, yp = cy + hy;
+    const zn = cz - hz, zp = cz + hz;
+    // Six faces, 4 verts each. Vertex layout: pos(3) normal(3)
+    // color(4) uv(2) — colors all white, UVs unused (material
+    // samples world XY/XZ/YZ).
+    // +X face (normal +X)
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // -X face
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // +Y face (top)
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // -Y face (bottom)
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // +Z face
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // -Z face
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+
+    // 36 indices: 6 faces × 2 tris × 3, CCW from outside.
+    BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  1; BUILDING_INDS[ii++] = vbase +  2;
+    BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  2; BUILDING_INDS[ii++] = vbase +  3;
+    BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  5; BUILDING_INDS[ii++] = vbase +  6;
+    BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  6; BUILDING_INDS[ii++] = vbase +  7;
+    BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase +  9; BUILDING_INDS[ii++] = vbase + 10;
+    BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase + 10; BUILDING_INDS[ii++] = vbase + 11;
+    BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 13; BUILDING_INDS[ii++] = vbase + 14;
+    BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 14; BUILDING_INDS[ii++] = vbase + 15;
+    BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 17; BUILDING_INDS[ii++] = vbase + 18;
+    BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 18; BUILDING_INDS[ii++] = vbase + 19;
+    BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 21; BUILDING_INDS[ii++] = vbase + 22;
+    BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 22; BUILDING_INDS[ii++] = vbase + 23;
+    vbase += 24;
+  }
+}
+const matBuildingMesh = createMeshExplicit(BUILDING_VERTS, _bvc, BUILDING_INDS, _bic);
+
 // ---- Phase 10 glass — second material consumer, proves the ABI works -----
 // Second material using the Phase 4b refractive path (scene-colour snapshot
 // at group 4). No Gerstner waves; flat normal, heavier Fresnel so edges
@@ -1375,12 +1464,24 @@ while (!windowShouldClose()) {
       vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
+  // Building stone — single drawMeshWithMaterial covers all
+  // category-1 boxes; the noise + horizontal-band material in
+  // the fragment turns them from flat beige into something that
+  // reads as plastered stone.
+  if (matBuilding > 0) {
+    drawMeshWithMaterial(matBuilding, matBuildingMesh,
+      vec3(0, 0, 0), 1.0,
+      { r: 255, g: 255, b: 255, a: 255 });
+  }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
   // tint (0 generic / 1 building / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
     if (W.MODEL_IS_BOX[mi] === 1) {
+      // Buildings (category 1) are rendered through the baked
+      // matBuilding mesh below — skip here to avoid double-draw.
+      if (W.MESH_CATEGORY[i] === 1 && matBuilding > 0) continue;
       const c = W.MESH_CATEGORY[i];
       const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
       drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
