@@ -73,11 +73,16 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let band_t     = pow(max(band_phase, 0.0), bp.band.w * 8.0);
   let albedo     = mix(speckled, bp.band.rgb, band_t * 0.6);
 
-  // Lambert vs the engine sun + ambient.
+  // Lambert vs the engine sun + ambient, with the same cloud-shadow
+  // modulation as terrain + grass. Walls dim to match the ground
+  // when overcast patches drift over them.
   let sun_dir = normalize(-view.sun_dir.xyz);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
-  let direct  = view.sun_color.rgb * n_dot_l;
-  let lit     = albedo * (view.ambient.rgb * 0.55 + direct);
+  let cp = in.world_pos.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
+  let cn = value_noise(cp);
+  let cloud  = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
+  let direct = view.sun_color.rgb * n_dot_l * cloud;
+  let lit    = albedo * (view.ambient.rgb * 0.55 + direct);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);

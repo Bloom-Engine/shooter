@@ -61,13 +61,32 @@ fn vs_main(in: VertexInput) -> VsOut {
   return out;
 }
 
+// Same scrolling-noise cloud-shadow as the terrain material so the
+// drifting overcast patches read consistently across grass + ground.
+fn cloud_shadow(world_xz: vec2<f32>, t: f32) -> f32 {
+  let p = world_xz * 0.025 + vec2<f32>(t * 0.5, t * 0.15);
+  // Cheap two-octave value-noise inline (avoids needing to share an
+  // include file across Tier 2a / 2b material WGSLs).
+  let i = floor(p);
+  let f = fract(p);
+  let h00 = fract(sin(dot(i,                          vec2<f32>(127.1, 311.7))) * 43758.5453);
+  let h10 = fract(sin(dot(i + vec2<f32>(1.0, 0.0),    vec2<f32>(127.1, 311.7))) * 43758.5453);
+  let h01 = fract(sin(dot(i + vec2<f32>(0.0, 1.0),    vec2<f32>(127.1, 311.7))) * 43758.5453);
+  let h11 = fract(sin(dot(i + vec2<f32>(1.0, 1.0),    vec2<f32>(127.1, 311.7))) * 43758.5453);
+  let u = f * f * (3.0 - 2.0 * f);
+  let nz = mix(mix(h00, h10, u.x), mix(h01, h11, u.x), u.y);
+  return mix(0.55, 1.0, smoothstep(0.35, 0.78, nz));
+}
+
 @fragment
 fn fs_main(in: VsOut) -> OpaqueOut {
   let n = normalize(in.world_normal);
-  // Lambert against PerView's directional sun + fixed ambient mul.
+  // Lambert against PerView's directional sun + fixed ambient mul,
+  // modulated by drifting cloud-shadow noise.
   let sun_dir = normalize(-view.sun_dir.xyz);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
-  let direct  = view.sun_color.rgb * n_dot_l;
+  let cloud   = cloud_shadow(in.world_pos.xz, frame.time);
+  let direct  = view.sun_color.rgb * n_dot_l * cloud;
 
   // Tip blades catch more sun (real grass: tips are sun-bleached,
   // bottoms shadowed). Brighten by tip_weight.

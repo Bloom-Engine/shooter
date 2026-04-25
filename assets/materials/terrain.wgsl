@@ -91,7 +91,17 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // the surface, so flip for the to-light vector.
   let sun_dir = normalize(-view.sun_dir.xyz);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
-  let direct  = view.sun_color.rgb * n_dot_l;
+
+  // Cloud shadows — large-scale scrolling noise on world XZ
+  // multiplied into the sun contribution. Mid-grey biased so most
+  // ground stays lit; deep dips read as overcast pockets drifting
+  // across the field. Frequency 0.025 = ~40 m wavelength; speed
+  // 0.5 m/s along (+x, +z*0.3).
+  let cp = in.world_pos.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
+  let cn = fbm2(cp);
+  let cloud = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
+
+  let direct  = view.sun_color.rgb * n_dot_l * cloud;
   let lit     = final_albedo * (view.ambient.rgb * 0.55 + direct);
 
   var out: OpaqueOut;
