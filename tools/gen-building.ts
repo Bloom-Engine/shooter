@@ -134,16 +134,85 @@ for (let f = 0; f < NUM_FLOORS - 1; f++) {
   }
 }
 
-// ---- Emit JSON ----
-const json = out.map(e => {
-  const rot = e.rotation ?? [0, 0, 0];
-  const he  = e.halfExtents.map(v => v.toFixed(3)).join(', ');
-  return `    { "id": "${e.id}", "name": "${e.id}",
+// ---- Emit JSON & merge into world file ----
+//
+// Behaviour: read assets/worlds/arena_02.world.json, drop every
+// entity whose id starts with "h_" (the procedural-building
+// namespace), append the freshly-generated ones, write back.
+// Re-running this script is the canonical way to retune building
+// dimensions — no more manual copy-paste from stdout.
+//
+// Pass a --print flag to fall back to stdout-only mode (useful
+// when staging a different building variant before merging).
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+const WORLD_PATH = path.resolve(
+  path.dirname(import.meta.url.replace('file://', '')),
+  '../assets/worlds/arena_02.world.json'
+);
+
+function buildEntityJson(): string[] {
+  return out.map(e => {
+    const rot = e.rotation ?? [0, 0, 0];
+    const he  = e.halfExtents.map(v => v.toFixed(3)).join(', ');
+    return `    { "id": "${e.id}", "name": "${e.id}",
       "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
       "transform": { "position": [${e.position.map(v => v.toFixed(3)).join(', ')}], "rotation": [${rot.join(', ')}], "scale": [1, 1, 1] },
       "tint": null, "tags": ["building"],
       "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "${he}" } }`;
-}).join(',\n');
+  });
+}
 
-console.log(json);
-console.log(`\n// Total entities: ${out.length}`);
+const printOnly = process.argv.includes('--print');
+const entityLines = buildEntityJson();
+
+if (printOnly) {
+  console.log(entityLines.join(',\n'));
+  console.log(`\n// Total entities: ${out.length}`);
+} else {
+  // Read the world file as a parsed object (validates the JSON)
+  // then re-walk the raw text so we can preserve the comment-free
+  // formatting + entity ordering of neighbouring sections.
+  const raw = fs.readFileSync(WORLD_PATH, 'utf8');
+  const parsed = JSON.parse(raw);
+  const before = parsed.entities?.length ?? 0;
+
+  // Strip out every existing "h_*" entity. Use a regex that
+  // matches the entire entity object across multiple lines,
+  // anchored by the id field.
+  let cleaned = raw;
+  const idRe = /^\s*\{\s*"id":\s*"h_[A-Za-z0-9_]+",[\s\S]*?\}\s*\},?\n/gm;
+  cleaned = cleaned.replace(idRe, '');
+
+  // Find the trailing entity in the entities array so we can
+  // append our new entries before the closing bracket. We pick
+  // the last "} }," / "} }" line inside the entities block.
+  const insertMarker = '  ],';  // line that ends the "entities" array
+  const insertIdx = cleaned.indexOf(insertMarker);
+  if (insertIdx < 0) {
+    throw new Error(`could not find entities-array close marker '${insertMarker}' in ${WORLD_PATH}`);
+  }
+
+  // The text just before insertMarker should end with "} }\n"
+  // (last entity, no trailing comma). Add a comma to it, then
+  // splice in our new entities.
+  const headEnd = cleaned.lastIndexOf('} }', insertIdx);
+  if (headEnd < 0) {
+    throw new Error('could not find last entity terminator before entities-array close');
+  }
+  const head = cleaned.slice(0, headEnd + 3) + ',\n';
+  const tail = cleaned.slice(insertIdx);
+  const newBody = entityLines.join(',\n') + '\n';
+  const final = head + newBody + tail;
+
+  // Validate the result parses cleanly.
+  JSON.parse(final);
+  fs.writeFileSync(WORLD_PATH, final);
+  const reparsed = JSON.parse(final);
+  console.log(`Wrote ${WORLD_PATH}`);
+  console.log(`  removed ${before - (reparsed.entities.length - out.length)} previous h_* entities`);
+  console.log(`  added   ${out.length} new (count=${reparsed.entities.length})`);
+  console.log(`  re-run \`npm run world\` to regenerate src/generated/world.ts`);
+}
