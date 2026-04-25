@@ -522,11 +522,16 @@ const GRASS_PARAMS = [
 ];
 if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
 
-const GRASS_BLADE_COUNT = 4000;
-const GRASS_BLADE_W = 0.05;
-const GRASS_BLADE_H = 0.4;
-const GRASS_VERTS_PER_BLADE = 8;       // 4 verts per quad × 2 quads
-const GRASS_INDS_PER_BLADE  = 24;      // 6 per quad × 2 sides × 2 quads
+const GRASS_BLADE_COUNT = 5000;
+const GRASS_BLADE_W = 0.06;
+const GRASS_BLADE_H = 0.45;
+// Each blade = a cross of two triangles (X-Y plane + Y-Z plane).
+// Triangle is root_left + root_right + tip; the tip taper reads
+// as a real grass blade silhouette instead of the old stick-like
+// cross-quad. 3 verts × 2 triangles = 6 per blade; both faces of
+// each triangle = 4 tris × 3 = 12 indices.
+const GRASS_VERTS_PER_BLADE = 6;
+const GRASS_INDS_PER_BLADE  = 12;
 const _gvc = GRASS_BLADE_COUNT * GRASS_VERTS_PER_BLADE;
 const _gic = GRASS_BLADE_COUNT * GRASS_INDS_PER_BLADE;
 const GRASS_VERTS = new Array<number>(_gvc * 12);
@@ -577,9 +582,10 @@ const GRASS_INDS  = new Array<number>(_gic);
     const w = GRASS_BLADE_W;
     const h = GRASS_BLADE_H * heightScale;
 
-    // 8 verts × 12 floats inlined (Perry caps closures at 5 args).
-    // Layout: pos(3) normal(3) color(4) uv(2). color = (tip, jitter, 1, 1).
-    // Quad 1 — XY plane, normal +Z.
+    // 6 verts × 12 floats: 2 triangles in perpendicular planes,
+    // each (root_left, root_right, tip). Layout: pos(3) normal(3)
+    // color(4) uv(2). color = (tip_weight, jitter, 1, 1).
+    // Triangle 1 — XY plane, normal +Z.
     GRASS_VERTS[vi++] = px - w; GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz;
     GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
     GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
@@ -588,15 +594,11 @@ const GRASS_INDS  = new Array<number>(_gic);
     GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
     GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
     GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = px + w; GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
+    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
     GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
     GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = px - w; GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
-    // Quad 2 — YZ plane, normal +X.
+    GRASS_VERTS[vi++] = 0.5; GRASS_VERTS[vi++] = 1;
+    // Triangle 2 — YZ plane, normal +X.
     GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz - w;
     GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
     GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
@@ -605,28 +607,20 @@ const GRASS_INDS  = new Array<number>(_gic);
     GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
     GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
     GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz + w;
+    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
     GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
     GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz - w;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 0.5; GRASS_VERTS[vi++] = 1;
 
-    // Indices — front + back triangles for each quad.
-    // Quad 1 front (CCW from +Z): 0,1,2  0,2,3
+    // Indices: each triangle has front + back faces (12 indices total).
+    // Triangle 1 front (CCW from +Z): 0,1,2
     GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 1; GRASS_INDS[ii++] = vbase + 2;
-    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 2; GRASS_INDS[ii++] = vbase + 3;
-    // Quad 1 back  (CCW from -Z): 0,2,1  0,3,2
+    // Triangle 1 back (CCW from -Z): 0,2,1
     GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 2; GRASS_INDS[ii++] = vbase + 1;
-    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 3; GRASS_INDS[ii++] = vbase + 2;
-    // Quad 2 front: 4,5,6  4,6,7
-    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 5; GRASS_INDS[ii++] = vbase + 6;
-    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 6; GRASS_INDS[ii++] = vbase + 7;
-    // Quad 2 back: 4,6,5  4,7,6
-    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 6; GRASS_INDS[ii++] = vbase + 5;
-    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 7; GRASS_INDS[ii++] = vbase + 6;
+    // Triangle 2 front (CCW from +X): 3,4,5
+    GRASS_INDS[ii++] = vbase + 3; GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 5;
+    // Triangle 2 back (CCW from -X): 3,5,4
+    GRASS_INDS[ii++] = vbase + 3; GRASS_INDS[ii++] = vbase + 5; GRASS_INDS[ii++] = vbase + 4;
 
     vbase += GRASS_VERTS_PER_BLADE;
     placed++;
