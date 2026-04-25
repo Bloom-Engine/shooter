@@ -1146,7 +1146,7 @@ setFilmGrain(0.06);        // very subtle noise
 // When SELFTEST is true the game auto-fires a shot on frame 30, screenshots
 // the scene on frame 60, and exits on frame 90. Used while investigating the
 // engine's deferred-render green-screen bug — kept dormant for future debug.
-const SELFTEST = true;
+const SELFTEST = false;
 let testFrame = 0;
 
 
