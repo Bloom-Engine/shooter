@@ -3,7 +3,7 @@ import {
   setTargetFPS, getDeltaTime, getFPS, getTime,
   beginMode3D, endMode3D,
   drawCube, drawSphere, drawText, drawRect, drawCircle, measureText,
-  setAmbientLight, setDirectionalLight,
+  setAmbientLight, setDirectionalLight, setEnvClearFromHdr,
   getScreenWidth, getScreenHeight,
   vec3,
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
@@ -17,8 +17,11 @@ import {
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
 } from 'bloom';
-import { setVignette, setFilmGrain } from 'bloom/core';
-import { addPointLight } from 'bloom/scene';
+import {
+  setVignette, setFilmGrain,
+  setEnvIntensity, setAutoExposure, setFog, setSunShafts,
+} from 'bloom/core';
+import { addPointLight, enableShadows } from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
@@ -60,7 +63,9 @@ setLayerCollides(physics, Layer.MOVING, Layer.MOVING, true);
 const spawnPos: Vec3 = vec3(W.SPAWN_X, W.SPAWN_Y, W.SPAWN_Z);
 const spawnYaw = W.SPAWN_YAW;
 
-// Apply environment settings from the world file.
+// Apply environment settings from the world file. Tier-1 visual
+// quality work (see docs/visual-quality.md) layers IBL + shadows +
+// fog + auto-exposure on top of the existing ambient + sun.
 setAmbientLight(
   { r: Math.floor(W.ENV_AMBIENT_R * 255), g: Math.floor(W.ENV_AMBIENT_G * 255),
     b: Math.floor(W.ENV_AMBIENT_B * 255), a: 255 },
@@ -70,6 +75,30 @@ setDirectionalLight(
   { r: Math.floor(W.ENV_SUN_R * 255), g: Math.floor(W.ENV_SUN_G * 255),
     b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
   W.ENV_SUN_I);
+
+// Tier 1.1 — load an HDR equirectangular environment. The engine
+// convolves it into env_tex (specular) + env_diffuse_tex (ambient
+// diffuse) at load time; refractive water + glass automatically
+// pick it up via sample_env(). With nothing loaded the env binds
+// are 1×1 black and PBR specular is dead.
+setEnvClearFromHdr('assets/env/outdoor.hdr');
+// Tier 1.2 — IBL strength. 1.0 = unit; bump up if the scene reads
+// dim against the new HDR sky, pull back if it blows out.
+setEnvIntensity(1.0);
+// Tier 1.3 — three-cascade sun shadows. Adds ~3 ms of GPU work
+// but grounds every object visually.
+enableShadows();
+// Tier 1.4 — auto-exposure. The HDR pipeline tonemaps to surface
+// sRGB with a fixed exposure if this is off; auto follows scene
+// luminance which is the right behaviour outdoors.
+setAutoExposure(true);
+// Tier 1.5 — pale-blue distance haze. r,g,b,density,heightRef,
+// heightFalloff. Density 0.012 reads as a soft far-plane haze
+// without dimming the foreground.
+setFog(0.78, 0.84, 0.90, 0.012, 0.0, 200.0);
+// Tier 1.7 — warm god-rays through the trees. Optional polish;
+// strength 0.4 keeps it subtle.
+setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -1113,11 +1142,14 @@ while (!windowShouldClose()) {
     if (sparkT[i] > 0) sparkT[i] = sparkT[i] - dt;
   }
 
+  // The HDR sky pass overrides the clear colour, but leave this in
+  // as a fallback when the HDR file is missing.
   clearBackground({ r: Math.floor(W.ENV_SKY_R * 255),
                     g: Math.floor(W.ENV_SKY_G * 255),
                     b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
-  setAmbientLight({ r: 120, g: 130, b: 160, a: 255 }, 0.35);
-  setDirectionalLight(vec3(-0.3, -0.9, -0.2), { r: 255, g: 245, b: 220, a: 255 }, 0.9);
+  // Per-frame light overrides removed — they were hardcoded values
+  // that masked the world-data setAmbientLight/setDirectionalLight
+  // run at startup, and IBL now provides the ambient diffuse anyway.
 
   beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
