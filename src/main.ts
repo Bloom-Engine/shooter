@@ -1227,7 +1227,7 @@ while (!windowShouldClose()) {
   }
 
   // Smooth orbit camera follow after physics step.
-  // Inline orbit-camera follow.
+  // Inline orbit-camera follow with wall-aware distance.
   {
     const pp0 = playerPosition();
     const ya = CAM[0], pi = CAM[1];
@@ -1235,21 +1235,46 @@ while (!windowShouldClose()) {
     const fX = pp0.x;
     const fY = pp0.y + TP_EYE_HEIGHT;
     const fZ = pp0.z;
-    const wX = fX - Math.sin(ya) * cpi * TP_ORBIT_DIST;
-    const wY = fY + spi * TP_ORBIT_DIST;
-    const wZ = fZ + Math.cos(ya) * cpi * TP_ORBIT_DIST;
+    // Direction from focus to ideal camera position.
+    const dxRaw = -Math.sin(ya) * cpi;
+    const dyRaw =  Math.sin(pi);
+    const dzRaw =  Math.cos(ya) * cpi;
+    // Raycast from the focus point outward toward the orbit
+    // direction. If anything (wall, tree trunk, terrain) is closer
+    // than TP_ORBIT_DIST, shorten the orbit so the camera zooms
+    // in instead of clipping through geometry. Leave a small skin
+    // so we don't kiss the wall exactly.
+    let orbitDist = TP_ORBIT_DIST;
+    const hit = raycast(physics,
+      vec3(fX, fY, fZ),
+      vec3(dxRaw, dyRaw, dzRaw),
+      TP_ORBIT_DIST, ALL_LAYERS_MASK);
+    if (hit !== null) {
+      orbitDist = Math.max(0.8, hit.fraction * TP_ORBIT_DIST - 0.25);
+    }
+    const wX = fX + dxRaw * orbitDist;
+    const wY = fY + dyRaw * orbitDist;
+    const wZ = fZ + dzRaw * orbitDist;
     if (CAM[8] === 0) {
       CAM[2] = wX; CAM[3] = wY; CAM[4] = wZ;
       CAM[5] = fX; CAM[6] = fY; CAM[7] = fZ;
       CAM[8] = 1;
     } else {
-      const t = 1 - Math.exp(-TP_SMOOTH * dt);
-      CAM[2] = CAM[2] + (wX - CAM[2]) * t;
-      CAM[3] = CAM[3] + (wY - CAM[3]) * t;
-      CAM[4] = CAM[4] + (wZ - CAM[4]) * t;
-      CAM[5] = CAM[5] + (fX - CAM[5]) * t;
-      CAM[6] = CAM[6] + (fY - CAM[6]) * t;
-      CAM[7] = CAM[7] + (fZ - CAM[7]) * t;
+      // Snap inward fast (zoom-in is responsive) but lerp outward
+      // smoothly so the camera doesn't suddenly fly back when the
+      // player rounds a corner.
+      const desired = vec3(wX, wY, wZ);
+      const curDist = Math.hypot(CAM[2] - fX, CAM[3] - fY, CAM[4] - fZ);
+      const tIn  = 1 - Math.exp(-TP_SMOOTH * 2.5 * dt);
+      const tOut = 1 - Math.exp(-TP_SMOOTH * dt);
+      const t = orbitDist < curDist ? tIn : tOut;
+      CAM[2] = CAM[2] + (desired.x - CAM[2]) * t;
+      CAM[3] = CAM[3] + (desired.y - CAM[3]) * t;
+      CAM[4] = CAM[4] + (desired.z - CAM[4]) * t;
+      const tF = 1 - Math.exp(-TP_SMOOTH * dt);
+      CAM[5] = CAM[5] + (fX - CAM[5]) * tF;
+      CAM[6] = CAM[6] + (fY - CAM[6]) * tF;
+      CAM[7] = CAM[7] + (fZ - CAM[7]) * tF;
     }
   }
   playerAnimT = playerAnimT + dt;
