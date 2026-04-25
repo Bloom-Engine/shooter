@@ -1625,16 +1625,14 @@ while (!windowShouldClose()) {
     // Player_bsuit's rest pose faces +X in model space (Unvanquished
     // convention, preserved through our X90 Z-up→Y-up root fix).
     // Camera-yaw forward at yaw=0 is -Z, so rotate the model by
-    // +π/2 about Y to line the character's front with the camera
+    // -π/2 about Y to line the character's front with the camera
     // direction. The bsuit's only "attack" animation is a melee
     // swing — a ranged shooter shouldn't use it; keep the walk/idle
     // pose and fake recoil + muzzle flash on the weapon itself.
-    const modelYaw = camYaw + Math.PI / 2;
-    const fsin = Math.sin(modelYaw);
-    const fcos = -Math.cos(modelYaw);
+    const modelYaw = camYaw - Math.PI / 2;
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
     updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
-      pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, fsin, fcos);
+      pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
               PLAYER_SCALE, WHITE);
 
@@ -1707,13 +1705,12 @@ while (!windowShouldClose()) {
     const k = enKind[i];
     const dxA = ppAim.x - enX[i];
     const dzA = ppAim.z - enZ[i];
-    const distA = Math.sqrt(dxA * dxA + dzA * dzA);
-    const faceSin = distA > 0.001 ? dxA / distA : 0;
-    const faceCos = distA > 0.001 ? -dzA / distA : -1;
-    const attacking = distA <= KIND_MELEE[k];
+    // Yaw such that forward = (sin, -cos) points toward the player.
+    const faceYaw = Math.atan2(dxA, -dzA);
+    const attacking = Math.hypot(dxA, dzA) <= KIND_MELEE[k];
     const animIdx = attacking ? ANIM_ATTACK_IDX[k] : ANIM_WALK_IDX[k];
     updateModelAnimation(animAliens[k], animIdx, enPhase[i], KIND_SCALE[k],
-      enX[i], enY[i], enZ[i], faceSin, faceCos);
+      enX[i], enY[i], enZ[i], faceYaw);
     const f = enFlashT[i] > 0 ? enFlashT[i] / DRETCH_HIT_FLASH : 0;
     const tint = f > 0
       ? { r: 255,
