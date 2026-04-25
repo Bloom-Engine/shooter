@@ -113,7 +113,21 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // scales with column so deep water bends light more.
   let refr_offset = clamp(column * 0.05, 0.0, 0.06);
   let refract_uv  = clamp(in.screen_uv + n.xz * refr_offset, vec2<f32>(0.001), vec2<f32>(0.999));
-  let refracted   = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;
+  var refracted   = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;
+
+  // Caustics — sun-rays focused on the river bed by the wavy water
+  // surface above. Three sin lobes at different angles + speeds
+  // combine into a moving interference pattern; max() creates
+  // sharp bright lines instead of soft blobs. Modulated by column
+  // so dry land never gets caustics, and faded at extreme depth
+  // where in real water diffraction would scatter them.
+  let cp = in.world_pos.xz;
+  let s1 = sin((cp.x + cp.y) * 3.7 + frame.time * 1.2);
+  let s2 = sin((cp.x - cp.y) * 5.1 + frame.time * 0.9);
+  let s3 = sin( cp.x          * 4.3 + frame.time * 1.5);
+  let caustic   = max(s1, max(s2, s3)) * 0.5 + 0.5;       // 0..1
+  let caustic_t = smoothstep(0.0, 0.05, column) * (1.0 - smoothstep(0.6, 1.5, column));
+  refracted = refracted * mix(1.0, 1.0 + caustic * 1.4, caustic_t);
 
   // Tier 4 — Beer-Lambert absorption. Refracted scene colour fades
   // exponentially through the water column, replaced by the tint
