@@ -95,7 +95,11 @@ setAutoExposure(true);
 // Tier 1.5 — pale-blue distance haze. r,g,b,density,heightRef,
 // heightFalloff. Density 0.012 reads as a soft far-plane haze
 // without dimming the foreground.
-setFog(0.78, 0.84, 0.90, 0.012, 0.0, 200.0);
+// Pale-blue distance haze. Density ramps up at ground level and
+// clears within ~10 m above, so river dips and tree-base shadows
+// pool low fog while ridges stay clear — adds depth without
+// muddying the whole frame.
+setFog(0.78, 0.84, 0.90, 0.024, 0.0, 6.0);
 // Tier 1.7 — warm god-rays through the trees. Optional polish;
 // strength 0.4 keeps it subtle.
 setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
