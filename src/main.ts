@@ -12,7 +12,7 @@ import {
   createMesh, createMeshExplicit, compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
-  setProfilerEnabled, getProfilerOverlay, splatImpulse,
+  setProfilerEnabled, getProfilerOverlay, splatImpulse, setMaterialParams,
 } from 'bloom';
 import { setVignette, setFilmGrain } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
@@ -245,6 +245,14 @@ const WATER_WGSL =
   '#include "material_abi.wgsl"\n' +
   '#include "common/pbr.wgsl"\n' +
   '\n' +
+  '// Phase 5 — per-material user_params at @group(2) @binding(11).\n' +
+  '// Runtime tweakable from TS via setMaterialParams(matWater, [...]).\n' +
+  'struct WaterParams {\n' +
+  '  tint:     vec4<f32>,  // xyz = absorption tint, w = absorption mix\n' +
+  '  knobs:    vec4<f32>,  // x = foam strength, y = rim brightness, z = sky LOD, w = -\n' +
+  '};\n' +
+  '@group(2) @binding(11) var<uniform> water_params: WaterParams;\n' +
+  '\n' +
   'struct VsOut {\n' +
   '  @builtin(position) clip_pos: vec4<f32>,\n' +
   '  @location(0) world_pos: vec3<f32>,\n' +
@@ -308,20 +316,20 @@ const WATER_WGSL =
   '\n' +
   '  // Sky reflection from the engine env — roughness-biased LOD fakes a softer highlight.\n' +
   '  let r   = reflect(-v, n);\n' +
-  '  let sky = sample_env(r, 2.0);\n' +
+  '  let sky = sample_env(r, water_params.knobs.z);\n' +
   '\n' +
   '  // Schlick Fresnel.\n' +
   '  let cos_theta = max(dot(n, v), 0.0);\n' +
   '  let fresnel   = 0.02 + (1.0 - 0.02) * pow(1.0 - cos_theta, 5.0);\n' +
   '\n' +
-  '  // Absorption — blue-green tint mixed with the refracted scene.\n' +
-  '  let tinted = mix(vec3<f32>(0.10, 0.30, 0.40), refracted, 0.55);\n' +
+  '  // Absorption — tint + mix factor from user_params.\n' +
+  '  let tinted = mix(water_params.tint.xyz, refracted, water_params.tint.w);\n' +
   '  var water  = mix(tinted, sky, fresnel);\n' +
   '\n' +
   '  // Foam on wave crests (slope proxy — high when normal tilts off +Y).\n' +
   '  let crestness = clamp(1.0 - n.y, 0.0, 1.0);\n' +
   '  let foam      = smoothstep(0.08, 0.25, crestness);\n' +
-  '  water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * 0.6);\n' +
+  '  water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * water_params.knobs.x);\n' +
   '\n' +
   '  // Phase 4c — shoreline fade. Sample the opaque-depth snapshot,\n' +
   '  // linearise both that and the fragment depth to view-space Z\n' +
@@ -337,7 +345,7 @@ const WATER_WGSL =
   '  // Both z are negative (wgpu looks down -Z); water column = surf - floor.\n' +
   '  let column     = max(surf_z - floor_z, 0.0);\n' +
   '  let shore_t    = smoothstep(0.0, 0.15, column);\n' +
-  '  let rim        = (1.0 - shore_t) * 0.25;\n' +
+  '  let rim        = (1.0 - shore_t) * water_params.knobs.y;\n' +
   '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), rim);\n' +
   '\n' +
   '  // Phase 7 — sample the world-space impulse field for ripples.\n' +
@@ -357,6 +365,13 @@ const WATER_WGSL =
   '  return vec4<f32>(water, alpha);\n' +
   '}\n';
 const matWater = compileRefractiveMaterial(WATER_WGSL);
+// Phase 5 — water tuning constants live in a per-material UBO,
+// uploaded once at startup. Tweak these without recompiling the WGSL.
+//   tint  rgb (0..1)            absorption_mix  foam_strength  rim_brightness  sky_lod  pad
+setMaterialParams(matWater, [
+  0.10, 0.30, 0.40,              0.55,
+  0.60, 0.25,                    2.0,    0.0,
+]);
 
 // ---- Water plane mesh — tessellated for Gerstner displacement ----------
 // One flat XZ plane covering the whole river footprint in arena_02.
