@@ -502,6 +502,138 @@ const WATER_INDS  = new Array<number>(_wic);
 }
 const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
 
+// ---- Tier 2b grass — scattered cross-quad blades ------------------------
+// Generates a single big mesh of N blades placed via deterministic RNG
+// across the playfield. Each blade is a cross of two perpendicular
+// quads (8 verts × 2 sides = double-sided 12 indices, total 24 indices)
+// so every blade is visible from any horizontal angle without needing
+// to disable backface culling at the pipeline level.
+//
+// Heights are sampled from the engine's TERRAIN_HEIGHTS heightmap so
+// blades sit flat against the slope. Skip points that fall in the
+// river band, in/under the building footprint, or on too-steep
+// ground where blades would float visibly.
+const matGrass = compileMaterialFromFile('assets/materials/grass.wgsl', 'opaque');
+const GRASS_PARAMS = [
+  // wind: dir.xz, amplitude (max sway in m), frequency (rad/s)
+  0.85, 0.50,  0.10,  1.6,
+  // base hue rgb, jitter amount (0..1)
+  0.30, 0.46, 0.18,   0.55,
+];
+if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
+
+const GRASS_BLADE_COUNT = 4000;
+const GRASS_BLADE_W = 0.05;
+const GRASS_BLADE_H = 0.4;
+const GRASS_VERTS_PER_BLADE = 8;       // 4 verts per quad × 2 quads
+const GRASS_INDS_PER_BLADE  = 24;      // 6 per quad × 2 sides × 2 quads
+const _gvc = GRASS_BLADE_COUNT * GRASS_VERTS_PER_BLADE;
+const _gic = GRASS_BLADE_COUNT * GRASS_INDS_PER_BLADE;
+const GRASS_VERTS = new Array<number>(_gvc * 12);
+const GRASS_INDS  = new Array<number>(_gic);
+{
+  // Building rect (matches gen-building.ts)
+  const BX0 = -30, BX1 = -12, BZ0 = -19, BZ1 = -7;
+
+  let vi = 0, ii = 0, vbase = 0, placed = 0;
+  // Manual Lehmer-LCG state inline (Perry codegen quirks make
+  // closures-with-captures finicky; better to keep mutating state
+  // visible in the loop).
+  let seed = 0x12345 | 0;
+  for (let attempt = 0; attempt < GRASS_BLADE_COUNT * 3 && placed < GRASS_BLADE_COUNT; attempt++) {
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r1 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r2 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r3 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r4 = seed / 0x7fffffff;
+    const px = -38 + r1 * 76;
+    const pz = -38 + r2 * 76;
+    // Reject inside building or under it.
+    if (px > BX0 && px < BX1 && pz > BZ0 && pz < BZ1) continue;
+    // Reject inside the river band (visual + perf cost when underwater).
+    if (Math.abs(pz - 12) < 3.5 && Math.abs(px) < 40) continue;
+    // Sample TERRAIN_HEIGHTS bilinearly for the blade's Y so it
+    // sits flat on the heightmap. Inlined (Perry chokes on a
+    // helper closure that captures the array).
+    const u = (px - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
+    const v = (pz - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
+    let py = 0;
+    if (u >= 0 && v >= 0 && u < T.TERRAIN_SAMPLE_COUNT - 1 && v < T.TERRAIN_SAMPLE_COUNT - 1) {
+      const ix = Math.floor(u), iz = Math.floor(v);
+      const fx = u - ix, fz = v - iz;
+      const h00 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix];
+      const h10 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix + 1];
+      const h01 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix];
+      const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix + 1];
+      py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
+           (h01 * (1 - fx) + h11 * fx) * fz;
+    }
+    // Tiny per-blade height + hue jitter.
+    const heightScale = 0.85 + r3 * 0.30;
+    const hueJitter   = r4;
+    const w = GRASS_BLADE_W;
+    const h = GRASS_BLADE_H * heightScale;
+
+    // 8 verts × 12 floats inlined (Perry caps closures at 5 args).
+    // Layout: pos(3) normal(3) color(4) uv(2). color = (tip, jitter, 1, 1).
+    // Quad 1 — XY plane, normal +Z.
+    GRASS_VERTS[vi++] = px - w; GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = px + w; GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = px + w; GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = px - w; GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
+    // Quad 2 — YZ plane, normal +X.
+    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz - w;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz + w;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz + w;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz - w;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
+    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
+    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
+
+    // Indices — front + back triangles for each quad.
+    // Quad 1 front (CCW from +Z): 0,1,2  0,2,3
+    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 1; GRASS_INDS[ii++] = vbase + 2;
+    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 2; GRASS_INDS[ii++] = vbase + 3;
+    // Quad 1 back  (CCW from -Z): 0,2,1  0,3,2
+    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 2; GRASS_INDS[ii++] = vbase + 1;
+    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 3; GRASS_INDS[ii++] = vbase + 2;
+    // Quad 2 front: 4,5,6  4,6,7
+    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 5; GRASS_INDS[ii++] = vbase + 6;
+    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 6; GRASS_INDS[ii++] = vbase + 7;
+    // Quad 2 back: 4,6,5  4,7,6
+    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 6; GRASS_INDS[ii++] = vbase + 5;
+    GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 7; GRASS_INDS[ii++] = vbase + 6;
+
+    vbase += GRASS_VERTS_PER_BLADE;
+    placed++;
+  }
+}
+const matGrassMesh = createMeshExplicit(GRASS_VERTS, _gvc, GRASS_INDS, _gic);
+
 // ---- Phase 10 glass — second material consumer, proves the ABI works -----
 // Second material using the Phase 4b refractive path (scene-colour snapshot
 // at group 4). No Gerstner waves; flat normal, heavier Fresnel so edges
@@ -1233,6 +1365,14 @@ while (!windowShouldClose()) {
   if (matGlass > 0) {
     drawMeshWithMaterial(matGlass, matGlassMesh,
       vec3(-21, 0, -10), 1.0,
+      { r: 255, g: 255, b: 255, a: 255 });
+  }
+  // Tier 2b — grass scatter. One drawMeshWithMaterial covers all
+  // ~4000 blades; wind sway happens in the vertex shader from
+  // frame.time + per-blade world XZ.
+  if (matGrass > 0) {
+    drawMeshWithMaterial(matGrass, matGrassMesh,
+      vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
