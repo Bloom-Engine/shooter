@@ -14,7 +14,7 @@ import {
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
   setProfilerEnabled, getProfilerOverlay, splatImpulse, setMaterialParams,
-  compileMaterialFromFile,
+  compileMaterialFromFile, loadMaterial,
 } from 'bloom';
 import { setVignette, setFilmGrain } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
@@ -372,19 +372,21 @@ const WATER_WGSL =
 // in-place pipeline rebuild. The inline WATER_WGSL string above is
 // kept as a fallback when the file isn't readable — useful for
 // shipping single-binary builds where assets aren't on disk.
-const matWaterFromFile = compileMaterialFromFile(
-  'assets/materials/water.wgsl', 'refractive',
-);
+// Phase 5 — single loadMaterial call resolves shader + bucket and
+// uploads the user_params UBO. Hot-reload kicks in on shader edits;
+// params can still be retuned at runtime via setMaterialParams.
+//   tint rgb       absorption_mix  foam  rim   sky_lod  pad
+const matWaterFromFile = loadMaterial({
+  shader: 'assets/materials/water.wgsl',
+  bucket: 'refractive',
+  params: [
+    0.10, 0.30, 0.40,              0.55,
+    0.60, 0.25,                    2.0,    0.0,
+  ],
+});
 const matWater = matWaterFromFile > 0
   ? matWaterFromFile
   : compileRefractiveMaterial(WATER_WGSL);
-// Phase 5 — water tuning constants live in a per-material UBO,
-// uploaded once at startup. Tweak these without recompiling the WGSL.
-//   tint  rgb (0..1)            absorption_mix  foam_strength  rim_brightness  sky_lod  pad
-setMaterialParams(matWater, [
-  0.10, 0.30, 0.40,              0.55,
-  0.60, 0.25,                    2.0,    0.0,
-]);
 
 // ---- Water plane mesh — tessellated for Gerstner displacement ----------
 // One flat XZ plane covering the whole river footprint in arena_02.
