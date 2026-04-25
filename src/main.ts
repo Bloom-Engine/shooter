@@ -9,7 +9,8 @@ import {
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   loadModel, drawModel, loadModelAnimation, updateModelAnimation,
-  createMesh, createMeshExplicit, compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
+  createMesh, createMeshExplicit, genMeshCube,
+  compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
   setProfilerEnabled, getProfilerOverlay, splatImpulse, setMaterialParams,
@@ -497,7 +498,14 @@ const GLASS_WGSL =
   '  let alpha = 0.25 + 0.75 * fresnel;\n' +
   '  return vec4<f32>(glass, alpha);\n' +
   '}\n';
-const matGlass = compileRefractiveMaterial(GLASS_WGSL);
+// Phase 6 — glass also lives on disk + hot-reloadable. Inline WGSL
+// retained as a fallback for binary-only ship builds.
+const matGlassFromFile = compileMaterialFromFile(
+  'assets/materials/glass.wgsl', 'refractive',
+);
+const matGlass = matGlassFromFile > 0
+  ? matGlassFromFile
+  : compileRefractiveMaterial(GLASS_WGSL);
 
 // Glass pane mesh — a single 2m × 2.4m quad on the XY plane, normal +Z.
 // Subdivided 1×1 (two triangles) because glass has no per-vertex
@@ -514,6 +522,15 @@ const GLASS_VERTS: number[] = [
 // CCW from +Z so the pane is front-facing when viewed from outside.
 const GLASS_INDS: number[] = [0, 1, 2, 0, 2, 3];
 const matGlassMesh = createMesh(GLASS_VERTS, GLASS_INDS);
+
+// ---- Muzzle flash — additive-bucket material (Bucket::Additive) ----------
+// First consumer of the additive blend path. Fragment fakes a
+// volumetric warm flash inside a unit cube via radial falloff from
+// local-space centre. Per-draw tint alpha carries the flash intensity.
+const matMuzzleFlash = compileMaterialFromFile(
+  'assets/materials/muzzle_flash.wgsl', 'additive',
+);
+const matMuzzleFlashMesh = genMeshCube(1, 1, 1);
 
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
@@ -1241,19 +1258,20 @@ while (!windowShouldClose()) {
       muzzleZ = shoulder.z + fz * 0.28;
     }
 
-    // Muzzle flash — bright yellow core + wider orange halo that
-    // fades with muzzleFlashT. Two overlapping spheres read as a
-    // burst of flame even at small pixel sizes.
-    if (muzzleFlashT > 0) {
+    // Muzzle flash — additive material via Bucket::Additive. The
+    // shader builds a radial warm-yellow flash inside a unit cube;
+    // per-draw tint alpha is the flash intensity that the shader
+    // multiplies through. One drawMeshWithMaterial replaces the two
+    // alpha-blended drawSphere calls — better HDR + tonemap response,
+    // and a real test of the additive-bucket pipeline path.
+    if (muzzleFlashT > 0 && matMuzzleFlash > 0) {
       const k = muzzleFlashT / MUZZLE_FLASH_DUR;
-      const coreA = Math.min(255, Math.floor(k * 255));
-      const haloA = Math.min(200, Math.floor(k * 170));
-      const coreR = 0.10 + (1 - k) * 0.04;       // quick puff-out
-      const haloR = 0.22 + (1 - k) * 0.10;
-      drawSphere(vec3(muzzleX, muzzleY, muzzleZ), haloR,
-        { r: 255, g: 130, b:  40, a: haloA });
-      drawSphere(vec3(muzzleX, muzzleY, muzzleZ), coreR,
-        { r: 255, g: 240, b: 170, a: coreA });
+      // Quick puff-out: scale grows from 0.40 to ~0.55 m as the flash fades.
+      const flashScale = 0.40 + (1 - k) * 0.18;
+      const intensity255 = Math.min(255, Math.floor(k * 255));
+      drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+        vec3(muzzleX, muzzleY, muzzleZ), flashScale,
+        { r: 255, g: 200, b: 120, a: intensity255 });
     }
   }
   // Per-enemy: drive the skinned skeleton via updateModelAnimation (picks
