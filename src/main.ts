@@ -155,9 +155,27 @@ const treeVariants: number[] = [
   loadModel('assets/models/tree_default.glb'),
 ];
 let treePropIdx = -1;
+let terrainPropIdx = -1;
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
-  if (W.UNIQUE_MODELS[i] === 'assets/models/prop_tree.glb') { treePropIdx = i; break; }
+  if (W.UNIQUE_MODELS[i] === 'assets/models/prop_tree.glb')     { treePropIdx    = i; }
+  if (W.UNIQUE_MODELS[i] === 'assets/models/terrain_hills.glb') { terrainPropIdx = i; }
 }
+
+// Tier 2a — terrain colour material. Compile via the file-based
+// API for hot-reload, then push the param UBO via setMaterialParams
+// directly (loadMaterial's array-length pass-through is unreliable
+// under Perry — the FFI receives zero count for inline literals).
+//   grass_dry rgb  pad   grass_mid rgb  pad   grass_deep rgb pad   dirt rgb pad
+//   noise_freq, slope_threshold, ridge_height, pale_strength
+const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opaque');
+const TERRAIN_PARAMS = [
+  0.55, 0.62, 0.30,  0.0,
+  0.20, 0.46, 0.16,  0.0,
+  0.10, 0.28, 0.08,  0.0,
+  0.34, 0.26, 0.18,  0.0,
+  0.18, 0.78, 4.0,   0.55,
+];
+if (matTerrain > 0) setMaterialParams(matTerrain, TERRAIN_PARAMS);
 // Per-mesh collider from userData.collider === 'box'.
 for (let i = 0; i < W.MESH_COUNT; i++) {
   if (W.MESH_COLLIDER[i] === 1) {
@@ -418,21 +436,20 @@ const WATER_WGSL =
 // in-place pipeline rebuild. The inline WATER_WGSL string above is
 // kept as a fallback when the file isn't readable — useful for
 // shipping single-binary builds where assets aren't on disk.
-// Phase 5 — single loadMaterial call resolves shader + bucket and
-// uploads the user_params UBO. Hot-reload kicks in on shader edits;
-// params can still be retuned at runtime via setMaterialParams.
+// Phase 5 — file-backed compile + direct setMaterialParams. Going
+// through loadMaterial would be cleaner but Perry mishandles the
+// inline-array .length pass-through to the FFI right now (FFI sees
+// zero), so we set the params explicitly.
 //   tint rgb       absorption_mix  foam  rim   sky_lod  pad
-const matWaterFromFile = loadMaterial({
-  shader: 'assets/materials/water.wgsl',
-  bucket: 'refractive',
-  params: [
-    0.10, 0.30, 0.40,              0.55,
-    0.60, 0.25,                    2.0,    0.0,
-  ],
-});
+const matWaterFromFile = compileMaterialFromFile('assets/materials/water.wgsl', 'refractive');
 const matWater = matWaterFromFile > 0
   ? matWaterFromFile
   : compileRefractiveMaterial(WATER_WGSL);
+const WATER_PARAMS = [
+  0.10, 0.30, 0.40,              0.55,
+  0.60, 0.25,                    2.0,    0.0,
+];
+if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
 
 // ---- Water plane mesh — tessellated for Gerstner displacement ----------
 // One flat XZ plane covering the whole river footprint in arena_02.
@@ -1225,6 +1242,14 @@ while (!windowShouldClose()) {
       drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
                W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
                col);
+    } else if (mi === terrainPropIdx && matTerrain > 0) {
+      // Tier 2a — terrain via the colour-variation material. The
+      // material runs in the opaque pass; passes Lambert against
+      // PerView's directional sun + ambient, then writes both
+      // albedo and hdr.
+      drawMeshWithMaterial(matTerrain, meshModelHandles[mi] as any,
+                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+                W.MESH_SCALE[i], WHITE);
     } else if (mi === treePropIdx) {
       // Tier 3b — pick a tree variant + scale jitter from a stable
       // index hash. The Kenney tree GLBs have a much smaller
