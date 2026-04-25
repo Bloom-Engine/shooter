@@ -155,6 +155,20 @@ const treeVariants: number[] = [
   loadModel('assets/models/tree_default.glb'),
 ];
 
+// Tree wind-sway material. Vertex displaces proportional to local
+// y² (canopy moves more than trunk), per-tree phase derived from
+// world XZ origin so neighbours desync. Loaded via the file API
+// for hot-reload + drawn through drawMeshWithMaterial across both
+// primitives of the tree GLBs.
+const matTree = compileMaterialFromFile('assets/materials/tree.wgsl', 'opaque');
+const TREE_PARAMS = [
+  // wind dir.xz, max sway (m at canopy), wind frequency (rad/s)
+  0.85, 0.50,  0.18,  1.4,
+];
+if (matTree > 0) setMaterialParams(matTree, TREE_PARAMS);
+// All Kenney tree GLBs have 2 primitives (trunk + leaves).
+const TREE_MESH_COUNT = 2;
+
 // Forest scatter — pre-place ~120 trees across the open field at
 // startup using deterministic LCG. Each gets a variant, scale
 // jitter, position jitter, and a subtle per-tree hue tint so the
@@ -1556,13 +1570,23 @@ while (!windowShouldClose()) {
       vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Forest scatter — ~120 trees pre-placed at startup with
-  // deterministic LCG. drawModel call per tree; cheap.
+  // Forest scatter — ~120 trees pre-placed at startup. Through
+  // the tree wind-sway material when available; falls back to
+  // flat drawModel otherwise. Primitive 0 = trunk (warm brown),
+  // primitive 1 = leaves (green tinted with per-tree hue jitter).
   for (let i = 0; i < FOREST_COUNT; i++) {
-    drawModel(treeVariants[FOREST_VAR[i]],
-              vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]),
-              FOREST_SCALE[i],
-              { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 });
+    const pos = vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]);
+    const v = treeVariants[FOREST_VAR[i]];
+    const sc = FOREST_SCALE[i];
+    if (matTree > 0) {
+      const trunk = { r: 90, g: 60, b: 40, a: 255 };
+      const leaves = { r: FOREST_TINT_R[i] - 130, g: FOREST_TINT_G[i] - 65, b: FOREST_TINT_B[i] - 145, a: 255 };
+      drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, 0);
+      drawMeshWithMaterial(matTree, v as any, pos, sc, trunk, 1);
+    } else {
+      const fallback = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
+      drawModel(v, pos, sc, fallback);
+    }
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
@@ -1588,15 +1612,20 @@ while (!windowShouldClose()) {
                 W.MESH_SCALE[i], WHITE);
     } else if (mi === treePropIdx) {
       // Tier 3b — pick a tree variant + scale jitter from a stable
-      // index hash. The Kenney tree GLBs have a much smaller
-      // native size than the old prop_tree.glb cardboard, so the
-      // world MESH_SCALE values (≈1.0) get a 2.5× multiplier on
-      // top to reach garden-scale (~2.0–2.5 m tall trees).
+      // index hash. Wind-sway material when available; fall back
+      // to drawModel for the no-material case.
       const v = treeVariants[i & 3];
       const scaleJitter = 0.85 + ((i * 17) & 31) / 100.0;  // 0.85 .. 1.16
-      drawModel(v,
-                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
-                W.MESH_SCALE[i] * scaleJitter * 2.5, WHITE);
+      const sc = W.MESH_SCALE[i] * scaleJitter * 2.5;
+      const pos = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
+      if (matTree > 0) {
+        const trunk = { r: 90, g: 60, b: 40, a: 255 };
+        const leaves = { r: 110, g: 175, b:  90, a: 255 };
+        drawMeshWithMaterial(matTree, v as any, pos, sc, trunk, 0);
+        drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, 1);
+      } else {
+        drawModel(v, pos, sc, WHITE);
+      }
     } else {
       drawModel(meshModelHandles[mi],
                 vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
