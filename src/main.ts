@@ -13,6 +13,7 @@ import {
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
   setProfilerEnabled, getProfilerOverlay, splatImpulse, setMaterialParams,
+  compileMaterialFromFile,
 } from 'bloom';
 import { setVignette, setFilmGrain } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
@@ -364,7 +365,18 @@ const WATER_WGSL =
   '  let alpha = mix(0.45, 0.92, shore_t);\n' +
   '  return vec4<f32>(water, alpha);\n' +
   '}\n';
-const matWater = compileRefractiveMaterial(WATER_WGSL);
+// Phase 6 — water source lives in assets/materials/water.wgsl on
+// disk. compileMaterialFromFile registers the path with the engine's
+// hot-reload watcher; editing the file at runtime triggers an
+// in-place pipeline rebuild. The inline WATER_WGSL string above is
+// kept as a fallback when the file isn't readable — useful for
+// shipping single-binary builds where assets aren't on disk.
+const matWaterFromFile = compileMaterialFromFile(
+  'assets/materials/water.wgsl', 'refractive',
+);
+const matWater = matWaterFromFile > 0
+  ? matWaterFromFile
+  : compileRefractiveMaterial(WATER_WGSL);
 // Phase 5 — water tuning constants live in a per-material UBO,
 // uploaded once at startup. Tweak these without recompiling the WGSL.
 //   tint  rgb (0..1)            absorption_mix  foam_strength  rim_brightness  sky_lod  pad
