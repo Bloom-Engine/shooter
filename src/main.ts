@@ -1786,15 +1786,31 @@ while (!windowShouldClose()) {
     if (sparkT[i] > 0) {
       const t = sparkT[i] / 0.35;
       const a = Math.min(255, Math.floor(t * 255));
-      drawSphere(vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.25 * t + 0.05,
-        { r: 255, g: 240, b: 140, a });
+      if (matMuzzleFlash > 0) {
+        // Same additive material as the muzzle flash — radial warm
+        // burst with HDR intensity scaled by per-draw alpha.
+        drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+          vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.45 * t + 0.10,
+          { r: 255, g: 230, b: 140, a });
+      } else {
+        drawSphere(vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.25 * t + 0.05,
+          { r: 255, g: 240, b: 140, a });
+      }
     }
   }
-  // Blaster projectiles — glowing cyan spheres.
+  // Blaster projectiles — additive cyan plasma using the muzzle-
+  // flash mesh + material, tinted cool. The radial-falloff in the
+  // shader already produces the soft glow shape.
   for (let i = 0; i < MAX_PROJ; i++) {
     if (pLife[i] > 0) {
-      drawSphere(vec3(pX[i], pY[i], pZ[i]), 0.16,
-        { r: 140, g: 220, b: 255, a: 255 });
+      if (matMuzzleFlash > 0) {
+        drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+          vec3(pX[i], pY[i], pZ[i]), 0.30,
+          { r: 110, g: 200, b: 255, a: 255 });
+      } else {
+        drawSphere(vec3(pX[i], pY[i], pZ[i]), 0.16,
+          { r: 140, g: 220, b: 255, a: 255 });
+      }
     }
   }
   endMode3D();
