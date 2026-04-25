@@ -154,6 +154,70 @@ const treeVariants: number[] = [
   loadModel('assets/models/tree_detailed.glb'),
   loadModel('assets/models/tree_default.glb'),
 ];
+
+// Forest scatter — pre-place ~120 trees across the open field at
+// startup using deterministic LCG. Each gets a variant, scale
+// jitter, position jitter, and a subtle per-tree hue tint so the
+// forest doesn't read as "the same model copy-pasted." Trees go
+// in a flat array so the per-frame draw loop is a single pass.
+const FOREST_COUNT_MAX = 120;
+const FOREST_X     = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_Y     = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_Z     = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_VAR   = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_SCALE = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_TINT_R = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_TINT_G = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_TINT_B = new Array<number>(FOREST_COUNT_MAX);
+let FOREST_COUNT = 0;
+{
+  let seed = 0x55aa1234 | 0;
+  // Building rect to reject (matches gen-building.ts)
+  const BX0 = -30, BX1 = -12, BZ0 = -19, BZ1 = -7;
+  for (let attempt = 0; attempt < FOREST_COUNT_MAX * 4 && FOREST_COUNT < FOREST_COUNT_MAX; attempt++) {
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r1 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r2 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r3 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r4 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r5 = seed / 0x7fffffff;
+    const px = -36 + r1 * 72;
+    const pz = -36 + r2 * 72;
+    if (px > BX0 - 1 && px < BX1 + 1 && pz > BZ0 - 1 && pz < BZ1 + 1) continue;
+    if (Math.abs(pz - 12) < 4 && Math.abs(px) < 40) continue;          // river
+    if (Math.hypot(px - 3, pz - 18) < 6) continue;                       // player spawn
+    // Sample heightmap (inlined; same code as grass scatter).
+    const u = (px - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
+    const v = (pz - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
+    let py = 0;
+    if (u >= 0 && v >= 0 && u < T.TERRAIN_SAMPLE_COUNT - 1 && v < T.TERRAIN_SAMPLE_COUNT - 1) {
+      const ix = Math.floor(u), iz = Math.floor(v);
+      const fx = u - ix, fz = v - iz;
+      const h00 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix];
+      const h10 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix + 1];
+      const h01 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix];
+      const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix + 1];
+      py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
+           (h01 * (1 - fx) + h11 * fx) * fz;
+    }
+    FOREST_X[FOREST_COUNT]     = px;
+    FOREST_Y[FOREST_COUNT]     = py;
+    FOREST_Z[FOREST_COUNT]     = pz;
+    FOREST_VAR[FOREST_COUNT]   = Math.floor(r3 * 4) & 3;
+    FOREST_SCALE[FOREST_COUNT] = 2.5 * (0.78 + r4 * 0.45);  // 1.95 .. 3.06
+    // Per-tree hue tint — slight greens vary canopy, drier on the
+    // sunny side. Shifts ±10% around white.
+    const hueShift = (r5 - 0.5) * 0.20;
+    FOREST_TINT_R[FOREST_COUNT] = Math.max(0, Math.min(255, Math.floor(255 * (1.0 - hueShift * 0.5))));
+    FOREST_TINT_G[FOREST_COUNT] = Math.max(0, Math.min(255, Math.floor(255 * (1.0 + hueShift * 0.4))));
+    FOREST_TINT_B[FOREST_COUNT] = Math.max(0, Math.min(255, Math.floor(255 * (1.0 - hueShift * 0.6))));
+    FOREST_COUNT++;
+  }
+}
 let treePropIdx = -1;
 let terrainPropIdx = -1;
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
@@ -1466,6 +1530,14 @@ while (!windowShouldClose()) {
     drawMeshWithMaterial(matBuilding, matBuildingMesh,
       vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
+  }
+  // Forest scatter — ~120 trees pre-placed at startup with
+  // deterministic LCG. drawModel call per tree; cheap.
+  for (let i = 0; i < FOREST_COUNT; i++) {
+    drawModel(treeVariants[FOREST_VAR[i]],
+              vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]),
+              FOREST_SCALE[i],
+              { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 });
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
