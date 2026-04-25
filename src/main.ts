@@ -13,7 +13,8 @@ import {
   compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
-  setProfilerEnabled, getProfilerOverlay, splatImpulse, setMaterialParams,
+  setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
+  splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
 } from 'bloom';
 import { setVignette, setFilmGrain } from 'bloom/core';
@@ -1431,7 +1432,34 @@ while (!windowShouldClose()) {
     const rows = getProfilerOverlay();
     const rowH = 16;
     const ox = sw - 360;
-    const oy = 60;
+    // Phase 8 — frame-time histogram on top of the pass list so it
+    // stays visible regardless of how many passes are running. Each
+    // bar is one frame; height = total CPU+GPU time scaled to a
+    // 16.7 ms (60 fps) reference. Bars over full height = dropped
+    // frames (drawn red).
+    const hist = getProfilerFrameHistory();
+    const histY = 60;
+    const histH = 56;
+    const barW = 2;
+    const histW = Math.min(hist.length * barW, 360 - 16);
+    const refMs = 16.667;
+    drawRect(ox - 8, histY - 8, 360, histH + 32, { r: 0, g: 0, b: 0, a: 180 });
+    drawText('frame total ms (cpu+gpu, scale = 60 fps)',
+             ox, histY, 12, { r: 220, g: 220, b: 255, a: 230 });
+    drawRect(ox, histY + 18 + histH - 1, histW, 1,
+             { r: 100, g: 200, b: 100, a: 180 });
+    for (let i = 0; i < hist.length && i * barW < histW; i++) {
+      const totalMs = (hist[i].cpuUs + hist[i].gpuUs) / 1000;
+      const h = Math.max(1, Math.min(histH, Math.floor(totalMs / refMs * histH)));
+      const overBudget = totalMs > refMs;
+      const col = overBudget
+        ? { r: 230, g: 100, b:  90, a: 220 }
+        : { r:  90, g: 180, b: 230, a: 200 };
+      drawRect(ox + i * barW, histY + 18 + histH - h, barW - 1, h, col);
+    }
+
+    // Per-pass table below the histogram.
+    const oy = histY + histH + 36;
     drawRect(ox - 8, oy - 8, 360, rowH * (rows.length + 2) + 12,
              { r: 0, g: 0, b: 0, a: 180 });
     drawText('pass                    cpu µs    gpu µs',
