@@ -142,6 +142,22 @@ const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
 }
+// Tier 3b — replace the cardboard-cutout prop_tree.glb with four
+// real CC0 variants (oak, fat, detailed, default) drawn in
+// rotation. Picked per-mesh by index hash so the same world
+// always lays out the same trees, but adjacent trees never
+// match exactly. Scale jitter via the same hash adds height
+// variety. See docs/visual-quality.md.
+const treeVariants: number[] = [
+  loadModel('assets/models/tree_oak.glb'),
+  loadModel('assets/models/tree_fat.glb'),
+  loadModel('assets/models/tree_detailed.glb'),
+  loadModel('assets/models/tree_default.glb'),
+];
+let treePropIdx = -1;
+for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
+  if (W.UNIQUE_MODELS[i] === 'assets/models/prop_tree.glb') { treePropIdx = i; break; }
+}
 // Per-mesh collider from userData.collider === 'box'.
 for (let i = 0; i < W.MESH_COUNT; i++) {
   if (W.MESH_COLLIDER[i] === 1) {
@@ -1209,6 +1225,17 @@ while (!windowShouldClose()) {
       drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
                W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
                col);
+    } else if (mi === treePropIdx) {
+      // Tier 3b — pick a tree variant + scale jitter from a stable
+      // index hash. The Kenney tree GLBs have a much smaller
+      // native size than the old prop_tree.glb cardboard, so the
+      // world MESH_SCALE values (≈1.0) get a 2.5× multiplier on
+      // top to reach garden-scale (~2.0–2.5 m tall trees).
+      const v = treeVariants[i & 3];
+      const scaleJitter = 0.85 + ((i * 17) & 31) / 100.0;  // 0.85 .. 1.16
+      drawModel(v,
+                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+                W.MESH_SCALE[i] * scaleJitter * 2.5, WHITE);
     } else {
       drawModel(meshModelHandles[mi],
                 vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
