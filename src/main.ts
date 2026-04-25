@@ -445,9 +445,13 @@ const matWaterFromFile = compileMaterialFromFile('assets/materials/water.wgsl', 
 const matWater = matWaterFromFile > 0
   ? matWaterFromFile
   : compileRefractiveMaterial(WATER_WGSL);
+// Tier 4 layout: absorption coefficient (red dies fastest, blue
+// slowest), deep-water colour (greenish-teal), then knobs:
+//   foam, rim, sky_lod, micro_normal_strength.
 const WATER_PARAMS = [
-  0.10, 0.30, 0.40,              0.55,
-  0.60, 0.25,                    2.0,    0.0,
+  0.55, 0.10, 0.05,   0.0,    // absorption per metre
+  0.05, 0.18, 0.28,   0.0,    // deep_tint
+  0.60, 0.25,         2.0,   0.18,    // foam / rim / sky_lod / micro_strength
 ];
 if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
 
