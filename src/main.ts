@@ -168,10 +168,14 @@ const matTree = compileMaterialFromFile('assets/materials/tree.wgsl', 'opaque');
 const TREE_PARAMS = [
   // wind dir.xz, max sway (m at canopy), wind frequency (rad/s)
   0.85, 0.50,  0.18,  1.4,
+  // trunk colour rgb, trunk_top_y (model-space height below which
+  // a vertex reads as trunk). Kenney tree trunks top out around
+  // y ≈ 0.6 in model space.
+  0.30, 0.20,  0.12,  0.65,
 ];
 if (matTree > 0) setMaterialParams(matTree, TREE_PARAMS);
-// All Kenney tree GLBs have 2 primitives (trunk + leaves).
-const TREE_MESH_COUNT = 2;
+// Kenney trees mix 2 or 3 primitives — read meshCount per-variant.
+const TREE_MESH_COUNTS: number[] = [2, 2, 3, 2];  // oak, fat, detailed, default
 
 // Forest scatter — pre-place ~120 trees across the open field at
 // startup using deterministic LCG. Each gets a variant, scale
@@ -1583,10 +1587,19 @@ while (!windowShouldClose()) {
     const v = treeVariants[FOREST_VAR[i]];
     const sc = FOREST_SCALE[i];
     if (matTree > 0) {
-      const trunk = { r: 90, g: 60, b: 40, a: 255 };
-      const leaves = { r: FOREST_TINT_R[i] - 130, g: FOREST_TINT_G[i] - 65, b: FOREST_TINT_B[i] - 145, a: 255 };
-      drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, 0);
-      drawMeshWithMaterial(matTree, v as any, pos, sc, trunk, 1);
+      // Single per-tree leaf tint. Material handles trunk-vs-leaf
+      // split internally based on local-y, so we can render every
+      // primitive of the GLB with the same colour and the trunk
+      // still reads as brown.
+      const leaves = {
+        r: Math.max(0, Math.min(255, FOREST_TINT_R[i] - 165)),
+        g: Math.max(0, Math.min(255, FOREST_TINT_G[i] -  85)),
+        b: Math.max(0, Math.min(255, FOREST_TINT_B[i] - 195)),
+        a: 255 };
+      const meshCount = TREE_MESH_COUNTS[FOREST_VAR[i]];
+      for (let mIdx = 0; mIdx < meshCount; mIdx++) {
+        drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, mIdx);
+      }
     } else {
       const fallback = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
       drawModel(v, pos, sc, fallback);
@@ -1623,10 +1636,11 @@ while (!windowShouldClose()) {
       const sc = W.MESH_SCALE[i] * scaleJitter * 2.5;
       const pos = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
       if (matTree > 0) {
-        const trunk = { r: 90, g: 60, b: 40, a: 255 };
-        const leaves = { r: 110, g: 175, b:  90, a: 255 };
-        drawMeshWithMaterial(matTree, v as any, pos, sc, trunk, 0);
-        drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, 1);
+        const leaves = { r: 80, g: 165, b: 55, a: 255 };
+        const meshCount = TREE_MESH_COUNTS[i & 3];
+        for (let mIdx = 0; mIdx < meshCount; mIdx++) {
+          drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, mIdx);
+        }
       } else {
         drawModel(v, pos, sc, WHITE);
       }

@@ -12,7 +12,12 @@ struct TreeParams {
   // x,y = wind direction (xz plane, normalised)
   // z   = max sway in metres at the canopy
   // w   = wind temporal frequency (rad/s)
-  wind: vec4<f32>,
+  wind:   vec4<f32>,
+  // Trunk colour (brown). Mixed with the per-draw leaf tint via
+  // a vertical band so we can render all primitives with one
+  // tint per tree — trunk colour is the same across every tree
+  // and lives in this UBO, leaves come through draw.model_tint.
+  trunk:  vec4<f32>,  // xyz rgb, w trunk_top_y (vertices below this read as trunk)
 };
 @group(2) @binding(11) var<uniform> tp: TreeParams;
 
@@ -20,6 +25,8 @@ struct VsOut {
   @builtin(position) clip_pos:     vec4<f32>,
   @location(0)       world_pos:    vec3<f32>,
   @location(1)       world_normal: vec3<f32>,
+  // local-y of the vertex — used in fs to blend trunk vs leaf colour
+  @location(2)       local_y:      f32,
 };
 
 @vertex
@@ -51,6 +58,7 @@ fn vs_main(in: VertexInput) -> VsOut {
   out.world_pos    = world_pos;
   out.world_normal = world_normal;
   out.clip_pos     = view.view_proj * vec4<f32>(world_pos, 1.0);
+  out.local_y      = in.position.y;
   return out;
 }
 
@@ -71,9 +79,11 @@ fn cloud_shadow(world_xz: vec2<f32>, t: f32) -> f32 {
 @fragment
 fn fs_main(in: VsOut) -> OpaqueOut {
   let n = normalize(in.world_normal);
-  // Per-draw tint applies to whole tree; the engine's drawModel
-  // already varied this per-tree so we get colour variety for free.
-  let albedo = draw.model_tint.rgb;
+  // Blend trunk colour (UBO) and leaf colour (per-draw tint) by
+  // vertex local-y. trunk_top_y is the cutoff height in model
+  // space; everything below reads as trunk, above as leaves.
+  let trunk_t  = smoothstep(tp.trunk.w - 0.20, tp.trunk.w + 0.20, in.local_y);
+  let albedo   = mix(tp.trunk.rgb, draw.model_tint.rgb, trunk_t);
 
   let sun_dir = normalize(-view.sun_dir.xyz);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
