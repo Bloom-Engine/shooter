@@ -22,6 +22,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
+import { encodePng, leafTexture, barkTexture, grassBladeTexture, flowerTexture,
+         stoneTexture, woodTexture, metalTexture, floorTexture } from './png';
 
 const TEX_MAX = 512;
 const TEX_ROOT = 'vendor/unvanquished/pkg/tex-tech_src.dpkdir/textures/shared_tech_src';
@@ -40,6 +42,9 @@ interface Part {
   textureKey: string | null;         // Resolved to texture index if non-null
   roughness: number;
   metallic: number;
+  alphaMode?: 'MASK';                 // alpha-cutout (foliage cards)
+  alphaCutoff?: number;              // threshold for MASK (default 0.5)
+  doubleSided?: boolean;             // render both faces (foliage)
 }
 
 type Mesh = Part[];
@@ -192,7 +197,25 @@ const TEX_SPECS: Record<string, TextureSpec> = {
   floor:     { key: 'floor',     srcPath: TEX_ROOT + '/floortile2_d.png' },
 };
 
+// Procedurally-generated textures (PNG bytes) — no external source needed.
+// Leaf is RGBA with a real alpha channel for alpha-cutout foliage cards.
+const PROC_TEX: Record<string, Uint8Array> = {
+  leaf:        encodePng(256, 256, leafTexture(256)),
+  bark:        encodePng(256, 256, barkTexture(256)),
+  grass_blade: encodePng(256, 256, grassBladeTexture(256)),
+  flower:      encodePng(256, 256, flowerTexture(256)),
+  // Stone/wood/metal/floor: procedural fallbacks so the building + props are
+  // properly textured even when the Unvanquished tex-tech vendor source isn't
+  // present (it isn't on this machine — see TEX_ROOT). Without these the wall
+  // fell back to a flat solid grey, reading as a plain white box.
+  stone: encodePng(512, 512, stoneTexture(512)),
+  wood:  encodePng(512, 512, woodTexture(512)),
+  metal: encodePng(256, 256, metalTexture(256)),
+  floor: encodePng(512, 512, floorTexture(512)),
+};
+
 function resolveTexture(key: string): Uint8Array {
+  if (PROC_TEX[key]) return PROC_TEX[key];
   const spec = TEX_SPECS[key];
   if (!spec) throw new Error('unknown texture key: ' + key);
   if (!existsSync(spec.srcPath)) {
@@ -221,13 +244,133 @@ const FLOOR_WOOD: [number, number, number]  = [0.80, 0.65, 0.48];
 const FABRIC_RED: [number, number, number]  = [0.68, 0.20, 0.18];
 const FABRIC_WHITE: [number, number, number] = [0.92, 0.90, 0.85];
 
+// Append a double-sided alpha-cutout leaf card (a textured quad) to shared
+// vertex/index arrays. `yaw` rotates the card's facing around Y; `tilt` lifts
+// the facing toward the sky. Double-sided = front quad (normal n) + back quad
+// (normal -n, reversed winding) so the leaves read from any viewing side.
+function addLeafCard(verts: number[], indices: number[],
+                     cx: number, cy: number, cz: number,
+                     w: number, h: number, yaw: number, tilt: number): void {
+  const ct = Math.cos(tilt), st = Math.sin(tilt);
+  let nx = Math.sin(yaw) * ct, ny = st, nz = Math.cos(yaw) * ct;
+  // right = normalize(cross(worldUp, n)); up = normalize(cross(n, right)).
+  let rx = nz, ry = 0, rz = -nx;
+  const rl = Math.hypot(rx, ry, rz) || 1; rx /= rl; ry /= rl; rz /= rl;
+  let ux = ny * rz - nz * ry, uy = nz * rx - nx * rz, uz = nx * ry - ny * rx;
+  const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+  const hw = w * 0.5, hh = h * 0.5;
+  const corner = (sx: number, sy: number, u: number, v: number) => [
+    cx + rx * hw * sx + ux * hh * sy,
+    cy + ry * hw * sx + uy * hh * sy,
+    cz + rz * hw * sx + uz * hh * sy,
+    u, v,
+  ];
+  const cs = [corner(-1, -1, 0, 0), corner(1, -1, 1, 0), corner(1, 1, 1, 1), corner(-1, 1, 0, 1)];
+  const b0 = verts.length / 8;
+  for (const c of cs) verts.push(c[0], c[1], c[2], nx, ny, nz, c[3], c[4]);
+  indices.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
+  const b1 = verts.length / 8;
+  for (const c of cs) verts.push(c[0], c[1], c[2], -nx, -ny, -nz, c[3], c[4]);
+  indices.push(b1, b1 + 2, b1 + 1, b1, b1 + 3, b1 + 2);
+}
+
+// PUBG-style tree: a bark-textured trunk + a canopy built from a cloud of
+// alpha-cutout leaf cards (instead of solid green cones). The leaf texture has
+// a real alpha channel; the GLB material is alphaMode=MASK so the engine's
+// fragment shader discards the gaps → see-through, leafy foliage that casts
+// and receives shadows through the normal drawModel path.
 function makeTree(): Mesh {
   const m: Mesh = [];
-  pushCylinder(m, 0, 1.2, 0, 0.22, 1.2, 8, BARK, 0.95, 0.0);
-  pushCone(m, 0, 1.2, 0, 1.1, 1.0, 10, LEAF);
-  pushCone(m, 0, 2.0, 0, 0.95, 1.0, 10, LEAF);
-  pushCone(m, 0, 2.8, 0, 0.75, 1.0, 10, LEAF);
+  // Trunk: two stacked bark cylinders, narrower toward the top (slight taper).
+  pushCylinder(m, 0, 0.9, 0, 0.26, 0.9, 9, [1, 1, 1], 0.95, 0.0, 'bark');
+  pushCylinder(m, 0, 2.1, 0, 0.17, 0.5, 9, [1, 1, 1], 0.95, 0.0, 'bark');
+
+  // Deterministic pseudo-random so the GLB is reproducible.
+  let seed = 90187;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+
+  const fv: number[] = [], fi: number[] = [];
+  const CANOPY_Y = 3.0, CANOPY_R = 1.7;
+  // Three stacked rings (skirt → middle → crown) plus a top cap, so the canopy
+  // reads as a full rounded dome from every angle. Each ring's cards face
+  // outward, tilted progressively more skyward toward the crown.
+  const rings = [
+    { count: 16, y: 2.2, r: 1.15, tilt: 0.02, size: 1.9 },
+    { count: 18, y: 2.8, r: 1.05, tilt: 0.20, size: 2.0 },
+    { count: 16, y: 3.4, r: 0.85, tilt: 0.45, size: 1.8 },
+    { count: 10, y: 4.0, r: 0.55, tilt: 0.70, size: 1.5 },
+  ];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.count; i++) {
+      const yaw = (i / ring.count) * Math.PI * 2 + (rnd() - 0.5) * 0.8;
+      const r = CANOPY_R * ring.r * (0.7 + rnd() * 0.5);
+      const cy = ring.y + (rnd() - 0.5) * 0.7;
+      const cx = Math.sin(yaw) * r * 0.7;
+      const cz = Math.cos(yaw) * r * 0.7;
+      const size = ring.size * (0.7 + rnd() * 0.7);   // wide size variation
+      addLeafCard(fv, fi, cx, cy, cz, size, size, yaw, ring.tilt + rnd() * 0.35);
+    }
+  }
+  // Near-horizontal cards capping the very top (fills the top-down view).
+  for (let i = 0; i < 8; i++) {
+    addLeafCard(fv, fi, (rnd() - 0.5) * 1.4, CANOPY_Y + 1.25 + rnd() * 0.45,
+                (rnd() - 0.5) * 1.4, 1.7, 1.7, rnd() * Math.PI * 2, 1.15);
+  }
+  // Irregular outliers — clumps sticking out past the dome so the silhouette
+  // is ragged + natural, not a clean sphere/box.
+  for (let i = 0; i < 9; i++) {
+    const yaw = rnd() * Math.PI * 2;
+    const r = CANOPY_R * (1.0 + rnd() * 0.5);
+    addLeafCard(fv, fi, Math.sin(yaw) * r, CANOPY_Y + (rnd() - 0.3) * 2.2,
+                Math.cos(yaw) * r, 1.1 + rnd() * 0.9, 1.1 + rnd() * 0.9,
+                yaw, rnd() * 0.7);
+  }
+  m.push({
+    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'leaf',
+    roughness: 0.9, metallic: 0.0, alphaMode: 'MASK', alphaCutoff: 0.5,
+  });
   return m;
+}
+
+// Scattered ground grass tuft: a few crossed alpha-cutout blade cards rooted at
+// the ground (card bottom at y=0). alphaMode MASK → the engine discards the gaps
+// and, because the material is alpha-cutout, the foliage wind-sway + backlit
+// translucency in the scene shader both apply (it sways in the breeze).
+function makeGrassTuft(): Mesh {
+  const fv: number[] = [], fi: number[] = [];
+  let seed = 24681;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const blades = 5;
+  for (let i = 0; i < blades; i++) {
+    const yaw = (i / blades) * Math.PI + (rnd() - 0.5) * 0.7;
+    const h = 0.42 + rnd() * 0.34;
+    const w = 0.55 + rnd() * 0.35;
+    const ox = (rnd() - 0.5) * 0.28, oz = (rnd() - 0.5) * 0.28;
+    addLeafCard(fv, fi, ox, h * 0.5, oz, w, h, yaw, (rnd() - 0.5) * 0.15);
+  }
+  return [{
+    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'grass_blade',
+    roughness: 0.95, metallic: 0.0, alphaMode: 'MASK', alphaCutoff: 0.4,
+  }];
+}
+
+// Wildflower clump: a couple of crossed alpha-cutout flower cards, rooted at
+// the ground. Same foliage path as the grass tufts (sways in the wind).
+function makeFlowerTuft(): Mesh {
+  const fv: number[] = [], fi: number[] = [];
+  let seed = 51237;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let i = 0; i < 3; i++) {
+    const yaw = (i / 3) * Math.PI + (rnd() - 0.5) * 0.6;
+    const h = 0.34 + rnd() * 0.22;
+    const w = 0.40 + rnd() * 0.20;
+    const ox = (rnd() - 0.5) * 0.2, oz = (rnd() - 0.5) * 0.2;
+    addLeafCard(fv, fi, ox, h * 0.5, oz, w, h, yaw, 0.0);
+  }
+  return [{
+    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'flower',
+    roughness: 0.95, metallic: 0.0, alphaMode: 'MASK', alphaCutoff: 0.4,
+  }];
 }
 
 function makeCrate(): Mesh {
@@ -288,6 +431,46 @@ function makeBuildingWall(): Mesh {
 function makeBuildingFloor(): Mesh {
   const m: Mesh = [];
   pushBox(m, 0, -0.05, 0, 2.0, 0.05, 2.0, FLOOR_WOOD, 0.85, 0.0, 'floor');
+  return m;
+}
+
+// Bake the whole house — every "building"-tagged box collider in the world —
+// into ONE stone-textured mesh whose vertices are already in world space, so
+// the runtime draws it with a single drawModel at the origin (scale 1) instead
+// of dozens of flat-coloured drawCube placeholders. The boxes stay as invisible
+// physics colliders (created separately in main.ts); this only replaces their
+// look. pushBox tiles the stone at TILE_METRES (2 m), so block size is uniform
+// across walls of any dimension.
+function makeHouse(worldPath: string): Mesh {
+  const world = JSON.parse(readFileSync(worldPath, 'utf8'));
+  const m: Mesh = [];
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxY = -Infinity;
+  for (const e of world.entities) {
+    const ud = e.userData || {};
+    const tags: string[] = e.tags || [];
+    if (ud.kind !== 'static_mesh' || ud.collider !== 'box') continue;
+    if (tags.indexOf('building') < 0) continue;
+    const p = e.transform.position;
+    const he = String(ud.halfExtents).split(',').map((t: string) => parseFloat(t.trim()));
+    pushBox(m, p[0], p[1], p[2], he[0], he[1], he[2], STONE, 0.92, 0.0, 'stone');
+    // Track footprint from the tall perimeter walls only (he.y > 1) so the
+    // roof spans the building, not the low entrance steps that stick out.
+    if (he[1] > 1.0) {
+      minX = Math.min(minX, p[0] - he[0]); maxX = Math.max(maxX, p[0] + he[0]);
+      minZ = Math.min(minZ, p[2] - he[2]); maxZ = Math.max(maxZ, p[2] + he[2]);
+      maxY = Math.max(maxY, p[1] + he[1]);
+    }
+  }
+  // Cap the open enclosure with a flat wooden-plank roof + a small overhang and
+  // a stone fascia band just under the eaves, so it reads as a finished house.
+  if (maxY > -Infinity) {
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    const hx = (maxX - minX) / 2 + 0.35, hz = (maxZ - minZ) / 2 + 0.35;
+    pushBox(m, cx, maxY + 0.02, cz, hx - 0.34, 0.10, hz - 0.34,
+            [0.42, 0.46, 0.50], 0.9, 0.0, 'stone');        // stone fascia just below eaves
+    pushBox(m, cx, maxY + 0.18, cz, hx, 0.12, hz,
+            [0.34, 0.24, 0.17], 0.85, 0.0, 'wood');         // wooden roof deck + overhang
+  }
   return m;
 }
 
@@ -412,7 +595,13 @@ function writeGlb(outPath: string, mesh: Mesh): void {
         pbr.baseColorFactor = [1.0, 1.0, 1.0, 1.0];
       }
     }
-    materials.push({ name: 'mat_' + i, pbrMetallicRoughness: pbr });
+    const matObj: any = { name: 'mat_' + i, pbrMetallicRoughness: pbr };
+    if (p.alphaMode === 'MASK') {
+      matObj.alphaMode = 'MASK';
+      matObj.alphaCutoff = p.alphaCutoff ?? 0.5;
+    }
+    if (p.doubleSided) matObj.doubleSided = true;
+    materials.push(matObj);
 
     primitives.push({
       attributes: { POSITION: aPos, NORMAL: aNrm, TEXCOORD_0: aUv },
@@ -474,7 +663,18 @@ function writeGlb(outPath: string, mesh: Mesh): void {
   console.log('wrote', outPath, '(' + out.length, 'bytes,', mesh.length, 'parts,', texBytes.filter(b => b.length > 0).length, 'textures)');
 }
 
+// The tree is fully procedural (leaf + bark textures generated here), so it
+// always regenerates. The remaining props bake Unvanquished tex-tech sources
+// (vendor/, gitignored) via macOS `sips`; only regenerate those when the source
+// tree is present, so a tree-only rebuild on a fresh/Windows checkout doesn't
+// strip the committed textures from the other props.
+// All props build unconditionally now: stone/wood/metal/floor have procedural
+// PROC_TEX fallbacks (see resolveTexture), so the building + furniture are
+// fully textured even without the Unvanquished tex-tech vendor source. (They
+// previously fell back to a flat solid grey — the "white box" building.)
 writeGlb('assets/models/prop_tree.glb',      makeTree());
+writeGlb('assets/models/prop_grasstuft.glb', makeGrassTuft());
+writeGlb('assets/models/prop_flower.glb',    makeFlowerTuft());
 writeGlb('assets/models/prop_crate.glb',     makeCrate());
 writeGlb('assets/models/prop_barrel.glb',    makeBarrel());
 writeGlb('assets/models/prop_table.glb',     makeTable());
@@ -482,3 +682,4 @@ writeGlb('assets/models/prop_chair.glb',     makeChair());
 writeGlb('assets/models/prop_bed.glb',       makeBed());
 writeGlb('assets/models/building_wall.glb',  makeBuildingWall());
 writeGlb('assets/models/building_floor.glb', makeBuildingFloor());
+writeGlb('assets/models/house.glb',          makeHouse('assets/worlds/arena_02.world.json'));

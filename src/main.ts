@@ -8,12 +8,22 @@ import {
   vec3,
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
-  loadModel, drawModel, loadModelAnimation, updateModelAnimation,
-  createMesh, compileMaterial, drawMeshWithMaterial,
+  loadModel, drawModel, drawModelRotated, loadModelAnimation, updateModelAnimation,
+  createMesh, compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
+  genMeshCube, createPlanarReflection, setMaterialReflectionProbe,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
 } from 'bloom';
-import { setVignette, setFilmGrain } from 'bloom/core';
+import {
+  setVignette, setFilmGrain,
+  setQualityPreset, QualityPreset,
+  setShadowsEnabled, setSsaoEnabled, setSsaoIntensity, setSsaoRadius,
+  setBloomEnabled, setBloomIntensity, setTaaEnabled,
+  setAutoExposure, setManualExposure, setAutoExposureKey, setEnvIntensity,
+  setSsrEnabled, setSsgiEnabled, setSsgiIntensity, setFog, setSunShafts,
+  setTonemap, Tonemap, setWind,
+} from 'bloom/core';
+import { setProceduralSky, setSunDirection } from 'bloom';
 import { addPointLight } from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
@@ -30,6 +40,28 @@ initWindow(1024, 640, 'Bloom Shooter');
 setTargetFPS(60);
 initInput();
 
+// ---- Loading screen -------------------------------------------------------
+// The heavy startup work (GLB model parse/upload, the tessellated water-mesh
+// scratch upload, audio decode) runs synchronously before the game loop, so
+// the window would otherwise sit frozen-black for several seconds. Render a
+// progress frame between the major steps so startup shows a bar.
+function drawLoading(progress: number, label: string): void {
+  beginDrawing();
+  clearBackground({ r: 16, g: 18, b: 26, a: 255 });
+  const sw = getScreenWidth(), sh = getScreenHeight();
+  const title = 'BLOOM SHOOTER';
+  drawText(title, (sw - measureText(title, 34)) / 2, sh * 0.30, 34,
+           { r: 222, g: 232, b: 244, a: 255 });
+  const bw = 440, bh = 22, bx = (sw - bw) / 2, by = sh * 0.55;
+  const p = progress < 0 ? 0 : (progress > 1 ? 1 : progress);
+  drawText(label, bx, by - 26, 15, { r: 165, g: 178, b: 196, a: 255 });
+  drawRect(bx - 2, by - 2, bw + 4, bh + 4, { r: 70, g: 78, b: 92, a: 255 });
+  drawRect(bx, by, bw, bh, { r: 28, g: 31, b: 40, a: 255 });
+  drawRect(bx, by, bw * p, bh, { r: 96, g: 176, b: 226, a: 255 });
+  endDrawing();
+}
+drawLoading(0.05, 'Starting up…');
+
 // ---- M8 polish: audio -----------------------------------------------------
 initAudio();
 const sfxFire = loadSound('assets/sounds/rifle_fire.wav');
@@ -41,6 +73,7 @@ setSoundVolume(sfxPickup, 0.8);
 const musicAmbient = loadMusic('assets/sounds/ambient.ogg');
 setMusicVolume(musicAmbient, 0.35);
 playMusic(musicAmbient);
+drawLoading(0.20, 'Building world…');
 
 const physics = createWorld({ gravity: vec3(0, -20, 0) });
 // Make NON_MOVING (static) and MOVING (character/dynamic) collide.
@@ -105,6 +138,7 @@ for (let i = 0; i < W.COLLIDER_COUNT; i++) {
 const MESH_TINT_R = [150, 196, 120, 130];
 const MESH_TINT_G = [148, 168,  90,  95];
 const MESH_TINT_B = [140, 130,  70,  80];
+drawLoading(0.35, 'Loading models…');
 const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
@@ -136,11 +170,13 @@ createPlayer(physics, spawnPos);
 //   CAM[2] camX          CAM[7] tgtZ
 //   CAM[3] camY          CAM[8] initialised (0/1)
 //   CAM[4] camZ
-const CAM = [spawnYaw, 0.35, 0, 0, 0, 0, 0, 0, 0];
-const TP_PITCH_MIN = -0.25;
-const TP_PITCH_MAX = 1.20;
-const TP_ORBIT_DIST = 6.0;
+const CAM = [spawnYaw, 0.3, 0, 0, 0, 0, 0, 0, 0];
+// Third-person orbit pitch limits (camera elevation about the player).
+const TP_PITCH_MIN = -0.35;
+const TP_PITCH_MAX = 1.05;
+const TP_ORBIT_DIST = 6.0;   // (unused in first-person)
 const TP_EYE_HEIGHT = 1.4;
+const FP_EYE_HEIGHT = 0.6;   // eye above the capsule centre (playerPosition)
 const TP_SMOOTH = 10.0;
 const TP_FOVY = 70;
 
@@ -150,6 +186,11 @@ const TP_FOVY = 70;
 // "away from the camera" (classic 3rd-person over-the-shoulder feel).
 const mdlPlayer  = loadModel('assets/models/player_bsuit.glb');
 const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
+// The house: all "building"-tagged box colliders baked into ONE stone-textured
+// mesh (tools/build-props.ts makeHouse), vertices already in world space — so
+// it draws with a single drawModel at the origin. Replaces the flat-grey
+// drawCube placeholders; the boxes remain invisible physics colliders.
+const mdlHouse   = loadModel('assets/models/house.glb');
 // human_bsuit animation indices (IQE declaration order):
 //   0 idle, 7 attack, 8 run, 12 walk.
 const PLAYER_ANIM_IDLE   = 0;
@@ -230,7 +271,170 @@ const MAT_TEST_INDS: number[] = [
   16,17,18, 16,18,19,
   20,21,22, 20,22,23,
 ];
-const matTestMesh = createMesh(MAT_TEST_VERTS, MAT_TEST_INDS);
+// Phase 1c material smoke-test cube. Disabled on the Windows/Perry-0.5.1171
+// path: `createMesh` passes a number[] straight into `bloom_create_mesh`'s
+// `i64` vertex/index-pointer params, but Perry 0.5.1171 tightened the native
+// ABI so an `i64` parameter must be a safe-integer number, not an array
+// (TypeError: "Expected safe integer for native i64 parameter"). The engine
+// needs to migrate this FFI to Perry's `buffer+len` descriptor (or the
+// physics-style scratch-buffer push) before the material path works again.
+// The cube is a dev bring-up artifact, not gameplay — gate it off.
+const MAT_SMOKE = false;
+const matTestMesh = MAT_SMOKE ? createMesh(MAT_TEST_VERTS, MAT_TEST_INDS) : 0;
+
+// Build a tessellated flat grid plane (sx × sz, centred at origin, y=0) for
+// the water surface. The grid is dense enough for the vertex shader to
+// displace it into real waves (fixing the flat-silhouette look). 12 floats
+// per vertex: pos3, nrm3, col4, uv2. Uses the (now array-free) createMesh.
+function buildWaterGrid(sx: number, sz: number) {
+  const NX = Math.max(2, Math.ceil(sx / 0.55));
+  const NZ = Math.max(2, Math.ceil(sz / 0.55));
+  const VX = NX + 1, VZ = NZ + 1;
+  const verts = new Array<number>(VX * VZ * 12);
+  let o = 0;
+  for (let iz = 0; iz < VZ; iz++) {
+    for (let ix = 0; ix < VX; ix++) {
+      const u = ix / NX, v = iz / NZ;
+      verts[o] = (u - 0.5) * sx; verts[o + 1] = 0; verts[o + 2] = (v - 0.5) * sz;
+      verts[o + 3] = 0; verts[o + 4] = 1; verts[o + 5] = 0;
+      verts[o + 6] = 1; verts[o + 7] = 1; verts[o + 8] = 1; verts[o + 9] = 1;
+      verts[o + 10] = u; verts[o + 11] = v;
+      o = o + 12;
+    }
+  }
+  const inds = new Array<number>(NX * NZ * 6);
+  let io = 0;
+  for (let iz = 0; iz < NZ; iz++) {
+    for (let ix = 0; ix < NX; ix++) {
+      const a = iz * VX + ix, b = a + 1, c = a + VX, d = c + 1;
+      inds[io] = a; inds[io + 1] = c; inds[io + 2] = b;
+      inds[io + 3] = b; inds[io + 4] = c; inds[io + 5] = d;
+      io = io + 6;
+    }
+  }
+  return createMesh(verts, inds);
+}
+
+// ---- Reflective water (planar-reflection material) ------------------------
+// Replaces the ~1800-cube procedural river with one flat plane per segment,
+// shaded by a custom WGSL material that samples a planar-reflection probe (the
+// engine's per-frame mirror render of the world above the surface) with
+// Fresnel blending, procedural wave normals, and a sun glint. The plane mesh
+// comes from genMeshCube (scalar args — avoids the createMesh i64 ABI issue),
+// and drawMeshWithMaterial submits it (all-f64 ABI).
+const WATER_WGSL =
+  '#include "material_abi.wgsl"\n' +
+  'struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) wpos: vec3<f32>, @location(1) uv: vec2<f32> };\n' +
+  // Macro wave height (metres) — three directional swells. Displaces the
+  // tessellated grid vertices so the surface physically undulates (wavy
+  // silhouette + moving edges), not just a normal-mapped flat plane.
+  'fn wheight(p: vec2<f32>, t: f32) -> f32 {\n' +
+  '  return 0.12 * sin(p.x * 0.5 + t * 1.1)\n' +
+  '       + 0.06 * sin((p.x * 0.9 + p.y * 0.6) + t * 1.9)\n' +
+  '       + 0.035 * sin((p.x * 2.3 - p.y * 1.1) + t * 3.3);\n' +
+  '}\n' +
+  '@vertex fn vs_main(in: VertexInput) -> VsOut {\n' +
+  '  var o: VsOut;\n' +
+  '  let wflat = (draw.model * vec4<f32>(in.position, 1.0)).xyz;\n' +
+  '  let disp = vec3<f32>(in.position.x, in.position.y + wheight(wflat.xz, frame.time), in.position.z);\n' +
+  '  let wd = draw.model * vec4<f32>(disp, 1.0);\n' +
+  '  o.wpos = wd.xyz;\n' +
+  '  o.uv = in.uv;\n' +
+  '  o.pos = draw.mvp * vec4<f32>(disp, 1.0);\n' +
+  '  return o;\n' +
+  '}\n' +
+  // Procedural surface normal from summed directional sine waves (analytic
+  // derivative -> perturbed normal; cheap, no normal-map texture needed).
+  'fn wnorm(p: vec2<f32>, t: f32) -> vec3<f32> {\n' +
+  // Three octaves: slow swell + medium chop + fine fast ripple. Strong
+  // slope (×0.30) so the surface reads as lively water on a flat plane.
+  '  let dx = 0.5 * cos(p.x * 0.5 + t * 1.1) + 0.7 * cos((p.x * 0.9 + p.y * 0.6) + t * 1.9) + 0.5 * cos((p.x * 2.3 - p.y * 1.1) + t * 3.3);\n' +
+  '  let dz = 0.5 * cos(p.y * 0.7 - t * 1.3) + 0.7 * cos((p.x * 0.6 + p.y * 0.9) + t * 1.9) + 0.5 * cos((p.x * 1.1 + p.y * 2.3) + t * 3.0);\n' +
+  '  return normalize(vec3<f32>(-dx * 0.30, 1.0, -dz * 0.30));\n' +
+  '}\n' +
+  // Analytic sky reflection. The engine's procedural sky renders via a
+  // separate LUT pass and never lands in env_tex, and the planar-reflection
+  // probe only captures material-system draws (this game is immediate-mode),
+  // so there is nothing real to mirror. Instead we reflect a believable sky
+  // dome built from the reflected ray R: zenith→horizon gradient + a sharp
+  // sun disk + soft glow, tinted by the engine's actual sun colour/intensity.
+  'fn sky_refl(R: vec3<f32>, sun_dir: vec3<f32>, sun_col: vec3<f32>, sun_int: f32) -> vec3<f32> {\n' +
+  '  let up = clamp(R.y, 0.0, 1.0);\n' +
+  '  let zenith  = vec3<f32>(0.13, 0.27, 0.52);\n' +
+  '  let horizon = vec3<f32>(0.55, 0.68, 0.82);\n' +
+  '  var sky = mix(horizon, zenith, pow(up, 0.55));\n' +
+  '  let sd = max(dot(R, normalize(-sun_dir)), 0.0);\n' +
+  '  sky = sky + sun_col * (pow(sd, 900.0) * 6.0 + pow(sd, 12.0) * 0.25) * max(sun_int, 0.4);\n' +
+  '  return sky;\n' +
+  '}\n' +
+  // Refractive profile: sample the scene (riverbed) BEHIND the surface and
+  // distort it by the wave normal — real refraction (the bottom wobbles).
+  // Tint it by water depth (scene-depth → Beer-Lambert: shallow clear, deep
+  // murky blue), then blend a Fresnel planar reflection + sun glint + foam.
+  // Composited in-shader (opaque output) → reads as real water, not a flat
+  // tinted pane.
+  '@fragment fn fs_main(in: VsOut) -> TranslucentOut {\n' +
+  '  var out: TranslucentOut;\n' +
+  '  let t = frame.time;\n' +
+  '  let N = wnorm(in.wpos.xz, t);\n' +
+  '  let V = normalize(view.camera_pos.xyz - in.wpos);\n' +
+  '  let ndv = max(dot(N, V), 0.0001);\n' +
+  '  let screen_uv = in.pos.xy / vec2<f32>(frame.screen_resolution);\n' +
+  // Refraction — the riverbed, displaced by the wave normal.
+  '  let refr_uv = clamp(screen_uv + N.xz * 0.04, vec2<f32>(0.002), vec2<f32>(0.998));\n' +
+  '  let bottom = textureSample(scene_color_tex, scene_color_samp, refr_uv).rgb;\n' +
+  // Water column thickness from scene depth → absorption. textureLoad avoids
+  // depth-sampler issues; clamp keeps it plausible if depth is imprecise.
+  '  let dsz = vec2<f32>(textureDimensions(scene_depth_tex));\n' +
+  '  let bz = textureLoad(scene_depth_tex, vec2<i32>(screen_uv * dsz), 0);\n' +
+  '  let thick = max(0.0, linearize_depth(bz) - linearize_depth(in.pos.z));\n' +
+  // Beer-Lambert: shallow water stays clear (bed visible near the banks),
+  // deep water tints toward murky green-blue. Floor near 0 so the refracted
+  // riverbed reads through; ceiling < 1 so the deepest water keeps some bed.
+  '  let absorb = clamp(1.0 - exp(-thick * 0.85), 0.04, 0.88);\n' +
+  '  let deep = vec3<f32>(0.02, 0.11, 0.13);\n' +
+  '  let body = mix(bottom, deep, absorb);\n' +
+  // Reflected ray → analytic sky. Fresnel (water F0≈0.02, Schlick) ramps the
+  // sky in hard at grazing angles, so the surface goes bright + sky-coloured
+  // toward the far bank and stays clear/see-through looking straight down.
+  '  let R = reflect(-V, N);\n' +
+  '  let refl = sky_refl(R, view.sun_dir.xyz, view.sun_color.rgb, view.sun_dir.w);\n' +
+  '  let fres = clamp(0.02 + 0.98 * pow(1.0 - ndv, 5.0), 0.0, 1.0);\n' +
+  // Tight specular sun glint on top of the Fresnel sky reflection.
+  '  let L = normalize(-view.sun_dir.xyz);\n' +
+  '  let H = normalize(L + V);\n' +
+  '  let spec = pow(max(dot(N, H), 0.0), 400.0) * max(view.sun_dir.w, 0.6) * 1.4;\n' +
+  '  var color = mix(body, refl, fres) + vec3<f32>(1.0, 0.97, 0.9) * spec;\n' +
+  // Shoreline foam.
+  '  let edge = min(min(in.uv.x, 1.0 - in.uv.x), min(in.uv.y, 1.0 - in.uv.y));\n' +
+  '  let foam_band = smoothstep(0.07, 0.0, edge);\n' +
+  '  let foam = foam_band * foam_band * (0.6 + 0.4 * sin(in.wpos.x * 6.0 + in.wpos.z * 5.0 + t * 3.0));\n' +
+  '  color = mix(color, vec3<f32>(0.85, 0.92, 0.97), foam * 0.6);\n' +
+  '  out.hdr = vec4<f32>(color, 1.0);\n' +
+  '  return out;\n' +
+  '}\n';
+const waterMat = compileRefractiveMaterial(WATER_WGSL);
+// ONE continuous river plane spanning all segments + the carved channel. The
+// authored world has 6 short segments at alternating z (11/13) which rendered
+// as disconnected rectangles with gaps; a single plane over their bounding
+// span reads as one connected ribbon that fills the carved channel.
+let riverMinX = 1e9, riverMaxX = -1e9, waterYSum = 0;
+for (let i = 0; i < W.WATER_COUNT; i++) {
+  const lo = W.WATER_CX[i] - W.WATER_SX[i] * 0.5;
+  const hi = W.WATER_CX[i] + W.WATER_SX[i] * 0.5;
+  if (lo < riverMinX) riverMinX = lo;
+  if (hi > riverMaxX) riverMaxX = hi;
+  waterYSum = waterYSum + W.WATER_CY[i];
+}
+const waterY = W.WATER_COUNT > 0 ? waterYSum / W.WATER_COUNT : 0.05;
+const RIVER_CX = (riverMinX + riverMaxX) * 0.5;
+const RIVER_W = riverMaxX - riverMinX;
+const RIVER_CZ = 12.0;     // carved-channel centre (see build-terrain.ts)
+const RIVER_DEPTH = 5.0;   // fits the channel bed (z ≈ 9.4–14.6)
+drawLoading(0.65, 'Building water…');
+const waterMesh = buildWaterGrid(RIVER_W, RIVER_DEPTH);
+const waterProbe = createPlanarReflection(waterY, 0, 1, 0, 512);
+if (waterMat > 0) setMaterialReflectionProbe(waterMat, waterProbe);
 
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
@@ -242,6 +446,7 @@ const matTestMesh = createMesh(MAT_TEST_VERTS, MAT_TEST_INDS);
 //   4 = tyrant   — boss tier; rare, big, tanky
 const KIND_COUNT = 5;
 const KIND_NAME  = ['DRETCH', 'MANTIS', 'MARAUDER', 'DRAGOON', 'TYRANT'];
+drawLoading(0.85, 'Loading enemies…');
 const mdlAliens  = [
   loadModel('assets/models/enemy_dretch.glb'),
   loadModel('assets/models/enemy_mantis.glb'),
@@ -336,6 +541,109 @@ function countAlive(): number {
   return c;
 }
 
+// Sample the terrain heightfield (same data the Jolt heightfield collider uses)
+// so enemies walk ON the ground instead of a flat y=0 plane — otherwise they
+// sink into hills and appear to float on top of the river. Over the carved
+// river channel the result is clamped to WADE_FLOOR so crossing aliens wade at
+// the water surface rather than sinking out of sight to the −0.55 bed.
+const WADE_FLOOR = -0.2;
+function terrainHeight(x: number, z: number): number {
+  const ix = Math.round((x - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE);
+  const iz = Math.round((z - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE);
+  if (ix < 0 || iz < 0 || ix >= T.TERRAIN_SAMPLE_COUNT || iz >= T.TERRAIN_SAMPLE_COUNT) return 0;
+  return T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix];
+}
+function enemyGroundY(x: number, z: number): number {
+  const h = terrainHeight(x, z);
+  return h < WADE_FLOOR ? WADE_FLOOR : h;
+}
+
+// ---- Scattered ground foliage --------------------------------------------
+// Deterministic grass-tuft scatter across the play field (hash-jittered grid),
+// placed on the terrain surface, skipping the river channel, the house
+// footprint, and a clear radius around spawn. Drawn each frame; the tufts are
+// alpha-cutout foliage so they sway in the wind via the engine's scene shader.
+const mdlGrassTuft = loadModel('assets/models/prop_grasstuft.glb');
+const mdlFlower = loadModel('assets/models/prop_flower.glb');
+const TUFT_MAX = 320;
+const tuftX = new Array<number>(TUFT_MAX);
+const tuftY = new Array<number>(TUFT_MAX);
+const tuftZ = new Array<number>(TUFT_MAX);
+const tuftS = new Array<number>(TUFT_MAX);
+const tuftR = new Array<number>(TUFT_MAX);
+const tuftFlower = new Array<number>(TUFT_MAX);  // 1 = wildflower, 0 = grass
+let tuftCount = 0;
+{
+  const hashf = (a: number, b: number): number => {
+    let h = ((a * 374761393 + b * 668265263) >>> 0);
+    h = (((h ^ (h >>> 13)) >>> 0) * 1274126177) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  };
+  const GRID = 26;
+  const SPAN = 70;            // metres across, centred on origin
+  const step = SPAN / GRID;
+  for (let gz = 0; gz < GRID; gz++) {
+    for (let gx = 0; gx < GRID; gx++) {
+      if (tuftCount >= TUFT_MAX) break;
+      // ~35% thinning for natural clumping rather than a regular lawn.
+      if (hashf(gx + 7, gz + 13) < 0.35) continue;
+      const jx = hashf(gx, gz) - 0.5;
+      const jz = hashf(gx + 101, gz + 57) - 0.5;
+      const wx = -SPAN / 2 + (gx + 0.5 + jx * 0.95) * step;
+      const wz = -SPAN / 2 + (gz + 0.5 + jz * 0.95) * step;
+      const h = terrainHeight(wx, wz);
+      if (h < 0.15) continue;                                   // river / wet ground
+      if (wx > -29 && wx < -13 && wz > -19 && wz < -9) continue; // house footprint
+      const sdx = wx - spawnPos.x, sdz = wz - spawnPos.z;
+      if (sdx * sdx + sdz * sdz < 9) continue;                   // clear spawn
+      tuftX[tuftCount] = wx; tuftY[tuftCount] = h; tuftZ[tuftCount] = wz;
+      // ~1 in 6 is a wildflower clump (smaller); rest are grass tufts.
+      const flower = hashf(gx + 41, gz + 83) < 0.17 ? 1 : 0;
+      tuftFlower[tuftCount] = flower;
+      tuftS[tuftCount] = flower
+        ? 0.8 + hashf(gx + 31, gz + 19) * 0.7
+        : 0.75 + hashf(gx + 31, gz + 19) * 1.15;
+      tuftR[tuftCount] = hashf(gx + 5, gz + 71) * 6.2832;
+      tuftCount++;
+    }
+  }
+}
+
+// Perimeter treeline — a ring of extra trees around the playfield to frame the
+// arena, give the background depth, and hide the hard terrain edge that an open
+// field otherwise ends on. Skips the river band and the house. Same hash so the
+// layout is stable build-to-build.
+const mdlTreeRing = loadModel('assets/models/prop_tree.glb');
+const RTREE_MAX = 64;
+const rtX = new Array<number>(RTREE_MAX);
+const rtY = new Array<number>(RTREE_MAX);
+const rtZ = new Array<number>(RTREE_MAX);
+const rtS = new Array<number>(RTREE_MAX);
+const rtR = new Array<number>(RTREE_MAX);
+let rtCount = 0;
+{
+  const hashf = (a: number, b: number): number => {
+    let h = ((a * 374761393 + b * 668265263) >>> 0);
+    h = (((h ^ (h >>> 13)) >>> 0) * 1274126177) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+  };
+  const N = 60;
+  for (let i = 0; i < N; i++) {
+    if (rtCount >= RTREE_MAX) break;
+    const ang = (i / N) * 6.2832 + (hashf(i, 2) - 0.5) * 0.12;
+    const rad = 27 + hashf(i, 3) * 9;                          // 27–36 m ring
+    const wx = Math.cos(ang) * rad;
+    const wz = Math.sin(ang) * rad;
+    if (wz > 7 && wz < 17) continue;                           // river band
+    if (wx > -31 && wx < -11 && wz > -21 && wz < -7) continue; // house
+    const h = terrainHeight(wx, wz);
+    rtX[rtCount] = wx; rtY[rtCount] = h > 0 ? h : 0; rtZ[rtCount] = wz;
+    rtS[rtCount] = 0.9 + hashf(i, 9) * 0.8;
+    rtR[rtCount] = hashf(i, 13) * 6.2832;
+    rtCount++;
+  }
+}
+
 function findDormantSlot(kind: number): number {
   for (let j = 0; j < BODIES_PER_KIND; j++) {
     const i = kind * BODIES_PER_KIND + j;
@@ -350,8 +658,8 @@ function spawnEnemy(): void {
   if (slot < 0) return;   // all bodies of this kind busy; retry next tick
   const sp = waveSpawned % 4;
   enX[slot] = spawnerX[sp];
-  enY[slot] = 0;
   enZ[slot] = spawnerZ[sp];
+  enY[slot] = enemyGroundY(enX[slot], enZ[slot]);
   enHP[slot] = KIND_HP[kind];
   enAlive[slot] = 1;
   enAttackCD[slot] = 0;
@@ -489,8 +797,57 @@ disableCursor();
 
 // ---- M8 polish: post-FX ---------------------------------------------------
 // Called once at startup — these are cheap, always-on stylistic passes.
-setVignette(0.4, 0.55);    // darken frame edges
-setFilmGrain(0.06);        // very subtle noise
+setVignette(0.45, 0.5);    // cinematic edge darkening
+setFilmGrain(0.05);        // very subtle noise
+
+// ---- High-end rendering pipeline (UE-class), art-directed -----------------
+// Full deferred stack + procedural atmosphere. The trick to not washing the
+// saturated arena out to grey: keep the sky's image-based ambient modest
+// (setEnvIntensity) and a low cool fill, then let a strong WARM directional
+// sun carry the lighting and cast the shadows. Manual exposure (not auto) so
+// the bright sky doesn't drag the scene's exposure around.
+// SUN_DIR is shared so the procedural-sky sun and the shadow-casting sun agree.
+// Lower sun (smaller |Y|) → longer, more dramatic cast shadows + a warmer,
+// late-afternoon "golden hour" sky from the procedural atmosphere.
+const SUN_DIR_X = -0.60, SUN_DIR_Y = -0.30, SUN_DIR_Z = -0.45;
+setQualityPreset(QualityPreset.High);
+setShadowsEnabled(true);
+setSsaoEnabled(true);
+setSsaoIntensity(1.15);
+setSsaoRadius(0.9);
+setBloomEnabled(true);
+setTaaEnabled(true);
+setSsrEnabled(true);
+setSsgiEnabled(true);
+setSsgiIntensity(0.4);
+// Real procedural atmosphere. The earlier grey wash-out came from the sky's
+// image-based ambient flooding every surface — keep env-intensity very LOW so
+// the warm key sun carries the lighting and colours stay saturated, while the
+// sky still provides a proper gradient + sun disc in the background. No fog /
+// sun-shafts (their haze was the other half of the wash-out).
+setProceduralSky(true);
+setSunDirection(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z), 1.0);
+// Gentle breeze — sways the alpha-cut foliage cards (engine reads this in the
+// scene vertex shader for any alpha-cutout material).
+setWind(1.0, 0.4, 0.4, 1.1);
+setEnvIntensity(0.22);
+setAutoExposure(true);
+// AgX tonemap (new engine control): more filmic highlight roll-off + punchier
+// colour than ACES — keeps the bright sky from greying the scene. Pair it with
+// a slightly low auto-exposure key so the midtones stay saturated, and a touch
+// of bloom on highlights (muzzle flash, pickups, sun-lit edges).
+setTonemap(Tonemap.AgX);
+setAutoExposureKey(0.24);
+setBloomIntensity(0.07);
+// Subtle scene-scale aerial haze. Matched to the sky horizon so distant
+// geometry (and the far terrain edge) fades into the sky instead of ending
+// on a hard line — adds depth without the grey wash-out that global fog used
+// to cause (low density + ground-hugging height falloff keep near surfaces
+// crisp). The engine's procedural-sky aerial LUT is km-scaled and negligible
+// over this ~80 m arena, so this world-scale march carries the depth cue.
+setFog(0.60, 0.71, 0.85, 0.011, 1.0, 0.10);
+// (Sun-shafts tried here — even at low strength they flood this open arena
+// with haze and wash the colours out, so they stay off.)
 
 
 // ---- Self-test harness ----------------------------------------------------
@@ -501,6 +858,7 @@ const SELFTEST = false;
 let testFrame = 0;
 
 
+drawLoading(1.0, 'Ready');
 while (!windowShouldClose()) {
   beginDrawing();
   const dt = getDeltaTime();
@@ -556,8 +914,9 @@ while (!windowShouldClose()) {
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump);
   }
   stepPhysics(physics, dt);
-  // Smooth orbit camera follow after physics step.
-  // Inline orbit-camera follow.
+  // Third-person (PUBG-style) orbit camera: behind + above the player at the
+  // mouse-driven yaw/pitch, smoothly following. The body (drawn below) faces
+  // the same yaw, so the mouse turns both camera and character together.
   {
     const pp0 = playerPosition();
     const ya = CAM[0], pi = CAM[1];
@@ -598,6 +957,7 @@ while (!windowShouldClose()) {
         const move = step < dist ? step : dist;
         enX[i] = enX[i] + (dx / dist) * move;
         enZ[i] = enZ[i] + (dz / dist) * move;
+        enY[i] = enemyGroundY(enX[i], enZ[i]);
         setBodyPosition(enBody[i],
           vec3(enX[i], enY[i] + KIND_Y_OFF[k], enZ[i]), true);
       } else if (enAttackCD[i] <= 0) {
@@ -790,10 +1150,30 @@ while (!windowShouldClose()) {
   clearBackground({ r: Math.floor(W.ENV_SKY_R * 255),
                     g: Math.floor(W.ENV_SKY_G * 255),
                     b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
-  setAmbientLight({ r: 120, g: 130, b: 160, a: 255 }, 0.35);
-  setDirectionalLight(vec3(-0.3, -0.9, -0.2), { r: 255, g: 245, b: 220, a: 255 }, 0.9);
+  // Low cool sky-fill ambient + a strong warm key sun (matched to the
+  // procedural-sky sun direction) for saturated colour and grounded shadows.
+  // Ambient kept low so cast shadows + SSAO read with real contrast instead
+  // of being flooded flat by skylight.
+  setAmbientLight({ r: 86, g: 100, b: 132, a: 255 }, 0.13);
+  setDirectionalLight(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z),
+                      { r: 255, g: 232, b: 198, a: 255 }, 2.5);
 
-  beginMode3D({
+  // TEMP verification camera (off → normal third-person view).
+  const VERIFY_WATER = false;
+  const VERIFY_BEAUTY = false;
+  beginMode3D(VERIFY_BEAUTY ? {
+    position: vec3(6, 0.7, 10.0),
+    target:   vec3(-2, 0.5, -6.0),
+    up: vec3(0, 1, 0),
+    fovy: 60,
+    projection: 0,
+  } : VERIFY_WATER ? {
+    position: vec3(6, 1.1, 16.0),
+    target:   vec3(4, 0.1, 11.0),
+    up: vec3(0, 1, 0),
+    fovy: 60,
+    projection: 0,
+  } : {
     position: vec3(CAM[2], CAM[3], CAM[4]),
     target:   vec3(CAM[5], CAM[6], CAM[7]),
     up: vec3(0, 1, 0),
@@ -826,12 +1206,9 @@ while (!windowShouldClose()) {
   // Phase 1c smoke test — colour-pulsed cube in front of spawn,
   // rendered via the new material pipeline. Proves the compile →
   // submit → dispatch path works on a real frame.
-  if (matTest > 0) {
+  if (MAT_SMOKE && matTest > 0 && matTestMesh > 0) {
     drawMeshWithMaterial(matTest, matTestMesh,
       vec3(0, 3, 15), 3.0, { r: 255, g: 255, b: 255, a: 255 });
-  } else {
-    drawText('material compile failed (handle=0)', 20, 100, 20,
-             { r: 255, g: 80, b: 80, a: 255 });
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
@@ -840,6 +1217,9 @@ while (!windowShouldClose()) {
     const mi = W.MESH_MODEL_IDX[i];
     if (W.MODEL_IS_BOX[mi] === 1) {
       const c = W.MESH_CATEGORY[i];
+      // Building boxes (category 1) are drawn collectively as the stone-textured
+      // house.glb below — skip their flat-grey placeholder cubes here.
+      if (c === 1) continue;
       const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
       drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
                W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
@@ -850,62 +1230,28 @@ while (!windowShouldClose()) {
                 W.MESH_SCALE[i], WHITE);
     }
   }
-  // Water — tessellate each segment into a grid of small flat tiles
-  // whose Y sits on a travelling wave. Colour blends deep-indigo trough
-  // → pale cyan crest on a smooth height term. A second high-frequency
-  // ripple crosses the surface. Flow is encoded as a wave phase that
-  // advances in +X with time, so crests visibly travel downstream.
-  // Tiles overlap their neighbours (×1.08) so the grid edges disappear
-  // into the blend.
-  //
-  // ≈ 0.35 m tiles × 6 segments ≈ 1800 cubes/frame. Free at our
-  // draw-call budget; no engine shader work required.
-  {
-    const tNow = getTime();
-    const TILE = 0.35;
-    const baseA = 205;
-    const foamA = 200;
-    for (let i = 0; i < W.WATER_COUNT; i++) {
-      const cx = W.WATER_CX[i], cy = W.WATER_CY[i], cz = W.WATER_CZ[i];
-      const sx = W.WATER_SX[i], sz = W.WATER_SZ[i];
-      const amp = W.WATER_WAVE_AMP[i];
-      const spd = W.WATER_WAVE_SPD[i];
-      const nx = Math.max(1, Math.floor(sx / TILE));
-      const nz = Math.max(1, Math.floor(sz / TILE));
-      const stepX = sx / nx;
-      const stepZ = sz / nz;
-      // Downstream wave — long wavelength so adjacent tiles share close
-      // heights and the grid reads as a continuous wave, not a checker.
-      const kx = 0.45;
-      const kz = 0.75;
-      for (let ix = 0; ix < nx; ix++) {
-        for (let iz = 0; iz < nz; iz++) {
-          const x = cx - sx * 0.5 + stepX * (ix + 0.5);
-          const z = cz - sz * 0.5 + stepZ * (iz + 0.5);
-          const w1 = Math.sin(x * kx + tNow * spd * 1.6);
-          const w2 = Math.sin(z * kz + x * 0.18 + tNow * spd * 2.1);
-          const w3 = Math.sin(x * 2.1 + z * 1.7 + tNow * spd * 3.5) * 0.25;
-          const waveN = (w1 + w2 + w3 * 4) * 0.25; // -1..~1
-          const h01 = (waveN + 1) * 0.5;                 // 0..1
-          const dy = waveN * amp;
-          // Deep-water blue at troughs, pale cyan at crests.
-          const r = Math.floor(18 + h01 * 55);
-          const g = Math.floor(75 + h01 * 105);
-          const b = Math.floor(125 + h01 * 85);
-          drawCube(vec3(x, cy + dy, z),
-                   stepX * 1.08, 0.03, stepZ * 1.08,
-                   { r: r, g: g, b: b, a: baseA });
-          // Foam: smooth falloff from h01=0.75 upward; no hard threshold.
-          if (h01 > 0.75) {
-            const fh = (h01 - 0.75) / 0.25;
-            drawCube(vec3(x, cy + dy + 0.025, z),
-                     stepX * 0.85, 0.015, stepZ * 0.85,
-                     { r: 230, g: 240, b: 250,
-                       a: Math.floor(foamA * fh * fh) });
-          }
-        }
-      }
-    }
+  // The house — one stone-textured mesh baked from every building box, with
+  // world-space vertices, so it draws at the origin with identity transform.
+  drawModel(mdlHouse, vec3(0, 0, 0), 1.0, WHITE);
+  // Scattered ground grass tufts + wildflowers (alpha-cutout, wind-swaying).
+  for (let i = 0; i < tuftCount; i++) {
+    const mdl = tuftFlower[i] === 1 ? mdlFlower : mdlGrassTuft;
+    drawModelRotated(mdl, vec3(tuftX[i], tuftY[i], tuftZ[i]),
+                     tuftS[i], tuftR[i], WHITE);
+  }
+  // Perimeter treeline framing the arena.
+  for (let i = 0; i < rtCount; i++) {
+    drawModelRotated(mdlTreeRing, vec3(rtX[i], rtY[i], rtZ[i]),
+                     rtS[i], rtR[i], WHITE);
+  }
+  // Water — one reflective material plane per river segment (see WATER_WGSL
+  // setup near the top). The planar-reflection probe renders the mirrored
+  // scene each frame; the shader blends it with Fresnel + animated wave
+  // normals + a sun glint. Far cheaper than the old ~1800 cubes/frame and
+  // actually reflects the world above the surface.
+  if (waterMat > 0) {
+    drawMeshWithMaterial(waterMat, waterMesh,
+      vec3(RIVER_CX, waterY, RIVER_CZ), 1.0, WHITE);
   }
   // Point lights from the world file — static scene lights.
   for (let i = 0; i < W.LIGHT_COUNT; i++) {
@@ -931,14 +1277,33 @@ while (!windowShouldClose()) {
     // direction. The bsuit's only "attack" animation is a melee
     // swing — a ranged shooter shouldn't use it; keep the walk/idle
     // pose and fake recoil + muzzle flash on the weapon itself.
-    const modelYaw = camYaw + Math.PI / 2;
-    const fsin = Math.sin(modelYaw);
-    const fcos = -Math.cos(modelYaw);
+    // Face the character along its MOVEMENT direction while moving, and along
+    // the camera forward when idle. updateModelAnimation faces direction
+    // (sin, -cos). Moving forward equals camera-forward, so the body smoothly
+    // turns to wherever you actually go (strafe/backpedal included) instead of
+    // always staring down the camera axis.
+    let fsin: number;
+    let fcos: number;
+    if (moving) {
+      // World move dir = forward(yaw)*(-moveZ) + right(yaw)*moveX.
+      const mdx = Math.sin(camYaw) * (-input.moveZ) + Math.cos(camYaw) * input.moveX;
+      const mdz = Math.cos(camYaw) * input.moveZ + Math.sin(camYaw) * input.moveX;
+      const ml = Math.sqrt(mdx * mdx + mdz * mdz);
+      if (ml > 0.0001) { fsin = mdx / ml; fcos = -mdz / ml; }
+      else { fsin = Math.sin(camYaw); fcos = Math.cos(camYaw); }
+    } else {
+      fsin = Math.sin(camYaw);
+      fcos = Math.cos(camYaw);
+    }
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
-    updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
-      pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, fsin, fcos);
-    drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
-              PLAYER_SCALE, WHITE);
+    // Third-person (PUBG-style): render the character body.
+    const FIRST_PERSON = false;
+    if (!FIRST_PERSON) {
+      updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
+        pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, fsin, fcos);
+      drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
+                PLAYER_SCALE, WHITE);
+    }
 
     // Held weapon — sketched from cubes since we don't yet have a
     // converted tpweapon GLB. Rifle is a long grey body + thin

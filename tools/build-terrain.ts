@@ -56,7 +56,28 @@ function heightAt(x: number, z: number): number {
   // Low-frequency waviness everywhere so the flat plate doesn't look dead.
   h += 0.25 * Math.sin(x * 0.08) * Math.cos(z * 0.10);
   h += 0.18 * Math.sin(x * 0.17 + z * 0.11);
-  return h * plazaBlend;
+  let y = h * plazaBlend;
+
+  // River channel — carve the terrain BELOW the water plane (water sits at
+  // y≈0.05) along the river path (segments run z≈11–13 across x≈-37..39).
+  // Without this the riverbed terrain — up to ~2.3 m under some segments —
+  // pokes through the flat water surface. The bed is forced to BED at the
+  // centre and smoothly ramps back to the natural terrain over BANK metres,
+  // so the river reads as a proper carved channel with grassy banks. Drives
+  // both the visual GLB and the Jolt heightfield (one source of truth).
+  const RIVER_Z = 12.0, BED = -0.55, HALF = 2.6, BANK = 2.4;
+  if (x > -38 && x < 40) {
+    const dzr = Math.abs(z - RIVER_Z);
+    if (dzr < HALF + BANK) {
+      let carve = 1.0;
+      if (dzr > HALF) {
+        const tt = 1 - (dzr - HALF) / BANK;        // 1 at bed edge → 0 at bank top
+        carve = tt * tt * (3 - 2 * tt);            // smoothstep
+      }
+      y = y * (1 - carve) + BED * carve;
+    }
+  }
+  return y;
 }
 
 // Build the mesh.
@@ -68,8 +89,10 @@ const normals   = new Float32Array(vertCount * 3);
 const uvs       = new Float32Array(vertCount * 2);
 const indices   = new Uint32Array(triCount * 3);
 
-// UV tile rate — 1 texture repeat per UV_TILE world metres.
-const UV_TILE = 4;
+// UV tile rate — 1 texture repeat per UV_TILE world metres. Larger = fewer
+// visible repeats across the 80 m field (4 m gave ~20 obvious repeats); the
+// seamless grass texture + higher resolution keep per-metre detail crisp.
+const UV_TILE = 8;
 
 // First pass: positions only.
 const heights = new Float32Array(vertCount);
@@ -134,7 +157,7 @@ for (let v = 1; v < vertCount; v++) {
 function align4(n: number): number { return (n + 3) & ~3; }
 
 // Procedural grass texture — tiled across the whole terrain via UVs above.
-const TEX_SIZE = 256;
+const TEX_SIZE = 512;
 const grassPng = encodePng(TEX_SIZE, TEX_SIZE, grassTexture(TEX_SIZE));
 
 const idxOff = 0;
