@@ -23,7 +23,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { encodePng, leafTexture, barkTexture, grassBladeTexture, flowerTexture,
-         stoneTexture, woodTexture, metalTexture, floorTexture, heightToNormal } from './png';
+         stoneTexture, woodTexture, metalTexture, floorTexture, heightToNormal,
+         roughnessMR } from './png';
 
 const TEX_MAX = 512;
 const TEX_ROOT = 'vendor/unvanquished/pkg/tex-tech_src.dpkdir/textures/shared_tech_src';
@@ -229,12 +230,22 @@ const PROC_TEX: Record<string, Uint8Array> = {
   metal_n: encodePng(256, 256, heightToNormal(256, 256, metalRgba, 1.0)),
   floor_n: encodePng(512, 512, heightToNormal(512, 512, floorRgba, 1.8)),
   bark_n:  encodePng(256, 256, heightToNormal(256, 256, barkRgba, 2.6)),
+  // Per-texel roughness (metallic-roughness maps) — recessed mortar/grooves
+  // read matte, faces a touch glossier; all dielectric (metallic 0).
+  stone_mr: encodePng(512, 512, roughnessMR(512, 512, stoneRgba, 0.72, 0.97)),
+  wood_mr:  encodePng(512, 512, roughnessMR(512, 512, woodRgba, 0.62, 0.90)),
+  floor_mr: encodePng(512, 512, roughnessMR(512, 512, floorRgba, 0.60, 0.88)),
+  bark_mr:  encodePng(256, 256, roughnessMR(256, 256, barkRgba, 0.78, 0.97)),
 };
 
 // Albedo texture key → its normal-map key (solid materials only; the alpha
 // cutout cards leaf/grass_blade/flower intentionally get none).
 const NORMAL_FOR: Record<string, string> = {
   stone: 'stone_n', wood: 'wood_n', metal: 'metal_n', floor: 'floor_n', bark: 'bark_n',
+};
+// Albedo texture key → its metallic-roughness map key.
+const MR_FOR: Record<string, string> = {
+  stone: 'stone_mr', wood: 'wood_mr', floor: 'floor_mr', bark: 'bark_mr',
 };
 
 function resolveTexture(key: string): Uint8Array {
@@ -510,11 +521,14 @@ function writeGlb(outPath: string, mesh: Mesh): void {
   for (const p of mesh) {
     if (p.textureKey && texKeys.indexOf(p.textureKey) < 0) texKeys.push(p.textureKey);
   }
-  // Pull in the normal-map variant of every base texture that has one, so it
-  // gets embedded + indexed alongside the albedo (referenced via normalTexture).
+  // Pull in the normal-map + metallic-roughness variants of every base texture
+  // that has them, so they get embedded + indexed alongside the albedo
+  // (referenced via normalTexture / metallicRoughnessTexture).
   for (const k of [...texKeys]) {
     const nk = NORMAL_FOR[k];
     if (nk && texKeys.indexOf(nk) < 0) texKeys.push(nk);
+    const mk = MR_FOR[k];
+    if (mk && texKeys.indexOf(mk) < 0) texKeys.push(mk);
   }
   const texBytes: Uint8Array[] = texKeys.map(k => resolveTexture(k));
 
@@ -628,6 +642,15 @@ function writeGlb(outPath: string, mesh: Mesh): void {
       if (nk) {
         const ni = texKeys.indexOf(nk);
         if (ni >= 0 && texBytes[ni].length > 0) normalTexIdx = ni;
+      }
+      const mk = MR_FOR[p.textureKey];
+      if (mk) {
+        const mi = texKeys.indexOf(mk);
+        if (mi >= 0 && texBytes[mi].length > 0) {
+          pbr.metallicRoughnessTexture = { index: mi };
+          pbr.metallicFactor = 0.0;
+          pbr.roughnessFactor = 1.0;   // texture supplies roughness; factor multiplies
+        }
       }
     }
     const matObj: any = { name: 'mat_' + i, pbrMetallicRoughness: pbr };

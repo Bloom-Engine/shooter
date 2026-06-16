@@ -1160,10 +1160,10 @@ while (!windowShouldClose()) {
 
   // TEMP verification camera (off → normal third-person view).
   const VERIFY_WATER = false;
-  const VERIFY_BEAUTY = false;
+  const VERIFY_BEAUTY = true;
   beginMode3D(VERIFY_BEAUTY ? {
-    position: vec3(-31, 4.0, -22.0),
-    target:   vec3(-20, 1.4, -13.0),
+    position: vec3(-11, 2.2, -3.0),
+    target:   vec3(-23, 1.3, -13.0),
     up: vec3(0, 1, 0),
     fovy: 55,
     projection: 0,

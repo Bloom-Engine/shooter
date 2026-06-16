@@ -187,6 +187,27 @@ export function heightToNormal(width: number, height: number,
   return out;
 }
 
+// Derive a glTF metallic-roughness map from an albedo: G = roughness, B =
+// metallic (0 here — all dielectric), R/A unused (kept 255). Roughness is
+// driven by albedo luminance so recessed/dark detail (mortar, grooves, plank
+// seams) reads rougher/matte and lighter faces a touch glossier. `hi` is the
+// roughness at luma 0, `lo` at luma 1 (linear between). Linear data — the
+// loader uploads it Unorm and the shader reads G/B directly (no sRGB decode).
+export function roughnessMR(width: number, height: number, rgba: Uint8Array,
+                            lo: number, hi: number): Uint8Array {
+  const out = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const luma = (0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]) / 255;
+    const rough = hi - luma * (hi - lo);
+    const o = i * 4;
+    out[o] = 255;                                              // R (occlusion ch — unused here)
+    out[o + 1] = Math.max(0, Math.min(255, Math.floor(rough * 255)));  // G = roughness
+    out[o + 2] = 0;                                            // B = metallic (dielectric)
+    out[o + 3] = 255;
+  }
+  return out;
+}
+
 // Grass texture: green fbm + scattered brighter / darker tufts + occasional
 // dirt specks. Seamless wrap via modular hash inputs.
 export function grassTexture(size: number): Uint8Array {
