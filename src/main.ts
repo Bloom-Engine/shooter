@@ -1162,10 +1162,10 @@ while (!windowShouldClose()) {
   const VERIFY_WATER = false;
   const VERIFY_BEAUTY = false;
   beginMode3D(VERIFY_BEAUTY ? {
-    position: vec3(6, 0.7, 10.0),
-    target:   vec3(-2, 0.5, -6.0),
+    position: vec3(-11, 2.2, -3.0),
+    target:   vec3(-23, 1.3, -13.0),
     up: vec3(0, 1, 0),
-    fovy: 60,
+    fovy: 55,
     projection: 0,
   } : VERIFY_WATER ? {
     position: vec3(6, 1.1, 16.0),

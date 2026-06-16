@@ -153,6 +153,40 @@ export function makeTexture(width: number, height: number,
   return out;
 }
 
+// Derive a tangent-space normal map from an RGBA albedo, treating its
+// luminance as a height field (Sobel gradient). Wraps at the edges so the
+// result tiles as seamlessly as the source. `strength` scales the bump.
+// Encoded to match the engine's decode (`v * 2/255 - 1` → [-1,1]): channels
+// store (n*0.5+0.5)*255. Blue ≈ up (flat) so an unbumped texel reads (0,0,1).
+export function heightToNormal(width: number, height: number,
+                               rgba: Uint8Array, strength: number): Uint8Array {
+  const w = width, h = height;
+  const lum = (x: number, y: number): number => {
+    const xi = ((x % w) + w) % w, yi = ((y % h) + h) % h;
+    const o = (yi * w + xi) * 4;
+    return (0.299 * rgba[o] + 0.587 * rgba[o + 1] + 0.114 * rgba[o + 2]) / 255;
+  };
+  const out = new Uint8Array(w * h * 4);
+  let o = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // Sobel gradient of the height field.
+      const gx = (lum(x + 1, y - 1) + 2 * lum(x + 1, y) + lum(x + 1, y + 1))
+               - (lum(x - 1, y - 1) + 2 * lum(x - 1, y) + lum(x - 1, y + 1));
+      const gy = (lum(x - 1, y + 1) + 2 * lum(x, y + 1) + lum(x + 1, y + 1))
+               - (lum(x - 1, y - 1) + 2 * lum(x, y - 1) + lum(x + 1, y - 1));
+      let nx = -gx * strength, ny = -gy * strength, nz = 1.0;
+      const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      nx /= l; ny /= l; nz /= l;
+      out[o++] = Math.floor((nx * 0.5 + 0.5) * 255);
+      out[o++] = Math.floor((ny * 0.5 + 0.5) * 255);
+      out[o++] = Math.floor((nz * 0.5 + 0.5) * 255);
+      out[o++] = 255;
+    }
+  }
+  return out;
+}
+
 // Grass texture: green fbm + scattered brighter / darker tufts + occasional
 // dirt specks. Seamless wrap via modular hash inputs.
 export function grassTexture(size: number): Uint8Array {

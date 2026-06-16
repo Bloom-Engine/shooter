@@ -11,7 +11,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { encodePng, grassTexture } from './png';
+import { encodePng, grassTexture, heightToNormal } from './png';
 
 const OUT_GLB = 'assets/models/terrain_hills.glb';
 const OUT_TS  = 'src/generated/terrain.ts';
@@ -157,8 +157,13 @@ for (let v = 1; v < vertCount; v++) {
 function align4(n: number): number { return (n + 3) & ~3; }
 
 // Procedural grass texture — tiled across the whole terrain via UVs above.
+// Plus a derived normal map so the grass catches the directional sun (per-texel
+// surface relief) instead of shading flat.
 const TEX_SIZE = 512;
-const grassPng = encodePng(TEX_SIZE, TEX_SIZE, grassTexture(TEX_SIZE));
+const grassRgba = grassTexture(TEX_SIZE);
+const grassPng = encodePng(TEX_SIZE, TEX_SIZE, grassRgba);
+const grassNrmPng = encodePng(TEX_SIZE, TEX_SIZE,
+  heightToNormal(TEX_SIZE, TEX_SIZE, grassRgba, 2.5));
 
 const idxOff = 0;
 const idxLen = indices.byteLength;
@@ -170,7 +175,9 @@ const uvOff  = align4(nrmOff + nrmLen);
 const uvLen  = uvs.byteLength;
 const imgOff = align4(uvOff + uvLen);
 const imgLen = grassPng.length;
-const binLen = align4(imgOff + imgLen);
+const nrmImgOff = align4(imgOff + imgLen);
+const nrmImgLen = grassNrmPng.length;
+const binLen = align4(nrmImgOff + nrmImgLen);
 
 const bin = new Uint8Array(binLen);
 bin.set(new Uint8Array(indices.buffer),   idxOff);
@@ -178,6 +185,7 @@ bin.set(new Uint8Array(positions.buffer), posOff);
 bin.set(new Uint8Array(normals.buffer),   nrmOff);
 bin.set(new Uint8Array(uvs.buffer),       uvOff);
 bin.set(grassPng,                         imgOff);
+bin.set(grassNrmPng,                      nrmImgOff);
 
 const gltf = {
   asset: { version: '2.0', generator: 'shooter-build-terrain' },
@@ -198,9 +206,13 @@ const gltf = {
       metallicFactor: 0.0,
       roughnessFactor: 0.95,
     },
+    normalTexture: { index: 1, scale: 1.0 },
   }],
-  textures: [{ source: 0, sampler: 0 }],
-  images: [{ bufferView: 4, mimeType: 'image/png' }],
+  textures: [{ source: 0, sampler: 0 }, { source: 1, sampler: 0 }],
+  images: [
+    { bufferView: 4, mimeType: 'image/png' },
+    { bufferView: 5, mimeType: 'image/png' },
+  ],
   samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }], // REPEAT
   buffers: [{ byteLength: binLen }],
   bufferViews: [
@@ -209,6 +221,7 @@ const gltf = {
     { buffer: 0, byteOffset: nrmOff, byteLength: nrmLen, target: 34962 },
     { buffer: 0, byteOffset: uvOff,  byteLength: uvLen,  target: 34962 },
     { buffer: 0, byteOffset: imgOff, byteLength: imgLen },
+    { buffer: 0, byteOffset: nrmImgOff, byteLength: nrmImgLen },
   ],
   accessors: [
     { bufferView: 0, componentType: 5125, count: indices.length,  type: 'SCALAR' },

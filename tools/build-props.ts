@@ -23,7 +23,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { encodePng, leafTexture, barkTexture, grassBladeTexture, flowerTexture,
-         stoneTexture, woodTexture, metalTexture, floorTexture } from './png';
+         stoneTexture, woodTexture, metalTexture, floorTexture, heightToNormal } from './png';
 
 const TEX_MAX = 512;
 const TEX_ROOT = 'vendor/unvanquished/pkg/tex-tech_src.dpkdir/textures/shared_tech_src';
@@ -199,19 +199,42 @@ const TEX_SPECS: Record<string, TextureSpec> = {
 
 // Procedurally-generated textures (PNG bytes) — no external source needed.
 // Leaf is RGBA with a real alpha channel for alpha-cutout foliage cards.
+// Raw RGBA for the solid (non-cutout) materials, kept so we can both encode the
+// albedo PNG and derive a tangent-space normal map from it (height = luminance).
+const stoneRgba = stoneTexture(512);
+const woodRgba  = woodTexture(512);
+const metalRgba = metalTexture(256);
+const floorRgba = floorTexture(512);
+const barkRgba  = barkTexture(256);
+
 const PROC_TEX: Record<string, Uint8Array> = {
   leaf:        encodePng(256, 256, leafTexture(256)),
-  bark:        encodePng(256, 256, barkTexture(256)),
+  bark:        encodePng(256, 256, barkRgba),
   grass_blade: encodePng(256, 256, grassBladeTexture(256)),
   flower:      encodePng(256, 256, flowerTexture(256)),
   // Stone/wood/metal/floor: procedural fallbacks so the building + props are
   // properly textured even when the Unvanquished tex-tech vendor source isn't
   // present (it isn't on this machine — see TEX_ROOT). Without these the wall
   // fell back to a flat solid grey, reading as a plain white box.
-  stone: encodePng(512, 512, stoneTexture(512)),
-  wood:  encodePng(512, 512, woodTexture(512)),
-  metal: encodePng(256, 256, metalTexture(256)),
-  floor: encodePng(512, 512, floorTexture(512)),
+  stone: encodePng(512, 512, stoneRgba),
+  wood:  encodePng(512, 512, woodRgba),
+  metal: encodePng(256, 256, metalRgba),
+  floor: encodePng(512, 512, floorRgba),
+  // Derived normal maps — give the masonry/planks per-texel relief so they
+  // catch the directional sun instead of shading flat. Referenced as a
+  // material's normalTexture (NORMAL_FOR), which makes the model loader treat
+  // them as linear, mip-variance-baked normal maps.
+  stone_n: encodePng(512, 512, heightToNormal(512, 512, stoneRgba, 3.0)),
+  wood_n:  encodePng(512, 512, heightToNormal(512, 512, woodRgba, 2.2)),
+  metal_n: encodePng(256, 256, heightToNormal(256, 256, metalRgba, 1.0)),
+  floor_n: encodePng(512, 512, heightToNormal(512, 512, floorRgba, 1.8)),
+  bark_n:  encodePng(256, 256, heightToNormal(256, 256, barkRgba, 2.6)),
+};
+
+// Albedo texture key → its normal-map key (solid materials only; the alpha
+// cutout cards leaf/grass_blade/flower intentionally get none).
+const NORMAL_FOR: Record<string, string> = {
+  stone: 'stone_n', wood: 'wood_n', metal: 'metal_n', floor: 'floor_n', bark: 'bark_n',
 };
 
 function resolveTexture(key: string): Uint8Array {
@@ -487,6 +510,12 @@ function writeGlb(outPath: string, mesh: Mesh): void {
   for (const p of mesh) {
     if (p.textureKey && texKeys.indexOf(p.textureKey) < 0) texKeys.push(p.textureKey);
   }
+  // Pull in the normal-map variant of every base texture that has one, so it
+  // gets embedded + indexed alongside the albedo (referenced via normalTexture).
+  for (const k of [...texKeys]) {
+    const nk = NORMAL_FOR[k];
+    if (nk && texKeys.indexOf(nk) < 0) texKeys.push(nk);
+  }
   const texBytes: Uint8Array[] = texKeys.map(k => resolveTexture(k));
 
   interface Slot { off: number; len: number }
@@ -586,6 +615,7 @@ function writeGlb(outPath: string, mesh: Mesh): void {
       metallicFactor: p.metallic,
       roughnessFactor: p.roughness,
     };
+    let normalTexIdx = -1;
     if (p.textureKey) {
       const ti = texKeys.indexOf(p.textureKey);
       if (ti >= 0 && texBytes[ti].length > 0) {
@@ -594,8 +624,14 @@ function writeGlb(outPath: string, mesh: Mesh): void {
         // material isn't overly dark.
         pbr.baseColorFactor = [1.0, 1.0, 1.0, 1.0];
       }
+      const nk = NORMAL_FOR[p.textureKey];
+      if (nk) {
+        const ni = texKeys.indexOf(nk);
+        if (ni >= 0 && texBytes[ni].length > 0) normalTexIdx = ni;
+      }
     }
     const matObj: any = { name: 'mat_' + i, pbrMetallicRoughness: pbr };
+    if (normalTexIdx >= 0) matObj.normalTexture = { index: normalTexIdx, scale: 1.0 };
     if (p.alphaMode === 'MASK') {
       matObj.alphaMode = 'MASK';
       matObj.alphaCutoff = p.alphaCutoff ?? 0.5;
