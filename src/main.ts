@@ -830,7 +830,7 @@ setSunDirection(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z), 1.0);
 // Gentle breeze — sways the alpha-cut foliage cards (engine reads this in the
 // scene vertex shader for any alpha-cutout material).
 setWind(1.0, 0.4, 0.4, 1.1);
-setEnvIntensity(0.22);
+setEnvIntensity(0.45);
 setAutoExposure(true);
 // AgX tonemap (new engine control): more filmic highlight roll-off + punchier
 // colour than ACES — keeps the bright sky from greying the scene. Pair it with
@@ -1162,8 +1162,8 @@ while (!windowShouldClose()) {
   const VERIFY_WATER = false;
   const VERIFY_BEAUTY = false;
   beginMode3D(VERIFY_BEAUTY ? {
-    position: vec3(-11, 2.2, -3.0),
-    target:   vec3(-23, 1.3, -13.0),
+    position: vec3(-31, 4.0, -22.0),
+    target:   vec3(-20, 1.4, -13.0),
     up: vec3(0, 1, 0),
     fovy: 55,
     projection: 0,
