@@ -191,6 +191,11 @@ const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
 // it draws with a single drawModel at the origin. Replaces the flat-grey
 // drawCube placeholders; the boxes remain invisible physics colliders.
 const mdlHouse   = loadModel('assets/models/house.glb');
+// PBR calibration rig (grey-albedo / roughness / metallic sphere grid). Only
+// drawn + framed when VERIFY_CALIB is on, for objective exposure/BRDF checks.
+const VERIFY_CALIB = false;
+const CALIB_AT = vec3(0, 6, 0);
+const mdlCalib   = loadModel('assets/models/calib_rig.glb');
 // human_bsuit animation indices (IQE declaration order):
 //   0 idle, 7 attack, 8 run, 12 walk.
 const PLAYER_ANIM_IDLE   = 0;
@@ -1167,7 +1172,13 @@ while (!windowShouldClose()) {
   // TEMP verification camera (off → normal third-person view).
   const VERIFY_WATER = false;
   const VERIFY_BEAUTY = false;
-  beginMode3D(VERIFY_BEAUTY ? {
+  beginMode3D(VERIFY_CALIB ? {
+    position: vec3(3, 6.6, 9.5),
+    target:   vec3(3, 6.0, -2.0),
+    up: vec3(0, 1, 0),
+    fovy: 58,
+    projection: 0,
+  } : VERIFY_BEAUTY ? {
     position: vec3(14, 0.55, 17.0),
     target:   vec3(4, 0.35, 3.0),
     up: vec3(0, 1, 0),
@@ -1239,6 +1250,7 @@ while (!windowShouldClose()) {
   // The house — one stone-textured mesh baked from every building box, with
   // world-space vertices, so it draws at the origin with identity transform.
   drawModel(mdlHouse, vec3(0, 0, 0), 1.0, WHITE);
+  if (VERIFY_CALIB) drawModel(mdlCalib, CALIB_AT, 1.0, WHITE);
   // Scattered ground grass tufts + wildflowers (alpha-cutout, wind-swaying).
   for (let i = 0; i < tuftCount; i++) {
     const mdl = tuftFlower[i] === 1 ? mdlFlower : mdlGrassTuft;

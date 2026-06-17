@@ -731,7 +731,47 @@ function writeGlb(outPath: string, mesh: Mesh): void {
 // PROC_TEX fallbacks (see resolveTexture), so the building + furniture are
 // fully textured even without the Unvanquished tex-tech vendor source. (They
 // previously fell back to a flat solid grey — the "white box" building.)
+// UV sphere with outward normals (= normalized position), flat albedo + given
+// roughness/metallic. For the PBR calibration rig.
+function pushSphere(m: Mesh, cx: number, cy: number, cz: number, radius: number,
+                    color: [number, number, number], roughness: number, metallic: number): void {
+  const verts: number[] = [], indices: number[] = [];
+  const STACKS = 24, SLICES = 32;
+  for (let i = 0; i <= STACKS; i++) {
+    const v = i / STACKS, phi = v * Math.PI;
+    const y = Math.cos(phi), r = Math.sin(phi);
+    for (let j = 0; j <= SLICES; j++) {
+      const u = j / SLICES, th = u * 2 * Math.PI;
+      const x = r * Math.cos(th), z = r * Math.sin(th);
+      verts.push(cx + radius * x, cy + radius * y, cz + radius * z, x, y, z, u, v);
+    }
+  }
+  const row = SLICES + 1;
+  for (let i = 0; i < STACKS; i++) {
+    for (let j = 0; j < SLICES; j++) {
+      const a = i * row + j, b = a + 1, c = a + row, d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  m.push({ vertices: verts, indices, color, textureKey: null, roughness, metallic });
+}
+
+// PBR calibration rig — drawn through the scene shader (real sun + IBL), so it
+// objectively validates the linear/exposure pipeline and the BRDF. Row 1: grey
+// albedos 0.18/0.5/0.9 (mid-grey should land ~mid after AgX). Row 2: roughness
+// sweep 0→1. Row 3: metallic sweep 0→1. Toggle in-game via VERIFY_CALIB.
+function makeCalibRig(): Mesh {
+  const m: Mesh = [];
+  const R = 0.6, gap = 1.6;
+  const greys = [0.18, 0.5, 0.9];
+  for (let i = 0; i < 3; i++) pushSphere(m, i * gap, R, 0, R, [greys[i], greys[i], greys[i]], 0.5, 0.0);
+  for (let i = 0; i < 5; i++) pushSphere(m, i * gap, R, -gap, R, [0.5, 0.5, 0.5], Math.max(0.045, i / 4), 0.0);
+  for (let i = 0; i < 5; i++) pushSphere(m, i * gap, R, -2 * gap, R, [0.95, 0.78, 0.5], 0.2, i / 4);
+  return m;
+}
+
 writeGlb('assets/models/prop_tree.glb',      makeTree());
+writeGlb('assets/models/calib_rig.glb',      makeCalibRig());
 writeGlb('assets/models/prop_grasstuft.glb', makeGrassTuft());
 writeGlb('assets/models/prop_flower.glb',    makeFlowerTuft());
 writeGlb('assets/models/prop_crate.glb',     makeCrate());
