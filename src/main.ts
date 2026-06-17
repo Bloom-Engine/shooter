@@ -398,7 +398,13 @@ const WATER_WGSL =
   // sky in hard at grazing angles, so the surface goes bright + sky-coloured
   // toward the far bank and stays clear/see-through looking straight down.
   '  let R = reflect(-V, N);\n' +
-  '  let refl = sky_refl(R, view.sun_dir.xyz, view.sun_color.rgb, view.sun_dir.w);\n' +
+  '  let sky = sky_refl(R, view.sun_dir.xyz, view.sun_color.rgb, view.sun_dir.w);\n' +
+  // Planar reflection probe: the actual mirrored scene (trees / house). The
+  // probe clears to alpha 0 and reflected geometry writes alpha 1, so blend the
+  // probe over the analytic sky by its alpha — real reflections where geometry
+  // exists, the sky dome everywhere else. Wave normal perturbs the lookup.
+  '  let prefl = textureSample(planar_reflection_tex, planar_reflection_samp, clamp(screen_uv + N.xz * 0.03, vec2<f32>(0.001), vec2<f32>(0.999)));\n' +
+  '  let refl = mix(sky, prefl.rgb, clamp(prefl.a, 0.0, 1.0));\n' +
   '  let fres = clamp(0.02 + 0.98 * pow(1.0 - ndv, 5.0), 0.0, 1.0);\n' +
   // Tight specular sun glint on top of the Fresnel sky reflection.
   '  let L = normalize(-view.sun_dir.xyz);\n' +
@@ -1162,10 +1168,10 @@ while (!windowShouldClose()) {
   const VERIFY_WATER = false;
   const VERIFY_BEAUTY = false;
   beginMode3D(VERIFY_BEAUTY ? {
-    position: vec3(17, 2.2, 12.0),
-    target:   vec3(7, 0.2, -2.0),
+    position: vec3(14, 0.55, 17.0),
+    target:   vec3(4, 0.35, 3.0),
     up: vec3(0, 1, 0),
-    fovy: 60,
+    fovy: 64,
     projection: 0,
   } : VERIFY_WATER ? {
     position: vec3(6, 1.1, 16.0),
