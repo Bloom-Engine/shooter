@@ -1179,10 +1179,10 @@ while (!windowShouldClose()) {
     fovy: 58,
     projection: 0,
   } : VERIFY_BEAUTY ? {
-    position: vec3(14, 0.55, 17.0),
-    target:   vec3(4, 0.35, 3.0),
+    position: vec3(16, 0.9, 11.0),
+    target:   vec3(12, 1.4, 5.0),
     up: vec3(0, 1, 0),
-    fovy: 64,
+    fovy: 58,
     projection: 0,
   } : VERIFY_WATER ? {
     position: vec3(6, 1.1, 16.0),
@@ -1295,24 +1295,13 @@ while (!windowShouldClose()) {
     // direction. The bsuit's only "attack" animation is a melee
     // swing — a ranged shooter shouldn't use it; keep the walk/idle
     // pose and fake recoil + muzzle flash on the weapon itself.
-    // Face the character along its MOVEMENT direction while moving, and along
-    // the camera forward when idle. updateModelAnimation faces direction
-    // (sin, -cos). Moving forward equals camera-forward, so the body smoothly
-    // turns to wherever you actually go (strafe/backpedal included) instead of
-    // always staring down the camera axis.
-    let fsin: number;
-    let fcos: number;
-    if (moving) {
-      // World move dir = forward(yaw)*(-moveZ) + right(yaw)*moveX.
-      const mdx = Math.sin(camYaw) * (-input.moveZ) + Math.cos(camYaw) * input.moveX;
-      const mdz = Math.cos(camYaw) * input.moveZ + Math.sin(camYaw) * input.moveX;
-      const ml = Math.sqrt(mdx * mdx + mdz * mdz);
-      if (ml > 0.0001) { fsin = mdx / ml; fcos = -mdz / ml; }
-      else { fsin = Math.sin(camYaw); fcos = Math.cos(camYaw); }
-    } else {
-      fsin = Math.sin(camYaw);
-      fcos = Math.cos(camYaw);
-    }
+    // Always face the camera's look direction (PUBG/aim-style), whether moving
+    // or idle. Strafing/backpedalling still plays the walk animation, but the
+    // body stays oriented where the camera looks — so the character is always
+    // "rotated the way the camera looks". (Was movement-direction while moving,
+    // which pointed the body away from the camera when strafing/backing up.)
+    const fsin = Math.sin(camYaw);
+    const fcos = Math.cos(camYaw);
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
     // Third-person (PUBG-style): render the character body.
     const FIRST_PERSON = false;

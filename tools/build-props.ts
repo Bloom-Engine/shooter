@@ -313,51 +313,94 @@ function addLeafCard(verts: number[], indices: number[],
 // a real alpha channel; the GLB material is alphaMode=MASK so the engine's
 // fragment shader discards the gaps → see-through, leafy foliage that casts
 // and receives shadows through the normal drawModel path.
+// Organic tapered trunk: a tube that narrows base→top, leans slightly, flares
+// at the roots, and has a gently non-circular (wobbled) cross-section — so it
+// reads as a tree, not a perfectly round pole. Per-quad winding mirrors
+// pushCylinder (known-good outward faces). UVs tile the bark at TILE_METRES.
+function pushTrunk(m: Mesh, baseR: number, topR: number, height: number,
+                   sides: number, lean: number, segs: number,
+                   color: [number, number, number], textureKey: string): void {
+  const verts: number[] = [], indices: number[] = [];
+  const prof = (t: number): number => {
+    let r = baseR + (topR - baseR) * t;
+    if (t < 0.2) r += baseR * 0.5 * (1 - t / 0.2);   // root flare
+    return r;
+  };
+  const lx = (t: number): number => Math.sin(t * 1.4) * lean;          // gentle lean (x)
+  const lz = (t: number): number => Math.sin(t * 1.4 + 1.0) * lean * 0.5; // + slight z bend
+  const wob = (a: number): number => 1 + Math.sin(a * 2.0) * 0.07 + Math.sin(a * 5.0 + 1.3) * 0.035;
+  for (let s = 0; s < segs; s++) {
+    const t0 = s / segs, t1 = (s + 1) / segs;
+    const yb = t0 * height, yt = t1 * height;
+    const rb = prof(t0), rt = prof(t1);
+    const oxb = lx(t0), ozb = lz(t0), oxt = lx(t1), ozt = lz(t1);
+    const vb = yb / TILE_METRES, vt = yt / TILE_METRES;
+    for (let j = 0; j < sides; j++) {
+      const a0 = (j / sides) * Math.PI * 2, a1 = ((j + 1) / sides) * Math.PI * 2;
+      const am = (a0 + a1) * 0.5;
+      const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
+      const nx = Math.cos(am), nz = Math.sin(am);
+      const w0 = wob(a0), w1 = wob(a1);
+      const u0 = (j / sides) * (2 * Math.PI * rb) / TILE_METRES;
+      const u1 = ((j + 1) / sides) * (2 * Math.PI * rb) / TILE_METRES;
+      const b = verts.length / 8;
+      verts.push(
+        oxb + rb * w0 * c0, yb, ozb + rb * w0 * s0, nx, 0.12, nz, u0, vb,
+        oxb + rb * w1 * c1, yb, ozb + rb * w1 * s1, nx, 0.12, nz, u1, vb,
+        oxt + rt * w1 * c1, yt, ozt + rt * w1 * s1, nx, 0.12, nz, u1, vt,
+        oxt + rt * w0 * c0, yt, ozt + rt * w0 * s0, nx, 0.12, nz, u0, vt,
+      );
+      indices.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    }
+  }
+  m.push({ vertices: verts, indices, color, textureKey, roughness: 0.95, metallic: 0.0 });
+}
+
 function makeTree(): Mesh {
   const m: Mesh = [];
-  // Trunk: two stacked bark cylinders, narrower toward the top (slight taper).
-  pushCylinder(m, 0, 0.9, 0, 0.26, 0.9, 9, [1, 1, 1], 0.95, 0.0, 'bark');
-  pushCylinder(m, 0, 2.1, 0, 0.17, 0.5, 9, [1, 1, 1], 0.95, 0.0, 'bark');
-
   // Deterministic pseudo-random so the GLB is reproducible.
   let seed = 90187;
   const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
 
+  // Tapered, leaning, root-flared trunk (12 sides for a smooth-but-organic
+  // profile) + a couple of low branch stubs so it isn't a bare pole.
+  pushTrunk(m, 0.28, 0.10, 3.0, 12, 0.22, 7, [1, 1, 1], 'bark');
+  pushCylinder(m, 0.55, 2.05, 0.2, 0.07, 0.5, 6, [1, 1, 1], 0.95, 0.0, 'bark');
+  pushCylinder(m, -0.5, 2.35, -0.3, 0.06, 0.45, 6, [1, 1, 1], 0.95, 0.0, 'bark');
+
   const fv: number[] = [], fi: number[] = [];
-  const CANOPY_Y = 3.0, CANOPY_R = 1.7;
-  // Three stacked rings (skirt → middle → crown) plus a top cap, so the canopy
-  // reads as a full rounded dome from every angle. Each ring's cards face
-  // outward, tilted progressively more skyward toward the crown.
-  const rings = [
-    { count: 16, y: 2.2, r: 1.15, tilt: 0.02, size: 1.9 },
-    { count: 18, y: 2.8, r: 1.05, tilt: 0.20, size: 2.0 },
-    { count: 16, y: 3.4, r: 0.85, tilt: 0.45, size: 1.8 },
-    { count: 10, y: 4.0, r: 0.55, tilt: 0.70, size: 1.5 },
+  // Canopy = several overlapping leaf-card CLUMPS (foliage masses) rather than
+  // symmetric horizontal rings — gives a rounder, ragged, non-boxy silhouette.
+  // Each clump scatters cards through a squashed sphere with size + tilt jitter.
+  const clumps = [
+    { cx: 0.0, cy: 3.5, cz: 0.0, rad: 1.55, n: 30 },
+    { cx: 0.95, cy: 3.05, cz: 0.45, rad: 1.15, n: 18 },
+    { cx: -0.85, cy: 3.15, cz: -0.55, rad: 1.15, n: 18 },
+    { cx: 0.25, cy: 4.2, cz: -0.35, rad: 1.0, n: 15 },
+    { cx: -0.35, cy: 2.7, cz: 0.75, rad: 0.95, n: 13 },
+    { cx: 0.6, cy: 3.7, cz: -0.7, rad: 0.9, n: 12 },
   ];
-  for (const ring of rings) {
-    for (let i = 0; i < ring.count; i++) {
-      const yaw = (i / ring.count) * Math.PI * 2 + (rnd() - 0.5) * 0.8;
-      const r = CANOPY_R * ring.r * (0.7 + rnd() * 0.5);
-      const cy = ring.y + (rnd() - 0.5) * 0.7;
-      const cx = Math.sin(yaw) * r * 0.7;
-      const cz = Math.cos(yaw) * r * 0.7;
-      const size = ring.size * (0.7 + rnd() * 0.7);   // wide size variation
-      addLeafCard(fv, fi, cx, cy, cz, size, size, yaw, ring.tilt + rnd() * 0.35);
+  for (const cl of clumps) {
+    for (let i = 0; i < cl.n; i++) {
+      // Uniform-ish point in a squashed sphere (slightly flattened vertically).
+      const uu = rnd() * 2 - 1, th = rnd() * Math.PI * 2;
+      const rr = cl.rad * (0.35 + rnd() * 0.65);
+      const sq = Math.sqrt(Math.max(0, 1 - uu * uu));
+      const px = cl.cx + rr * sq * Math.cos(th);
+      const py = cl.cy + rr * uu * 0.82;
+      const pz = cl.cz + rr * sq * Math.sin(th);
+      const yaw = Math.atan2(px - cl.cx, pz - cl.cz) + (rnd() - 0.5) * 0.7;
+      const size = 1.35 + rnd() * 1.15;
+      addLeafCard(fv, fi, px, py, pz, size, size, yaw, rnd() * 0.95);
     }
   }
-  // Near-horizontal cards capping the very top (fills the top-down view).
-  for (let i = 0; i < 8; i++) {
-    addLeafCard(fv, fi, (rnd() - 0.5) * 1.4, CANOPY_Y + 1.25 + rnd() * 0.45,
-                (rnd() - 0.5) * 1.4, 1.7, 1.7, rnd() * Math.PI * 2, 1.15);
-  }
-  // Irregular outliers — clumps sticking out past the dome so the silhouette
-  // is ragged + natural, not a clean sphere/box.
-  for (let i = 0; i < 9; i++) {
+  // A few ragged outliers poking past the clumps so the edge isn't a clean ball.
+  for (let i = 0; i < 10; i++) {
     const yaw = rnd() * Math.PI * 2;
-    const r = CANOPY_R * (1.0 + rnd() * 0.5);
-    addLeafCard(fv, fi, Math.sin(yaw) * r, CANOPY_Y + (rnd() - 0.3) * 2.2,
-                Math.cos(yaw) * r, 1.1 + rnd() * 0.9, 1.1 + rnd() * 0.9,
-                yaw, rnd() * 0.7);
+    const r = 1.7 + rnd() * 0.7;
+    addLeafCard(fv, fi, Math.sin(yaw) * r, 3.3 + (rnd() - 0.3) * 2.0,
+                Math.cos(yaw) * r, 1.0 + rnd() * 0.9, 1.0 + rnd() * 0.9,
+                yaw, rnd() * 0.8);
   }
   m.push({
     vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'leaf',
