@@ -368,7 +368,7 @@ const WATER_WGSL =
   '  let zenith  = vec3<f32>(0.13, 0.27, 0.52);\n' +
   '  let horizon = vec3<f32>(0.55, 0.68, 0.82);\n' +
   '  var sky = mix(horizon, zenith, pow(up, 0.55));\n' +
-  '  let sd = max(dot(R, normalize(-sun_dir)), 0.0);\n' +
+  '  let sd = max(dot(R, normalize(sun_dir)), 0.0);\n' +
   '  sky = sky + sun_col * (pow(sd, 900.0) * 6.0 + pow(sd, 12.0) * 0.25) * max(sun_int, 0.4);\n' +
   '  return sky;\n' +
   '}\n' +
@@ -412,7 +412,9 @@ const WATER_WGSL =
   '  let refl = mix(sky, prefl.rgb, clamp(prefl.a, 0.0, 1.0));\n' +
   '  let fres = clamp(0.02 + 0.98 * pow(1.0 - ndv, 5.0), 0.0, 1.0);\n' +
   // Tight specular sun glint on top of the Fresnel sky reflection.
-  '  let L = normalize(-view.sun_dir.xyz);\n' +
+  // view.sun_dir is direction-TO-sun, so L = +sun_dir (was negated to
+  // compensate for the old below-horizon SUN_DIR; fixed now).
+  '  let L = normalize(view.sun_dir.xyz);\n' +
   '  let H = normalize(L + V);\n' +
   '  let spec = pow(max(dot(N, H), 0.0), 400.0) * max(view.sun_dir.w, 0.6) * 1.4;\n' +
   '  var color = mix(body, refl, fres) + vec3<f32>(1.0, 0.97, 0.9) * spec;\n' +
@@ -817,10 +819,14 @@ setFilmGrain(0.05);        // very subtle noise
 // (setEnvIntensity) and a low cool fill, then let a strong WARM directional
 // sun carry the lighting and cast the shadows. Manual exposure (not auto) so
 // the bright sky doesn't drag the scene's exposure around.
-// SUN_DIR is shared so the procedural-sky sun and the shadow-casting sun agree.
-// Lower sun (smaller |Y|) → longer, more dramatic cast shadows + a warmer,
-// late-afternoon "golden hour" sky from the procedural atmosphere.
-const SUN_DIR_X = -0.60, SUN_DIR_Y = -0.30, SUN_DIR_Z = -0.45;
+// SUN_DIR is the DIRECTION TO THE SUN (unit-ish). The engine's scene diffuse
+// (max(dot(N, light_dir),0)), shadow cascade fit (light placed at center +
+// light_dir·d), and the sky-view LUT (mu_s = sun.y) ALL treat this as
+// direction-to-sun, so it must point UP (y>0) for daylight. The previous value
+// pointed DOWN (y=-0.30) → engine thought the sun was below the horizon: ground
+// got no direct sun (flat ambient look) and shadows were fit from a grazing/
+// below-horizon light ("weird shadows"). Now upper +x/+z, ~33° elevation.
+const SUN_DIR_X = 0.55, SUN_DIR_Y = 0.58, SUN_DIR_Z = 0.42;
 setQualityPreset(QualityPreset.High);
 setShadowsEnabled(true);
 setSsaoEnabled(true);
@@ -1179,10 +1185,10 @@ while (!windowShouldClose()) {
     fovy: 58,
     projection: 0,
   } : VERIFY_BEAUTY ? {
-    position: vec3(16, 0.9, 11.0),
-    target:   vec3(12, 1.4, 5.0),
+    position: vec3(-2, 6.0, 22.0),
+    target:   vec3(13, 0.6, 2.0),
     up: vec3(0, 1, 0),
-    fovy: 58,
+    fovy: 60,
     projection: 0,
   } : VERIFY_WATER ? {
     position: vec3(6, 1.1, 16.0),
@@ -1295,19 +1301,20 @@ while (!windowShouldClose()) {
     // direction. The bsuit's only "attack" animation is a melee
     // swing — a ranged shooter shouldn't use it; keep the walk/idle
     // pose and fake recoil + muzzle flash on the weapon itself.
-    // Always face the camera's look direction (PUBG/aim-style), whether moving
-    // or idle. Strafing/backpedalling still plays the walk animation, but the
-    // body stays oriented where the camera looks — so the character is always
-    // "rotated the way the camera looks". (Was movement-direction while moving,
-    // which pointed the body away from the camera when strafing/backing up.)
-    const fsin = Math.sin(camYaw);
-    const fcos = Math.cos(camYaw);
+    // Face the camera's look direction (PUBG/aim-style), always.
+    // updateModelAnimation takes a SINGLE Y angle (radians) now — the old
+    // (sin,cos) overload was removed (the extra arg was silently dropped, so the
+    // body rotated by sin(camYaw) rad ≈ ±57° and "stayed looking left").
+    // set_joint_matrices_scaled maps the model's +X rest-facing to
+    // (cosθ,-sinθ); the camera looks along (sin camYaw, -cos camYaw), so
+    // θ = π/2 - camYaw. (General: to face world dir (dx,dz), rot_y = atan2(-dz,dx).)
+    const rotY = Math.PI / 2 - camYaw;
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
     // Third-person (PUBG-style): render the character body.
     const FIRST_PERSON = false;
     if (!FIRST_PERSON) {
       updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
-        pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, fsin, fcos);
+        pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, rotY);
       drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
                 PLAYER_SCALE, WHITE);
     }
@@ -1381,12 +1388,13 @@ while (!windowShouldClose()) {
     const dxA = ppAim.x - enX[i];
     const dzA = ppAim.z - enZ[i];
     const distA = Math.sqrt(dxA * dxA + dzA * dzA);
-    const faceSin = distA > 0.001 ? dxA / distA : 0;
-    const faceCos = distA > 0.001 ? -dzA / distA : -1;
+    // Single Y angle (radians) — face the player. To face world dir (dx,dz):
+    // rot_y = atan2(-dz, dx) (see player facing note). atan2(0,0)→0 is fine.
+    const enRotY = Math.atan2(-dzA, dxA);
     const attacking = distA <= KIND_MELEE[k];
     const animIdx = attacking ? ANIM_ATTACK_IDX[k] : ANIM_WALK_IDX[k];
     updateModelAnimation(animAliens[k], animIdx, enPhase[i], KIND_SCALE[k],
-      enX[i], enY[i], enZ[i], faceSin, faceCos);
+      enX[i], enY[i], enZ[i], enRotY);
     const f = enFlashT[i] > 0 ? enFlashT[i] / DRETCH_HIT_FLASH : 0;
     const tint = f > 0
       ? { r: 255,
