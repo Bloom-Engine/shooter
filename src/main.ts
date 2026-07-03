@@ -35,7 +35,10 @@ import { createPlayer, updatePlayerController, playerPosition } from './player';
 import * as W from './generated/world';
 import * as T from './generated/terrain';
 
-initWindow(1024, 640, 'Bloom Shooter');
+// Borderless fullscreen at the monitor's native resolution (the engine
+// resizes its swapchain + all render targets on the WM_SIZE this triggers).
+// The 1024×640 size is the windowed-mode fallback the engine restores to.
+initWindow(1024, 640, 'Bloom Shooter', true);
 setTargetFPS(60);
 initInput();
 
@@ -121,13 +124,16 @@ setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
 //   amp         — peak displacement at full tip weight (~0.10 m for grass)
 //   freq        — Hz; ~1 = lazy breeze, ~3 = gusty
 setWind(0.85, 0.50, 0.10, 1.6);
-// Windows/Perry pipeline correction (feat/visual-overhaul): TAA defaults ON
-// in the engine, and its legacy coupling silently HALVES the internal render
-// resolution (TSR-style reconstruction) unless a render scale was ever set
-// explicitly. Pin full res so TAA is pure anti-aliasing — without this the
-// game renders internally at 512×320 and every surface reads soft.
+// TAA + TSR reconstruction. Setting the scale explicitly opts out of the
+// legacy TAA coupling (which would otherwise silently halve the internal
+// resolution). 0.5 at 4K output = 1920×1080 internal, reconstructed to
+// native by the TSR upscale inside the TAA pass — the pixel-bound passes
+// (material/G-buffer/GTAO/SSR/SSGI) run at quarter cost while the output
+// (and the HUD) stays native-sharp. Measured on the 4K dev box: ~20 fps at
+// native internal vs ~45 fps here, with the composite sharpen covering the
+// reconstruction softness.
 setTaaEnabled(true);
-setRenderScale(1.0);
+setRenderScale(0.5);
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
