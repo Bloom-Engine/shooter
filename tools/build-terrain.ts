@@ -11,25 +11,29 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { encodePng, grassTexture } from './png';
+import { encodePng, grassTexture, heightToNormal } from './png';
 
 const OUT_GLB = 'assets/models/terrain_hills.glb';
 const OUT_TS  = 'src/generated/terrain.ts';
 
-// Grid parameters. 96 × 96 cells = 9,216 verts, 18,050 tris — well within
-// one draw call. At cellSize 0.83 m the mesh spans ~80 × 80 m. The
-// physics collider samples the same height function at a coarser grid
-// (PHYS_WIDTH² samples) and is written to a TS module so the runtime
-// can build a Jolt heightfield without reading the GLB — see
-// src/generated/terrain.ts.
-const WIDTH = 96;
-const DEPTH = 96;
-const CELL = 80 / (WIDTH - 1);
-const ORIGIN_X = -40;
-const ORIGIN_Z = -40;
+// Grid parameters. The gameplay arena spans ±ARENA_HALF (colliders, physics
+// heightfield, spawn logic all assume 80 × 80 m — unchanged). The VISUAL mesh
+// extends to ±EXTENT_HALF with a "skirt" of rolling hills that rise with
+// distance, so from gameplay eye height the horizon line (and the dark
+// below-horizon procedural sky) is always hidden behind terrain instead of
+// the world ending on a hard edge over a void. 256 × 256 cells ≈ 1.1 m
+// spacing = 65 k verts / 130 k tris — still one draw call.
+const WIDTH = 256;
+const DEPTH = 256;
+const ARENA_HALF  = 40;    // gameplay arena half-extent (must stay 40)
+const EXTENT_HALF = 140;   // visual mesh half-extent incl. skirt
+const CELL = (EXTENT_HALF * 2) / (WIDTH - 1);
+const ORIGIN_X = -EXTENT_HALF;
+const ORIGIN_Z = -EXTENT_HALF;
 
-const PHYS_WIDTH = 64;                           // 64 × 64 = 4096 samples
-const PHYS_CELL  = 80 / (PHYS_WIDTH - 1);        // ≈ 1.27 m per cell
+const PHYS_WIDTH = 64;                                       // 64 × 64 = 4096 samples
+const PHYS_CELL  = (ARENA_HALF * 2) / (PHYS_WIDTH - 1);      // ≈ 1.27 m per cell
+const PHYS_ORIGIN = -ARENA_HALF;                             // physics grid covers the arena only
 
 // Two axis-aligned "hill" centres plus a long ridge. The plaza itself (a
 // ring around the origin with radius 15 m) stays flat so gameplay colliders
@@ -56,7 +60,58 @@ function heightAt(x: number, z: number): number {
   // Low-frequency waviness everywhere so the flat plate doesn't look dead.
   h += 0.25 * Math.sin(x * 0.08) * Math.cos(z * 0.10);
   h += 0.18 * Math.sin(x * 0.17 + z * 0.11);
-  return h * plazaBlend;
+  let y = h * plazaBlend;
+
+  // Visual-only skirt — rolling hills that rise with distance outside the
+  // gameplay arena. Gated on Chebyshev distance so heights inside ±ARENA_HALF
+  // (and therefore the physics heightfield, which only samples the arena) are
+  // bit-identical to before. The smooth ease-in from zero at the boundary
+  // keeps the mesh crease-free where skirt meets arena. Amplitude reaches
+  // ~12-20 m at the far edge: enough that from any gameplay eye height the
+  // horizon line (dark below-horizon sky) stays hidden behind terrain.
+  const dEdge = Math.max(Math.abs(x), Math.abs(z));
+  if (dEdge > ARENA_HALF) {
+    const t = Math.min(1, (dEdge - ARENA_HALF) / (EXTENT_HALF - ARENA_HALF));
+    const ss = t * t * (3 - 2 * t);
+    // Angular lobes break the square-ring symmetry; xz rolls add local relief.
+    const ang = Math.atan2(z, x);
+    const lobes = 1 + 0.35 * Math.sin(ang * 3 + 1.7) + 0.2 * Math.sin(ang * 7 + 0.6);
+    const roll = Math.sin(x * 0.045 + 1.3) * Math.cos(z * 0.05 + 0.4) * 3.2
+               + Math.sin(x * 0.11 + z * 0.07) * 1.6;
+    // Floor the skirt profile: where lobes + roll both dip, sightlines from
+    // gameplay eye height cleared the ring and the dark below-horizon sky
+    // peeked through between the hills. 6.5 m at the far edge ≈ +2.7° above
+    // the ground plane from anywhere in the arena — always above eye level.
+    y += Math.max(ss * (12.0 * lobes + roll), ss * 6.5);
+  }
+
+  // River channel — carve the terrain BELOW the water plane (water sits at
+  // y≈0.05) along the river path (segments run z≈11–13 across x≈-37..39).
+  // Without this the riverbed terrain — up to ~2.3 m under some segments —
+  // pokes through the flat water surface. The bed is forced to BED at the
+  // centre and smoothly ramps back to the natural terrain over BANK metres,
+  // so the river reads as a proper carved channel with grassy banks. Drives
+  // both the visual GLB and the Jolt heightfield (one source of truth).
+  // Beyond the arena the carve fades out over ~14 m so the channel reads as
+  // a gully closing into the skirt hills instead of dead-ending on a wall.
+  const RIVER_Z = 12.0, BED = -0.55, HALF = 2.6, BANK = 2.4;
+  {
+    const dzr = Math.abs(z - RIVER_Z);
+    if (dzr < HALF + BANK) {
+      let carve = 1.0;
+      if (dzr > HALF) {
+        const tt = 1 - (dzr - HALF) / BANK;        // 1 at bed edge → 0 at bank top
+        carve = tt * tt * (3 - 2 * tt);            // smoothstep
+      }
+      let endFade = 1.0;
+      if (x >= 40) endFade = Math.max(0, 1 - (x - 40) / 14);
+      else if (x <= -38) endFade = Math.max(0, 1 - (-38 - x) / 14);
+      endFade = endFade * endFade * (3 - 2 * endFade);
+      carve *= endFade;
+      if (carve > 0) y = y * (1 - carve) + BED * carve;
+    }
+  }
+  return y;
 }
 
 // Build the mesh.
@@ -68,8 +123,10 @@ const normals   = new Float32Array(vertCount * 3);
 const uvs       = new Float32Array(vertCount * 2);
 const indices   = new Uint32Array(triCount * 3);
 
-// UV tile rate — 1 texture repeat per UV_TILE world metres.
-const UV_TILE = 4;
+// UV tile rate — 1 texture repeat per UV_TILE world metres. Larger = fewer
+// visible repeats across the 80 m field (4 m gave ~20 obvious repeats); the
+// seamless grass texture + higher resolution keep per-metre detail crisp.
+const UV_TILE = 8;
 
 // First pass: positions only.
 const heights = new Float32Array(vertCount);
@@ -134,8 +191,13 @@ for (let v = 1; v < vertCount; v++) {
 function align4(n: number): number { return (n + 3) & ~3; }
 
 // Procedural grass texture — tiled across the whole terrain via UVs above.
-const TEX_SIZE = 256;
-const grassPng = encodePng(TEX_SIZE, TEX_SIZE, grassTexture(TEX_SIZE));
+// Plus a derived normal map so the grass catches the directional sun (per-texel
+// surface relief) instead of shading flat.
+const TEX_SIZE = 512;
+const grassRgba = grassTexture(TEX_SIZE);
+const grassPng = encodePng(TEX_SIZE, TEX_SIZE, grassRgba);
+const grassNrmPng = encodePng(TEX_SIZE, TEX_SIZE,
+  heightToNormal(TEX_SIZE, TEX_SIZE, grassRgba, 2.5));
 
 const idxOff = 0;
 const idxLen = indices.byteLength;
@@ -147,7 +209,9 @@ const uvOff  = align4(nrmOff + nrmLen);
 const uvLen  = uvs.byteLength;
 const imgOff = align4(uvOff + uvLen);
 const imgLen = grassPng.length;
-const binLen = align4(imgOff + imgLen);
+const nrmImgOff = align4(imgOff + imgLen);
+const nrmImgLen = grassNrmPng.length;
+const binLen = align4(nrmImgOff + nrmImgLen);
 
 const bin = new Uint8Array(binLen);
 bin.set(new Uint8Array(indices.buffer),   idxOff);
@@ -155,6 +219,7 @@ bin.set(new Uint8Array(positions.buffer), posOff);
 bin.set(new Uint8Array(normals.buffer),   nrmOff);
 bin.set(new Uint8Array(uvs.buffer),       uvOff);
 bin.set(grassPng,                         imgOff);
+bin.set(grassNrmPng,                      nrmImgOff);
 
 const gltf = {
   asset: { version: '2.0', generator: 'shooter-build-terrain' },
@@ -175,9 +240,13 @@ const gltf = {
       metallicFactor: 0.0,
       roughnessFactor: 0.95,
     },
+    normalTexture: { index: 1, scale: 1.0 },
   }],
-  textures: [{ source: 0, sampler: 0 }],
-  images: [{ bufferView: 4, mimeType: 'image/png' }],
+  textures: [{ source: 0, sampler: 0 }, { source: 1, sampler: 0 }],
+  images: [
+    { bufferView: 4, mimeType: 'image/png' },
+    { bufferView: 5, mimeType: 'image/png' },
+  ],
   samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }], // REPEAT
   buffers: [{ byteLength: binLen }],
   bufferViews: [
@@ -186,6 +255,7 @@ const gltf = {
     { buffer: 0, byteOffset: nrmOff, byteLength: nrmLen, target: 34962 },
     { buffer: 0, byteOffset: uvOff,  byteLength: uvLen,  target: 34962 },
     { buffer: 0, byteOffset: imgOff, byteLength: imgLen },
+    { buffer: 0, byteOffset: nrmImgOff, byteLength: nrmImgLen },
   ],
   accessors: [
     { bufferView: 0, componentType: 5125, count: indices.length,  type: 'SCALAR' },
@@ -228,8 +298,8 @@ console.log('  y range:', minY.toFixed(2), '...', maxY.toFixed(2));
 const physSamples = new Array<number>(PHYS_WIDTH * PHYS_WIDTH);
 for (let z = 0; z < PHYS_WIDTH; z++) {
   for (let x = 0; x < PHYS_WIDTH; x++) {
-    const wx = ORIGIN_X + x * PHYS_CELL;
-    const wz = ORIGIN_Z + z * PHYS_CELL;
+    const wx = PHYS_ORIGIN + x * PHYS_CELL;
+    const wz = PHYS_ORIGIN + z * PHYS_CELL;
     physSamples[z * PHYS_WIDTH + x] = heightAt(wx, wz);
   }
 }
@@ -240,13 +310,14 @@ tsLines.push('//');
 tsLines.push(`// Heightfield samples for the Jolt heightfieldShape collider in main.ts.`);
 tsLines.push(`// Grid is ${PHYS_WIDTH} × ${PHYS_WIDTH}, row-major (z * width + x). Cell size`);
 tsLines.push(`// ${PHYS_CELL.toFixed(4)} m. Origin (world position of sample [0, 0]) is`);
-tsLines.push(`// (${ORIGIN_X}, 0, ${ORIGIN_Z}).`);
+tsLines.push(`// (${PHYS_ORIGIN}, 0, ${PHYS_ORIGIN}). Covers the gameplay arena only — the`);
+tsLines.push(`// visual mesh extends further (skirt hills) but has no collision.`);
 tsLines.push('');
 tsLines.push(`export const TERRAIN_SAMPLE_COUNT = ${PHYS_WIDTH};`);
 tsLines.push(`export const TERRAIN_CELL_SIZE   = ${PHYS_CELL};`);
-tsLines.push(`export const TERRAIN_ORIGIN_X    = ${ORIGIN_X};`);
+tsLines.push(`export const TERRAIN_ORIGIN_X    = ${PHYS_ORIGIN};`);
 tsLines.push(`export const TERRAIN_ORIGIN_Y    = 0;`);
-tsLines.push(`export const TERRAIN_ORIGIN_Z    = ${ORIGIN_Z};`);
+tsLines.push(`export const TERRAIN_ORIGIN_Z    = ${PHYS_ORIGIN};`);
 tsLines.push('');
 tsLines.push('// Row-major height samples. One number per cell, ~4 KB total.');
 tsLines.push('export const TERRAIN_HEIGHTS: number[] = [');

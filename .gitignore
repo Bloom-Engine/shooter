@@ -13,3 +13,13 @@ tools/.cache/
 # Test + screenshot artefacts
 shooter_*.png
 shooter_selftest_*.png
+tools/.testout/
+
+# Windows build + run artefacts
+main.exe
+main.lib
+.perry-cache/
+_compile.log
+_gamepid.txt
+_run_err.txt
+_run_out.txt

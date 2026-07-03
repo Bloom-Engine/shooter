@@ -6,23 +6,28 @@ import {
   setAmbientLight, setDirectionalLight, setEnvClearFromHdr,
   getScreenWidth, getScreenHeight,
   vec3,
-  isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
+  isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp, isAnyInputPressed,
   disableCursor, enableCursor, takeScreenshot,
   loadModel, drawModel, loadModelAnimation, updateModelAnimation,
   createMesh, createMeshExplicit, genMeshCube,
   compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume,
-  loadMusic, playMusic, updateMusicStream, setMusicVolume,
+  loadMusic, playMusic, stopMusic, updateMusicStream, setMusicVolume,
   setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
 } from 'bloom';
 import {
   setVignette, setFilmGrain,
-  setEnvIntensity, setAutoExposure, setFog, setSunShafts, setWind,
+  setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
+  setTaaEnabled, setRenderScale,
 } from 'bloom/core';
-import { addPointLight, enableShadows } from 'bloom/scene';
+import {
+  addPointLight, enableShadows,
+  createSceneNode, attachModelToNode, setSceneNodeTrs,
+  setSceneNodeGiOnly, setSceneNodeCastShadow, setSceneNodeColor,
+} from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
@@ -34,7 +39,10 @@ import { createPlayer, updatePlayerController, playerPosition } from './player';
 import * as W from './generated/world';
 import * as T from './generated/terrain';
 
-initWindow(1024, 640, 'Bloom Shooter');
+// Borderless fullscreen at the monitor's native resolution (the engine
+// resizes its swapchain + all render targets on the WM_SIZE this triggers).
+// The 1024×640 size is the windowed-mode fallback the engine restores to.
+initWindow(1024, 640, 'Bloom Shooter', true);
 setTargetFPS(60);
 initInput();
 
@@ -46,9 +54,14 @@ const sfxPickup = loadSound('assets/sounds/pickup.wav');
 setSoundVolume(sfxFire, 0.35);
 setSoundVolume(sfxAttack, 0.6);
 setSoundVolume(sfxPickup, 0.8);
-const musicAmbient = loadMusic('assets/sounds/ambient.ogg');
+// Two tracks from the 2026-07-03 asset drop: menu.wav on the title screen,
+// game.wav once play starts (see the gameState transition in the loop).
+// The old ambient.ogg loop stays in the repo as a fallback.
+const musicMenu = loadMusic('assets/sounds/menu.wav');
+const musicAmbient = loadMusic('assets/sounds/game.wav');
+setMusicVolume(musicMenu, 0.4);
 setMusicVolume(musicAmbient, 0.35);
-playMusic(musicAmbient);
+playMusic(musicMenu);
 
 const physics = createWorld({ gravity: vec3(0, -20, 0) });
 // Make NON_MOVING (static) and MOVING (character/dynamic) collide.
@@ -91,8 +104,12 @@ setEnvIntensity(1.0);
 enableShadows();
 // Tier 1.4 — auto-exposure. The HDR pipeline tonemaps to surface
 // sRGB with a fixed exposure if this is off; auto follows scene
-// luminance which is the right behaviour outdoors.
+// luminance which is the right behaviour outdoors. The engine's
+// histogram AE targets the key value below — tuned against the
+// IBL-fill material lighting: 0.18 washed the stone to white before
+// the materials sampled real irradiance, 0.12 went moody-dark after.
 setAutoExposure(true);
+setAutoExposureKey(0.155);
 // Tier 1.5 — pale-blue distance haze. r,g,b,density,heightRef,
 // heightFalloff. Density 0.012 reads as a soft far-plane haze
 // without dimming the foreground.
@@ -111,6 +128,16 @@ setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
 //   amp         — peak displacement at full tip weight (~0.10 m for grass)
 //   freq        — Hz; ~1 = lazy breeze, ~3 = gusty
 setWind(0.85, 0.50, 0.10, 1.6);
+// TAA + TSR reconstruction. Setting the scale explicitly opts out of the
+// legacy TAA coupling (which would otherwise silently halve the internal
+// resolution). 0.5 at 4K output = 1920×1080 internal, reconstructed to
+// native by the TSR upscale inside the TAA pass — the pixel-bound passes
+// (material/G-buffer/GTAO/SSR/SSGI) run at quarter cost while the output
+// (and the HUD) stays native-sharp. Measured on the 4K dev box: ~20 fps at
+// native internal vs ~45 fps here, with the composite sharpen covering the
+// reconstruction softness.
+setTaaEnabled(true);
+setRenderScale(0.5);
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -613,6 +640,7 @@ const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
 const GRASS_INSTANCED_WGSL =
   '#include "material_abi.wgsl"\n' +
   '#include "common/shadows.wgsl"\n' +
+  '#include "common/pbr.wgsl"\n' +
   '\n' +
   'struct GrassParams { base: vec4<f32>, };\n' +
   '@group(2) @binding(11) var<uniform> grass: GrassParams;\n' +
@@ -675,7 +703,9 @@ const GRASS_INSTANCED_WGSL =
   '@fragment fn fs_main(in: VsOut) -> OpaqueOut {\n' +
   '  let n = normalize(in.world_normal);\n' +
   '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
-  '  let l = normalize(-view.sun_dir.xyz);\n' +
+  // view.sun_dir is direction-TO-sun (engine convention; the world data +
+  // all material shaders were normalised to it in the branch merge).
+  '  let l = normalize(view.sun_dir.xyz);\n' +
   '  let wrap     = 0.5;\n' +
   '  let n_dot_l  = (dot(n, l) + wrap) / (1.0 + wrap);\n' +
   '  let direct_w = max(n_dot_l, 0.0);\n' +
@@ -687,7 +717,12 @@ const GRASS_INSTANCED_WGSL =
   '  let direct = view.sun_color.rgb * direct_w * cloud * shadow;\n' +
   '  let albedo = in.blade_tint * (0.7 + 0.3 * in.tip_weight);\n' +
   '  let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;\n' +
-  '  let lit = albedo * (view.ambient.rgb * 0.55 + direct) + trans * trans_color * cloud;\n' +
+  // Sky-fill: HDR irradiance sampled straight up (thin blades respond to
+  // the sky dome; a fixed direction avoids per-blade ambient flicker from
+  // the ±normal card sides) + a small flat floor. Mirrors
+  // assets/materials/grass_instanced.wgsl — keep the two in sync.
+  '  let fill = sample_env_diffuse(vec3<f32>(0.0, 1.0, 0.0)) + view.ambient.rgb * 0.20;\n' +
+  '  let lit = albedo * (fill + direct) + trans * trans_color * cloud;\n' +
   '  var out: OpaqueOut;\n' +
   '  out.hdr      = vec4<f32>(lit, 1.0);\n' +
   '  out.material = vec2<f32>(0.0, 0.92);\n' +
@@ -1003,8 +1038,18 @@ const animAliens = [
 ];
 // Animation indices — IQE declaration order. Dretch (and most others):
 // 0 stand, 1 attack, 4 die, 14 run, 20 walk. We map gameplay -> anim idx.
-const ANIM_WALK_IDX   = [14, 14, 14, 14, 14];
-const ANIM_ATTACK_IDX = [1, 1, 1, 1, 1];
+// Per-kind animation indices, in kind order [dretch, mantis, marauder,
+// dragoon, tyrant]. The GLBs do NOT share one layout — the old flat
+// [14,...]/[1,...] tables played run_right on the dragoon, pain2 on the
+// tyrant, and stand1 as the mantis "attack". Verified against each GLB's
+// animation list (tools/inspect-glb.ts).
+const ANIM_WALK_IDX   = [14, 18, 14, 12, 15];   // 'run'
+const ANIM_ATTACK_IDX = [ 1,  4,  1,  6,  1];   // 'attack'
+const ANIM_DIE_IDX    = [ 4,  7,  4,  7,  5];   // 'die'
+// Die-anim durations (max keyframe time per GLB). The engine WRAPS anim
+// time (t % duration), so death playback clamps just short of these to
+// freeze on the final collapsed pose instead of re-looping the fall.
+const ANIM_DIE_DUR    = [1.55, 1.567, 0.883, 1.8, 2.567];
 // Procedural motion parameters (cheap substitute for skeletal animation).
 // Each enemy has a phase accumulator — sinusoids on top give a bob + side-
 // sway while walking, and a forward-lunge while attacking.
@@ -1041,6 +1086,12 @@ const enKind  = new Array<number>(MAX_ENEMIES);
 const enAttackCD = new Array<number>(MAX_ENEMIES);
 const enFlashT = new Array<number>(MAX_ENEMIES);
 const enPhase = new Array<number>(MAX_ENEMIES);        // walk-cycle phase accumulator
+// Death playback: corpse keeps drawing at its last position while the die
+// animation plays (then sinks), independent of enAlive so wave logic and
+// AI treat the enemy as gone immediately.
+const enDying    = new Array<number>(MAX_ENEMIES);     // 1 = death anim in progress
+const enDeathT   = new Array<number>(MAX_ENEMIES);     // seconds since the kill
+const enDeathYaw = new Array<number>(MAX_ENEMIES);     // facing frozen at death
 const enBody: BodyHandle[] = new Array<BodyHandle>(MAX_ENEMIES);
 for (let k = 0; k < KIND_COUNT; k++) {
   const shape = boxShape(vec3(KIND_HX[k], KIND_HY[k], KIND_HZ[k]));
@@ -1050,6 +1101,11 @@ for (let k = 0; k < KIND_COUNT; k++) {
     enHP[i] = 0; enAlive[i] = 0; enAttackCD[i] = 0; enFlashT[i] = 0;
     enPhase[i] = Math.random() * Math.PI * 2;   // stagger the bob phases
     enKind[i] = k;
+    // Explicit init — Perry arrays don't default-fill, and findDormantSlot
+    // compares enDying with === 0.
+    enDying[i] = 0;
+    enDeathT[i] = 0;
+    enDeathYaw[i] = 0;
     enBody[i] = createBody(physics, shape, {
       motionType: MotionType.KINEMATIC,
       position: vec3(0, -100, 0),
@@ -1084,7 +1140,9 @@ function countAlive(): number {
 function findDormantSlot(kind: number): number {
   for (let j = 0; j < BODIES_PER_KIND; j++) {
     const i = kind * BODIES_PER_KIND + j;
-    if (enAlive[i] === 0) return i;
+    // A dying slot still owns the corpse on screen — don't respawn into it
+    // or the death anim snaps into a fresh enemy mid-fall.
+    if (enAlive[i] === 0 && enDying[i] === 0) return i;
   }
   return -1;
 }
@@ -1132,6 +1190,9 @@ let fireCD = 0;
 
 let playerHP = PLAYER_HP_MAX;
 let gameOver = false;
+// 0 = title screen (menu.wav, world rendering as the backdrop, no waves /
+// no firing / no movement), 1 = playing. Any input starts the game.
+let gameState = 0;
 const MUZZLE_FLASH_DUR = 0.08;
 let muzzleFlashT = 0;
 let damageFlashT = 0;
@@ -1185,6 +1246,9 @@ function despawnAllEnemies(): void {
     enAttackCD[i] = 0;
     enFlashT[i] = 0;
     enPhase[i] = Math.random() * Math.PI * 2;
+    enDying[i] = 0;
+    enDeathT[i] = 0;
+    enDeathYaw[i] = 0;
     enX[i] = 0; enY[i] = -100; enZ[i] = 0;
     setBodyPosition(enBody[i], vec3(0, -100, 0), false);
   }
@@ -1236,7 +1300,57 @@ disableCursor();
 // ---- M8 polish: post-FX ---------------------------------------------------
 // Called once at startup — these are cheap, always-on stylistic passes.
 setVignette(0.4, 0.55);    // darken frame edges
-setFilmGrain(0.06);        // very subtle noise
+setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckle
+                           // over sky/shadow areas (phase-0 calibration).
+
+// ---- GI proxies ------------------------------------------------------------
+// The world renders through the material system, which Lumen's inputs
+// (BLAS/TLAS, mesh cards, SDF clipmap) never see — so SSGI had no
+// off-screen geometry to bounce from. Register invisible scene-node
+// duplicates of the big static geometry, flagged gi_only: they feed the
+// GI stack but are skipped by the main render, reflections, and the sun
+// shadow pass (the material path casts those shadows itself). Node
+// colour approximates each material's mid albedo so bounce carries the
+// right hue.
+{
+  // Terrain instance(s) from the world's static-mesh list.
+  // loadModel/createMeshExplicit return Model OBJECTS — the scene attach
+  // FFI wants the raw .handle number.
+  for (let i = 0; i < W.MESH_COUNT; i++) {
+    const mi = W.MESH_MODEL_IDX[i];
+    if (mi === terrainPropIdx && W.MODEL_IS_BOX[mi] !== 1) {
+      const n = createSceneNode();
+      attachModelToNode(n, (meshModelHandles[mi] as any).handle, 0);
+      setSceneNodeTrs(n, W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i], 0, W.MESH_SCALE[i]);
+      setSceneNodeColor(n, 84, 116, 51);          // ≈ grass_mid albedo
+      setSceneNodeCastShadow(n, false);
+      setSceneNodeGiOnly(n, true);
+    }
+  }
+  // The generated building shell (drawn at origin, scale 1).
+  if (matBuildingMesh.handle > 0) {
+    const n = createSceneNode();
+    attachModelToNode(n, matBuildingMesh.handle, 0);
+    setSceneNodeTrs(n, 0, 0, 0, 0, 1);
+    setSceneNodeColor(n, 214, 208, 196);          // plaster base
+    setSceneNodeCastShadow(n, false);
+    setSceneNodeGiOnly(n, true);
+  }
+  // Forest trees — every primitive of every placed tree. glTF materials
+  // ride along through attachModelToNode, so trunks bounce brown and
+  // canopies green without per-node colour overrides.
+  for (let i = 0; i < FOREST_COUNT; i++) {
+    const v = treeVariants[FOREST_VAR[i]];
+    const meshCount = TREE_MESH_COUNTS[FOREST_VAR[i]];
+    for (let mIdx = 0; mIdx < meshCount; mIdx++) {
+      const n = createSceneNode();
+      attachModelToNode(n, (v as any).handle, mIdx);
+      setSceneNodeTrs(n, FOREST_X[i], FOREST_Y[i], FOREST_Z[i], 0, FOREST_SCALE[i]);
+      setSceneNodeCastShadow(n, false);
+      setSceneNodeGiOnly(n, true);
+    }
+  }
+}
 
 
 // ---- Self-test harness ----------------------------------------------------
@@ -1252,7 +1366,7 @@ while (!windowShouldClose()) {
   const dt = getDeltaTime();
   const sw = getScreenWidth();
   const sh = getScreenHeight();
-  updateMusicStream(musicAmbient);
+  updateMusicStream(gameState === 0 ? musicMenu : musicAmbient);
 
   // Tab toggles cursor capture so you can free the mouse to screenshot etc.
   if (isKeyPressed(Key.TAB)) {
@@ -1300,7 +1414,7 @@ while (!windowShouldClose()) {
   if (isKeyPressed(Key.TWO))  { currentWeapon = WEAPON_BLASTER; fireCD = 0; }
 
   // Freeze player movement while dead or after victory; physics still steps.
-  if (!gameOver && !gameWon) {
+  if (gameState === 1 && !gameOver && !gameWon) {
     const yawNow = CAM[0];
     const fwd = vec3(Math.sin(yawNow), 0, -Math.cos(yawNow));
     const rgt = vec3(Math.cos(yawNow), 0, Math.sin(yawNow));
@@ -1377,7 +1491,7 @@ while (!windowShouldClose()) {
   playerAnimT = playerAnimT + dt;
 
   // ---- Enemy AI + wave director (M5 / M6) -------------------------------
-  if (!gameOver && !gameWon) {
+  if (gameState === 1 && !gameOver && !gameWon) {
     const pp = playerPosition();
     for (let i = 0; i < MAX_ENEMIES; i++) {
       if (enAlive[i] === 0) continue;
@@ -1517,8 +1631,15 @@ while (!windowShouldClose()) {
             enHP[i] = enHP[i] - RIFLE_DAMAGE;
             enFlashT[i] = DRETCH_HIT_FLASH;
             if (enHP[i] <= 0) {
+              // Death: AI/waves see it gone (enAlive 0), the physics body
+              // leaves play, but the corpse keeps drawing at its last
+              // position while the die animation plays (see the dying
+              // pass in the draw loop).
               enAlive[i] = 0;
-              enY[i] = -100;
+              enDying[i] = 1;
+              enDeathT[i] = 0;
+              const pk = playerPosition();
+              enDeathYaw[i] = Math.atan2(pk.x - enX[i], -(pk.z - enZ[i]));
               setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
               playSound(sfxAttack);   // reuse clank as death thud
             }
@@ -1560,8 +1681,13 @@ while (!windowShouldClose()) {
           enFlashT[j] = DRETCH_HIT_FLASH;
           shotsHit = shotsHit + 1;
           if (enHP[j] <= 0) {
+            // Same death path as the rifle kill: corpse plays the die anim
+            // at its last position; body leaves play immediately.
             enAlive[j] = 0;
-            enY[j] = -100;
+            enDying[j] = 1;
+            enDeathT[j] = 0;
+            const pk2 = playerPosition();
+            enDeathYaw[j] = Math.atan2(pk2.x - enX[j], -(pk2.z - enZ[j]));
             setBodyPosition(enBody[j], vec3(enX[j], -100, enZ[j]), false);
             playSound(sfxAttack);
           }
@@ -1585,9 +1711,20 @@ while (!windowShouldClose()) {
   clearBackground({ r: Math.floor(W.ENV_SKY_R * 255),
                     g: Math.floor(W.ENV_SKY_G * 255),
                     b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
-  // Per-frame light overrides removed — they were hardcoded values
-  // that masked the world-data setAmbientLight/setDirectionalLight
-  // run at startup, and IBL now provides the ambient diffuse anyway.
+  // Sun + ambient MUST be re-set every frame: the engine's begin_frame
+  // resets the whole lighting block to defaults (immediate-mode convention,
+  // renderer begin_frame — verified the hard way in the visual-overhaul
+  // branch). Values come from the world data, so the editor stays the
+  // single source of truth.
+  setAmbientLight(
+    { r: Math.floor(W.ENV_AMBIENT_R * 255), g: Math.floor(W.ENV_AMBIENT_G * 255),
+      b: Math.floor(W.ENV_AMBIENT_B * 255), a: 255 },
+    W.ENV_AMBIENT_I);
+  setDirectionalLight(
+    vec3(W.ENV_SUN_DIR_X, W.ENV_SUN_DIR_Y, W.ENV_SUN_DIR_Z),
+    { r: Math.floor(W.ENV_SUN_R * 255), g: Math.floor(W.ENV_SUN_G * 255),
+      b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
+    W.ENV_SUN_I);
 
   beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
@@ -1612,12 +1749,11 @@ while (!windowShouldClose()) {
   }
 
   // ---- World: static meshes + water + lights (all from generated/world.ts) -
-  // Ground plate — big drawCube beneath the terrain mesh so the full
-  // 80×80 collider floor reads as a solid plane even where the hills
-  // haven't lifted anything off it. Matches COLLIDER[0] (the plaza floor).
-  drawCube(vec3(W.COLLIDER_X[0], W.COLLIDER_Y[0], W.COLLIDER_Z[0]),
-           W.COLLIDER_HALF_X[0] * 2, W.COLLIDER_HALF_Y[0] * 2, W.COLLIDER_HALF_Z[0] * 2,
-           { r: 85, g: 95, b: 75, a: 255 });
+  // (The old "ground plate" drawCube of COLLIDER[0] is gone: the merged
+  // world removed the plaza-floor collider, so index 0 is now the NORTH
+  // BOUNDARY WALL — the draw was painting an 80×8 m grey slab across the
+  // arena edge. The terrain mesh extends to ±140 m and fully carries the
+  // ground; the boundary colliders stay invisible physics.)
 
   // Phase 9 — real river. Single drawMeshWithMaterial replaces the old
   // 1800-cube tessellated grid. Shader handles Gerstner-wave
@@ -1843,6 +1979,23 @@ while (!windowShouldClose()) {
       : WHITE;
     drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], tint);
   }
+  // Dying enemies: play the death animation once, frozen on its final
+  // collapsed pose (the engine wraps anim time, so playback clamps just
+  // short of the real clip duration), then sink the corpse into the
+  // ground and free the slot. Replaces the old teleport-to-y=-100
+  // despawn that made kills feel like the enemy just vanished.
+  for (let i = 0; i < MAX_ENEMIES; i++) {
+    if (enDying[i] !== 1) continue;
+    enDeathT[i] = enDeathT[i] + dt;
+    const k = enKind[i];
+    const dur = ANIM_DIE_DUR[k];
+    const at = enDeathT[i] < dur - 0.04 ? enDeathT[i] : dur - 0.04;
+    const sink = enDeathT[i] > dur + 0.6 ? (enDeathT[i] - dur - 0.6) * 0.9 : 0;
+    updateModelAnimation(animAliens[k], ANIM_DIE_IDX[k], at, KIND_SCALE[k],
+      enX[i], enY[i] - sink, enZ[i], enDeathYaw[i]);
+    drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], WHITE);
+    if (enDeathT[i] > dur + 2.0) enDying[i] = 0;
+  }
   // Pickups — bobbing cubes, color-coded per kind.
   const tNow = getTime();
   for (let i = 0; i < PICKUP_COUNT; i++) {
@@ -1928,7 +2081,7 @@ while (!windowShouldClose()) {
   // Wave HUD — top-center. Shows "WAVE X — enemies K/N" while spawning,
   // or a "NEXT WAVE IN ..." countdown between waves.
   const aliveNow = countAlive();
-  if (!gameOver && !gameWon) {
+  if (gameState === 1 && !gameOver && !gameWon) {
     if (waveBreakTimer > 0 && waveIdx < wavePlan.length) {
       const label = 'WAVE ' + (waveIdx + 1) + ' IN ' + waveBreakTimer.toFixed(1) + 's';
       const lw = measureText(label, 22);
@@ -1939,6 +2092,28 @@ while (!windowShouldClose()) {
       const label = 'WAVE ' + (waveIdx + 1) + ' — ' + remaining + ' / ' + waveSize;
       const lw = measureText(label, 20);
       drawText(label, (sw - lw) / 2, 18, 20, { r: 230, g: 220, b: 160, a: 230 });
+    }
+  }
+
+  // Title screen — the live world renders as the backdrop, menu.wav plays,
+  // waves/firing/movement are gated off. Any input starts the run.
+  if (gameState === 0) {
+    // measureText under-reports at these sizes (the WAVE HUD drifts right
+    // for the same reason), so centre with an explicit monospace estimate:
+    // glyph advance ≈ 0.58 × size.
+    const title = 'BLOOM SHOOTER';
+    const tw = title.length * 54 * 0.58;
+    drawText(title, (sw - tw) / 2, 170, 54, { r: 236, g: 226, b: 178, a: 255 });
+    const sub = 'press any key';
+    const subw = sub.length * 22 * 0.58;
+    const pulse = Math.floor(175 + Math.sin(getTime() * 3.0) * 70);
+    drawText(sub, (sw - subw) / 2, 244, 22, { r: 225, g: 225, b: 225, a: pulse });
+    if (isAnyInputPressed()) {
+      gameState = 1;
+      stopMusic(musicMenu);
+      playMusic(musicAmbient);
+      fireCD = 0.35;                       // swallow the starting press as a shot
+      waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
     }
   }
 

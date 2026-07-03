@@ -23,6 +23,7 @@
 
 #include "material_abi.wgsl"
 #include "common/shadows.wgsl"
+#include "common/pbr.wgsl"
 
 struct GrassParams {
   // xyz = canonical base hue (multiplied by per-instance tint),
@@ -115,7 +116,7 @@ fn cloud_shadow(world_xz: vec2<f32>, t: f32) -> f32 {
 fn fs_main(in: VsOut) -> OpaqueOut {
   let n = normalize(in.world_normal);
   let v = normalize(view.camera_pos.xyz - in.world_pos);
-  let l = normalize(-view.sun_dir.xyz);
+  let l = normalize(view.sun_dir.xyz);
 
   // Wrap-lambert (SH-011) so the back side doesn't go pure black.
   let wrap     = 0.5;
@@ -141,7 +142,11 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // luminous-leaf look. Strength is grass.base.w.
   let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;
 
-  let lit = albedo * (view.ambient.rgb * 0.55 + direct)
+  // Sky-fill: HDR irradiance sampled straight up — thin blades respond to
+  // the sky dome, and a fixed direction avoids per-blade ambient flicker
+  // from the ±normal card sides. Small flat floor on top.
+  let fill = sample_env_diffuse(vec3<f32>(0.0, 1.0, 0.0)) + view.ambient.rgb * 0.20;
+  let lit = albedo * (fill + direct)
           + trans  * trans_color * cloud;
 
   var out: OpaqueOut;

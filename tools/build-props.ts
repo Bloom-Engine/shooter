@@ -22,6 +22,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
+import { encodePng, leafTexture, barkTexture, grassBladeTexture, flowerTexture,
+         stoneTexture, woodTexture, metalTexture, floorTexture, heightToNormal,
+         roughnessMR } from './png';
 
 const TEX_MAX = 512;
 const TEX_ROOT = 'vendor/unvanquished/pkg/tex-tech_src.dpkdir/textures/shared_tech_src';
@@ -40,6 +43,9 @@ interface Part {
   textureKey: string | null;         // Resolved to texture index if non-null
   roughness: number;
   metallic: number;
+  alphaMode?: 'MASK';                 // alpha-cutout (foliage cards)
+  alphaCutoff?: number;              // threshold for MASK (default 0.5)
+  doubleSided?: boolean;             // render both faces (foliage)
 }
 
 type Mesh = Part[];
@@ -192,7 +198,58 @@ const TEX_SPECS: Record<string, TextureSpec> = {
   floor:     { key: 'floor',     srcPath: TEX_ROOT + '/floortile2_d.png' },
 };
 
+// Procedurally-generated textures (PNG bytes) — no external source needed.
+// Leaf is RGBA with a real alpha channel for alpha-cutout foliage cards.
+// Raw RGBA for the solid (non-cutout) materials, kept so we can both encode the
+// albedo PNG and derive a tangent-space normal map from it (height = luminance).
+const stoneRgba = stoneTexture(512);
+const woodRgba  = woodTexture(512);
+const metalRgba = metalTexture(256);
+const floorRgba = floorTexture(512);
+const barkRgba  = barkTexture(256);
+
+const PROC_TEX: Record<string, Uint8Array> = {
+  leaf:        encodePng(256, 256, leafTexture(256)),
+  bark:        encodePng(256, 256, barkRgba),
+  grass_blade: encodePng(256, 256, grassBladeTexture(256)),
+  flower:      encodePng(256, 256, flowerTexture(256)),
+  // Stone/wood/metal/floor: procedural fallbacks so the building + props are
+  // properly textured even when the Unvanquished tex-tech vendor source isn't
+  // present (it isn't on this machine — see TEX_ROOT). Without these the wall
+  // fell back to a flat solid grey, reading as a plain white box.
+  stone: encodePng(512, 512, stoneRgba),
+  wood:  encodePng(512, 512, woodRgba),
+  metal: encodePng(256, 256, metalRgba),
+  floor: encodePng(512, 512, floorRgba),
+  // Derived normal maps — give the masonry/planks per-texel relief so they
+  // catch the directional sun instead of shading flat. Referenced as a
+  // material's normalTexture (NORMAL_FOR), which makes the model loader treat
+  // them as linear, mip-variance-baked normal maps.
+  stone_n: encodePng(512, 512, heightToNormal(512, 512, stoneRgba, 3.0)),
+  wood_n:  encodePng(512, 512, heightToNormal(512, 512, woodRgba, 2.2)),
+  metal_n: encodePng(256, 256, heightToNormal(256, 256, metalRgba, 1.0)),
+  floor_n: encodePng(512, 512, heightToNormal(512, 512, floorRgba, 1.8)),
+  bark_n:  encodePng(256, 256, heightToNormal(256, 256, barkRgba, 2.6)),
+  // Per-texel roughness (metallic-roughness maps) — recessed mortar/grooves
+  // read matte, faces a touch glossier; all dielectric (metallic 0).
+  stone_mr: encodePng(512, 512, roughnessMR(512, 512, stoneRgba, 0.72, 0.97)),
+  wood_mr:  encodePng(512, 512, roughnessMR(512, 512, woodRgba, 0.62, 0.90)),
+  floor_mr: encodePng(512, 512, roughnessMR(512, 512, floorRgba, 0.60, 0.88)),
+  bark_mr:  encodePng(256, 256, roughnessMR(256, 256, barkRgba, 0.78, 0.97)),
+};
+
+// Albedo texture key → its normal-map key (solid materials only; the alpha
+// cutout cards leaf/grass_blade/flower intentionally get none).
+const NORMAL_FOR: Record<string, string> = {
+  stone: 'stone_n', wood: 'wood_n', metal: 'metal_n', floor: 'floor_n', bark: 'bark_n',
+};
+// Albedo texture key → its metallic-roughness map key.
+const MR_FOR: Record<string, string> = {
+  stone: 'stone_mr', wood: 'wood_mr', floor: 'floor_mr', bark: 'bark_mr',
+};
+
 function resolveTexture(key: string): Uint8Array {
+  if (PROC_TEX[key]) return PROC_TEX[key];
   const spec = TEX_SPECS[key];
   if (!spec) throw new Error('unknown texture key: ' + key);
   if (!existsSync(spec.srcPath)) {
@@ -221,13 +278,176 @@ const FLOOR_WOOD: [number, number, number]  = [0.80, 0.65, 0.48];
 const FABRIC_RED: [number, number, number]  = [0.68, 0.20, 0.18];
 const FABRIC_WHITE: [number, number, number] = [0.92, 0.90, 0.85];
 
+// Append a double-sided alpha-cutout leaf card (a textured quad) to shared
+// vertex/index arrays. `yaw` rotates the card's facing around Y; `tilt` lifts
+// the facing toward the sky. Double-sided = front quad (normal n) + back quad
+// (normal -n, reversed winding) so the leaves read from any viewing side.
+function addLeafCard(verts: number[], indices: number[],
+                     cx: number, cy: number, cz: number,
+                     w: number, h: number, yaw: number, tilt: number): void {
+  const ct = Math.cos(tilt), st = Math.sin(tilt);
+  let nx = Math.sin(yaw) * ct, ny = st, nz = Math.cos(yaw) * ct;
+  // right = normalize(cross(worldUp, n)); up = normalize(cross(n, right)).
+  let rx = nz, ry = 0, rz = -nx;
+  const rl = Math.hypot(rx, ry, rz) || 1; rx /= rl; ry /= rl; rz /= rl;
+  let ux = ny * rz - nz * ry, uy = nz * rx - nx * rz, uz = nx * ry - ny * rx;
+  const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+  const hw = w * 0.5, hh = h * 0.5;
+  const corner = (sx: number, sy: number, u: number, v: number) => [
+    cx + rx * hw * sx + ux * hh * sy,
+    cy + ry * hw * sx + uy * hh * sy,
+    cz + rz * hw * sx + uz * hh * sy,
+    u, v,
+  ];
+  const cs = [corner(-1, -1, 0, 0), corner(1, -1, 1, 0), corner(1, 1, 1, 1), corner(-1, 1, 0, 1)];
+  const b0 = verts.length / 8;
+  for (const c of cs) verts.push(c[0], c[1], c[2], nx, ny, nz, c[3], c[4]);
+  indices.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3);
+  const b1 = verts.length / 8;
+  for (const c of cs) verts.push(c[0], c[1], c[2], -nx, -ny, -nz, c[3], c[4]);
+  indices.push(b1, b1 + 2, b1 + 1, b1, b1 + 3, b1 + 2);
+}
+
+// PUBG-style tree: a bark-textured trunk + a canopy built from a cloud of
+// alpha-cutout leaf cards (instead of solid green cones). The leaf texture has
+// a real alpha channel; the GLB material is alphaMode=MASK so the engine's
+// fragment shader discards the gaps → see-through, leafy foliage that casts
+// and receives shadows through the normal drawModel path.
+// Organic tapered trunk: a tube that narrows base→top, leans slightly, flares
+// at the roots, and has a gently non-circular (wobbled) cross-section — so it
+// reads as a tree, not a perfectly round pole. Per-quad winding mirrors
+// pushCylinder (known-good outward faces). UVs tile the bark at TILE_METRES.
+function pushTrunk(m: Mesh, baseR: number, topR: number, height: number,
+                   sides: number, lean: number, segs: number,
+                   color: [number, number, number], textureKey: string): void {
+  const verts: number[] = [], indices: number[] = [];
+  const prof = (t: number): number => {
+    let r = baseR + (topR - baseR) * t;
+    if (t < 0.2) r += baseR * 0.5 * (1 - t / 0.2);   // root flare
+    return r;
+  };
+  const lx = (t: number): number => Math.sin(t * 1.4) * lean;          // gentle lean (x)
+  const lz = (t: number): number => Math.sin(t * 1.4 + 1.0) * lean * 0.5; // + slight z bend
+  const wob = (a: number): number => 1 + Math.sin(a * 2.0) * 0.07 + Math.sin(a * 5.0 + 1.3) * 0.035;
+  for (let s = 0; s < segs; s++) {
+    const t0 = s / segs, t1 = (s + 1) / segs;
+    const yb = t0 * height, yt = t1 * height;
+    const rb = prof(t0), rt = prof(t1);
+    const oxb = lx(t0), ozb = lz(t0), oxt = lx(t1), ozt = lz(t1);
+    const vb = yb / TILE_METRES, vt = yt / TILE_METRES;
+    for (let j = 0; j < sides; j++) {
+      const a0 = (j / sides) * Math.PI * 2, a1 = ((j + 1) / sides) * Math.PI * 2;
+      const am = (a0 + a1) * 0.5;
+      const c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
+      const nx = Math.cos(am), nz = Math.sin(am);
+      const w0 = wob(a0), w1 = wob(a1);
+      const u0 = (j / sides) * (2 * Math.PI * rb) / TILE_METRES;
+      const u1 = ((j + 1) / sides) * (2 * Math.PI * rb) / TILE_METRES;
+      const b = verts.length / 8;
+      verts.push(
+        oxb + rb * w0 * c0, yb, ozb + rb * w0 * s0, nx, 0.12, nz, u0, vb,
+        oxb + rb * w1 * c1, yb, ozb + rb * w1 * s1, nx, 0.12, nz, u1, vb,
+        oxt + rt * w1 * c1, yt, ozt + rt * w1 * s1, nx, 0.12, nz, u1, vt,
+        oxt + rt * w0 * c0, yt, ozt + rt * w0 * s0, nx, 0.12, nz, u0, vt,
+      );
+      indices.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    }
+  }
+  m.push({ vertices: verts, indices, color, textureKey, roughness: 0.95, metallic: 0.0 });
+}
+
 function makeTree(): Mesh {
   const m: Mesh = [];
-  pushCylinder(m, 0, 1.2, 0, 0.22, 1.2, 8, BARK, 0.95, 0.0);
-  pushCone(m, 0, 1.2, 0, 1.1, 1.0, 10, LEAF);
-  pushCone(m, 0, 2.0, 0, 0.95, 1.0, 10, LEAF);
-  pushCone(m, 0, 2.8, 0, 0.75, 1.0, 10, LEAF);
+  // Deterministic pseudo-random so the GLB is reproducible.
+  let seed = 90187;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+
+  // Tapered, leaning, root-flared trunk (12 sides for a smooth-but-organic
+  // profile) + a couple of low branch stubs so it isn't a bare pole.
+  pushTrunk(m, 0.28, 0.10, 3.0, 12, 0.22, 7, [1, 1, 1], 'bark');
+  pushCylinder(m, 0.55, 2.05, 0.2, 0.07, 0.5, 6, [1, 1, 1], 0.95, 0.0, 'bark');
+  pushCylinder(m, -0.5, 2.35, -0.3, 0.06, 0.45, 6, [1, 1, 1], 0.95, 0.0, 'bark');
+
+  const fv: number[] = [], fi: number[] = [];
+  // Canopy = several overlapping leaf-card CLUMPS (foliage masses) rather than
+  // symmetric horizontal rings — gives a rounder, ragged, non-boxy silhouette.
+  // Each clump scatters cards through a squashed sphere with size + tilt jitter.
+  const clumps = [
+    { cx: 0.0, cy: 3.5, cz: 0.0, rad: 1.55, n: 30 },
+    { cx: 0.95, cy: 3.05, cz: 0.45, rad: 1.15, n: 18 },
+    { cx: -0.85, cy: 3.15, cz: -0.55, rad: 1.15, n: 18 },
+    { cx: 0.25, cy: 4.2, cz: -0.35, rad: 1.0, n: 15 },
+    { cx: -0.35, cy: 2.7, cz: 0.75, rad: 0.95, n: 13 },
+    { cx: 0.6, cy: 3.7, cz: -0.7, rad: 0.9, n: 12 },
+  ];
+  for (const cl of clumps) {
+    for (let i = 0; i < cl.n; i++) {
+      // Uniform-ish point in a squashed sphere (slightly flattened vertically).
+      const uu = rnd() * 2 - 1, th = rnd() * Math.PI * 2;
+      const rr = cl.rad * (0.35 + rnd() * 0.65);
+      const sq = Math.sqrt(Math.max(0, 1 - uu * uu));
+      const px = cl.cx + rr * sq * Math.cos(th);
+      const py = cl.cy + rr * uu * 0.82;
+      const pz = cl.cz + rr * sq * Math.sin(th);
+      const yaw = Math.atan2(px - cl.cx, pz - cl.cz) + (rnd() - 0.5) * 0.7;
+      const size = 1.35 + rnd() * 1.15;
+      addLeafCard(fv, fi, px, py, pz, size, size, yaw, rnd() * 0.95);
+    }
+  }
+  // A few ragged outliers poking past the clumps so the edge isn't a clean ball.
+  for (let i = 0; i < 10; i++) {
+    const yaw = rnd() * Math.PI * 2;
+    const r = 1.7 + rnd() * 0.7;
+    addLeafCard(fv, fi, Math.sin(yaw) * r, 3.3 + (rnd() - 0.3) * 2.0,
+                Math.cos(yaw) * r, 1.0 + rnd() * 0.9, 1.0 + rnd() * 0.9,
+                yaw, rnd() * 0.8);
+  }
+  m.push({
+    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'leaf',
+    roughness: 0.9, metallic: 0.0, alphaMode: 'MASK', alphaCutoff: 0.5,
+  });
   return m;
+}
+
+// Scattered ground grass tuft: a few crossed alpha-cutout blade cards rooted at
+// the ground (card bottom at y=0). alphaMode MASK → the engine discards the gaps
+// and, because the material is alpha-cutout, the foliage wind-sway + backlit
+// translucency in the scene shader both apply (it sways in the breeze).
+function makeGrassTuft(): Mesh {
+  const fv: number[] = [], fi: number[] = [];
+  let seed = 24681;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const blades = 5;
+  for (let i = 0; i < blades; i++) {
+    const yaw = (i / blades) * Math.PI + (rnd() - 0.5) * 0.7;
+    const h = 0.42 + rnd() * 0.34;
+    const w = 0.55 + rnd() * 0.35;
+    const ox = (rnd() - 0.5) * 0.28, oz = (rnd() - 0.5) * 0.28;
+    addLeafCard(fv, fi, ox, h * 0.5, oz, w, h, yaw, (rnd() - 0.5) * 0.15);
+  }
+  return [{
+    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'grass_blade',
+    roughness: 0.95, metallic: 0.0, alphaMode: 'MASK', alphaCutoff: 0.4,
+  }];
+}
+
+// Wildflower clump: a couple of crossed alpha-cutout flower cards, rooted at
+// the ground. Same foliage path as the grass tufts (sways in the wind).
+function makeFlowerTuft(): Mesh {
+  const fv: number[] = [], fi: number[] = [];
+  let seed = 51237;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let i = 0; i < 3; i++) {
+    const yaw = (i / 3) * Math.PI + (rnd() - 0.5) * 0.6;
+    const h = 0.34 + rnd() * 0.22;
+    const w = 0.40 + rnd() * 0.20;
+    const ox = (rnd() - 0.5) * 0.2, oz = (rnd() - 0.5) * 0.2;
+    addLeafCard(fv, fi, ox, h * 0.5, oz, w, h, yaw, 0.0);
+  }
+  return [{
+    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'flower',
+    roughness: 0.95, metallic: 0.0, alphaMode: 'MASK', alphaCutoff: 0.4,
+  }];
 }
 
 function makeCrate(): Mesh {
@@ -291,6 +511,46 @@ function makeBuildingFloor(): Mesh {
   return m;
 }
 
+// Bake the whole house — every "building"-tagged box collider in the world —
+// into ONE stone-textured mesh whose vertices are already in world space, so
+// the runtime draws it with a single drawModel at the origin (scale 1) instead
+// of dozens of flat-coloured drawCube placeholders. The boxes stay as invisible
+// physics colliders (created separately in main.ts); this only replaces their
+// look. pushBox tiles the stone at TILE_METRES (2 m), so block size is uniform
+// across walls of any dimension.
+function makeHouse(worldPath: string): Mesh {
+  const world = JSON.parse(readFileSync(worldPath, 'utf8'));
+  const m: Mesh = [];
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxY = -Infinity;
+  for (const e of world.entities) {
+    const ud = e.userData || {};
+    const tags: string[] = e.tags || [];
+    if (ud.kind !== 'static_mesh' || ud.collider !== 'box') continue;
+    if (tags.indexOf('building') < 0) continue;
+    const p = e.transform.position;
+    const he = String(ud.halfExtents).split(',').map((t: string) => parseFloat(t.trim()));
+    pushBox(m, p[0], p[1], p[2], he[0], he[1], he[2], STONE, 0.92, 0.0, 'stone');
+    // Track footprint from the tall perimeter walls only (he.y > 1) so the
+    // roof spans the building, not the low entrance steps that stick out.
+    if (he[1] > 1.0) {
+      minX = Math.min(minX, p[0] - he[0]); maxX = Math.max(maxX, p[0] + he[0]);
+      minZ = Math.min(minZ, p[2] - he[2]); maxZ = Math.max(maxZ, p[2] + he[2]);
+      maxY = Math.max(maxY, p[1] + he[1]);
+    }
+  }
+  // Cap the open enclosure with a flat wooden-plank roof + a small overhang and
+  // a stone fascia band just under the eaves, so it reads as a finished house.
+  if (maxY > -Infinity) {
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    const hx = (maxX - minX) / 2 + 0.35, hz = (maxZ - minZ) / 2 + 0.35;
+    pushBox(m, cx, maxY + 0.02, cz, hx - 0.34, 0.10, hz - 0.34,
+            [0.42, 0.46, 0.50], 0.9, 0.0, 'stone');        // stone fascia just below eaves
+    pushBox(m, cx, maxY + 0.18, cz, hx, 0.12, hz,
+            [0.34, 0.24, 0.17], 0.85, 0.0, 'wood');         // wooden roof deck + overhang
+  }
+  return m;
+}
+
 // -----------------------------------------------------------------------------
 // GLB assembly
 // -----------------------------------------------------------------------------
@@ -303,6 +563,15 @@ function writeGlb(outPath: string, mesh: Mesh): void {
   const texKeys: string[] = [];
   for (const p of mesh) {
     if (p.textureKey && texKeys.indexOf(p.textureKey) < 0) texKeys.push(p.textureKey);
+  }
+  // Pull in the normal-map + metallic-roughness variants of every base texture
+  // that has them, so they get embedded + indexed alongside the albedo
+  // (referenced via normalTexture / metallicRoughnessTexture).
+  for (const k of [...texKeys]) {
+    const nk = NORMAL_FOR[k];
+    if (nk && texKeys.indexOf(nk) < 0) texKeys.push(nk);
+    const mk = MR_FOR[k];
+    if (mk && texKeys.indexOf(mk) < 0) texKeys.push(mk);
   }
   const texBytes: Uint8Array[] = texKeys.map(k => resolveTexture(k));
 
@@ -403,6 +672,7 @@ function writeGlb(outPath: string, mesh: Mesh): void {
       metallicFactor: p.metallic,
       roughnessFactor: p.roughness,
     };
+    let normalTexIdx = -1;
     if (p.textureKey) {
       const ti = texKeys.indexOf(p.textureKey);
       if (ti >= 0 && texBytes[ti].length > 0) {
@@ -411,8 +681,29 @@ function writeGlb(outPath: string, mesh: Mesh): void {
         // material isn't overly dark.
         pbr.baseColorFactor = [1.0, 1.0, 1.0, 1.0];
       }
+      const nk = NORMAL_FOR[p.textureKey];
+      if (nk) {
+        const ni = texKeys.indexOf(nk);
+        if (ni >= 0 && texBytes[ni].length > 0) normalTexIdx = ni;
+      }
+      const mk = MR_FOR[p.textureKey];
+      if (mk) {
+        const mi = texKeys.indexOf(mk);
+        if (mi >= 0 && texBytes[mi].length > 0) {
+          pbr.metallicRoughnessTexture = { index: mi };
+          pbr.metallicFactor = 0.0;
+          pbr.roughnessFactor = 1.0;   // texture supplies roughness; factor multiplies
+        }
+      }
     }
-    materials.push({ name: 'mat_' + i, pbrMetallicRoughness: pbr });
+    const matObj: any = { name: 'mat_' + i, pbrMetallicRoughness: pbr };
+    if (normalTexIdx >= 0) matObj.normalTexture = { index: normalTexIdx, scale: 1.0 };
+    if (p.alphaMode === 'MASK') {
+      matObj.alphaMode = 'MASK';
+      matObj.alphaCutoff = p.alphaCutoff ?? 0.5;
+    }
+    if (p.doubleSided) matObj.doubleSided = true;
+    materials.push(matObj);
 
     primitives.push({
       attributes: { POSITION: aPos, NORMAL: aNrm, TEXCOORD_0: aUv },
@@ -474,7 +765,58 @@ function writeGlb(outPath: string, mesh: Mesh): void {
   console.log('wrote', outPath, '(' + out.length, 'bytes,', mesh.length, 'parts,', texBytes.filter(b => b.length > 0).length, 'textures)');
 }
 
+// The tree is fully procedural (leaf + bark textures generated here), so it
+// always regenerates. The remaining props bake Unvanquished tex-tech sources
+// (vendor/, gitignored) via macOS `sips`; only regenerate those when the source
+// tree is present, so a tree-only rebuild on a fresh/Windows checkout doesn't
+// strip the committed textures from the other props.
+// All props build unconditionally now: stone/wood/metal/floor have procedural
+// PROC_TEX fallbacks (see resolveTexture), so the building + furniture are
+// fully textured even without the Unvanquished tex-tech vendor source. (They
+// previously fell back to a flat solid grey — the "white box" building.)
+// UV sphere with outward normals (= normalized position), flat albedo + given
+// roughness/metallic. For the PBR calibration rig.
+function pushSphere(m: Mesh, cx: number, cy: number, cz: number, radius: number,
+                    color: [number, number, number], roughness: number, metallic: number): void {
+  const verts: number[] = [], indices: number[] = [];
+  const STACKS = 24, SLICES = 32;
+  for (let i = 0; i <= STACKS; i++) {
+    const v = i / STACKS, phi = v * Math.PI;
+    const y = Math.cos(phi), r = Math.sin(phi);
+    for (let j = 0; j <= SLICES; j++) {
+      const u = j / SLICES, th = u * 2 * Math.PI;
+      const x = r * Math.cos(th), z = r * Math.sin(th);
+      verts.push(cx + radius * x, cy + radius * y, cz + radius * z, x, y, z, u, v);
+    }
+  }
+  const row = SLICES + 1;
+  for (let i = 0; i < STACKS; i++) {
+    for (let j = 0; j < SLICES; j++) {
+      const a = i * row + j, b = a + 1, c = a + row, d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  m.push({ vertices: verts, indices, color, textureKey: null, roughness, metallic });
+}
+
+// PBR calibration rig — drawn through the scene shader (real sun + IBL), so it
+// objectively validates the linear/exposure pipeline and the BRDF. Row 1: grey
+// albedos 0.18/0.5/0.9 (mid-grey should land ~mid after AgX). Row 2: roughness
+// sweep 0→1. Row 3: metallic sweep 0→1. Toggle in-game via VERIFY_CALIB.
+function makeCalibRig(): Mesh {
+  const m: Mesh = [];
+  const R = 0.6, gap = 1.6;
+  const greys = [0.18, 0.5, 0.9];
+  for (let i = 0; i < 3; i++) pushSphere(m, i * gap, R, 0, R, [greys[i], greys[i], greys[i]], 0.5, 0.0);
+  for (let i = 0; i < 5; i++) pushSphere(m, i * gap, R, -gap, R, [0.5, 0.5, 0.5], Math.max(0.045, i / 4), 0.0);
+  for (let i = 0; i < 5; i++) pushSphere(m, i * gap, R, -2 * gap, R, [0.95, 0.78, 0.5], 0.2, i / 4);
+  return m;
+}
+
 writeGlb('assets/models/prop_tree.glb',      makeTree());
+writeGlb('assets/models/calib_rig.glb',      makeCalibRig());
+writeGlb('assets/models/prop_grasstuft.glb', makeGrassTuft());
+writeGlb('assets/models/prop_flower.glb',    makeFlowerTuft());
 writeGlb('assets/models/prop_crate.glb',     makeCrate());
 writeGlb('assets/models/prop_barrel.glb',    makeBarrel());
 writeGlb('assets/models/prop_table.glb',     makeTable());
@@ -482,3 +824,4 @@ writeGlb('assets/models/prop_chair.glb',     makeChair());
 writeGlb('assets/models/prop_bed.glb',       makeBed());
 writeGlb('assets/models/building_wall.glb',  makeBuildingWall());
 writeGlb('assets/models/building_floor.glb', makeBuildingFloor());
+writeGlb('assets/models/house.glb',          makeHouse('assets/worlds/arena_02.world.json'));

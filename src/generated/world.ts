@@ -1,6 +1,6 @@
 // GENERATED — do not edit by hand.
-// Source: ../../assets/worlds/arena_02.world.json
-// Regenerate with: bun tools/build-world.ts ../../assets/worlds/arena_02.world.json src/generated/world.ts
+// Source: ..\..\assets\worlds\arena_02.world.json
+// Regenerate with: bun tools/build-world.ts ..\..\assets\worlds\arena_02.world.json src\generated\world.ts
 
 export const WORLD_NAME = "Arena 02 — Outdoor plaza";
 export const WORLD_ID = "arena_02";
@@ -13,9 +13,9 @@ export const ENV_AMBIENT_R = 0.75;
 export const ENV_AMBIENT_G = 0.78;
 export const ENV_AMBIENT_B = 0.85;
 export const ENV_AMBIENT_I = 0.55;
-export const ENV_SUN_DIR_X = -0.35;
-export const ENV_SUN_DIR_Y = -0.85;
-export const ENV_SUN_DIR_Z = -0.25;
+export const ENV_SUN_DIR_X = 0.45;
+export const ENV_SUN_DIR_Y = 0.72;
+export const ENV_SUN_DIR_Z = 0.52;
 export const ENV_SUN_R = 1;
 export const ENV_SUN_G = 0.95;
 export const ENV_SUN_B = 0.82;

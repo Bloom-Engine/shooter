@@ -7,6 +7,8 @@
 // twice with meshIdx 0 and meshIdx 1.
 
 #include "material_abi.wgsl"
+#include "common/pbr.wgsl"
+#include "common/shadows.wgsl"
 
 struct TreeParams {
   // x,y = wind direction (xz plane, normalised)
@@ -82,14 +84,29 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // Blend trunk colour (UBO) and leaf colour (per-draw tint) by
   // vertex local-y. trunk_top_y is the cutoff height in model
   // space; everything below reads as trunk, above as leaves.
-  let trunk_t  = smoothstep(tp.trunk.w - 0.20, tp.trunk.w + 0.20, in.local_y);
+  // Tight blend band: the old ±0.20 smeared trunk brown across the lower
+  // half of every canopy (muddy gradient blobs); ±0.06 keeps a short
+  // natural transition right at the branch line.
+  let trunk_t  = smoothstep(tp.trunk.w - 0.06, tp.trunk.w + 0.06, in.local_y);
   let albedo   = mix(tp.trunk.rgb, draw.model_tint.rgb, trunk_t);
 
-  let sun_dir = normalize(-view.sun_dir.xyz);
+  let sun_dir = normalize(view.sun_dir.xyz);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
   let cloud   = cloud_shadow(in.world_pos.xz, frame.time);
-  let direct  = view.sun_color.rgb * n_dot_l * cloud;
-  let lit     = albedo * (view.ambient.rgb * 0.55 + direct);
+  // Cascaded sun shadow — trees shade themselves and each other now.
+  // Leaves take it at HALF strength: a low-poly canopy's flat facets
+  // terrace hard against their own blocky shadow-map silhouette (slat
+  // stripes), and real foliage scatters enough light that full-depth
+  // self-shadow reads wrong anyway. The trunk keeps the full factor,
+  // and the ground below still receives the full canopy shadow from
+  // its own material.
+  let sun_shadow_raw = sample_sun_shadow_n(in.world_pos, n);
+  let sun_shadow = mix(sun_shadow_raw, 0.5 + 0.5 * sun_shadow_raw, trunk_t);
+  let direct  = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
+  // Sky-fill: HDR irradiance by the surface normal — canopy tops read
+  // sky-lit, undersides shade toward ground bounce — plus a small floor.
+  let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
+  let lit     = albedo * (fill + direct);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);

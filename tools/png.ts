@@ -82,10 +82,16 @@ export function encodePng(width: number, height: number, rgba: Uint8Array): Uint
 // -----------------------------------------------------------------------------
 
 // Deterministic 2D value noise. Smooth enough for natural-looking textures.
+// Returns TRUE [0,1]: the final `^` yields a SIGNED i32 in JS, so without the
+// `>>> 0` reinterpret the result was [-0.5, 0.5] — which silently shifted
+// every generator that computes `(noise - 0.5)` by an extra −0.5. That one
+// bug made the stone near-charcoal (the "black house" wall), killed the
+// grass dry/dirt variation (monotone green terrain), and broke the flower
+// palette index. All the constants below assume [0,1] as written.
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) >>> 0;
   h = ((h ^ (h >>> 13)) * 1274126177) >>> 0;
-  return ((h ^ (h >>> 16)) & 0xFFFFFFFF) / 0xFFFFFFFF;
+  return ((h ^ (h >>> 16)) >>> 0) / 0xFFFFFFFF;
 }
 function fade(t: number): number { return t * t * (3 - 2 * t); }
 function noise2(x: number, y: number): number {
@@ -102,6 +108,34 @@ function fbm(x: number, y: number, octaves: number): number {
   let s = 0, amp = 0.5, freq = 1, norm = 0;
   for (let i = 0; i < octaves; i++) {
     s += amp * noise2(x * freq, y * freq);
+    norm += amp;
+    amp *= 0.5; freq *= 2;
+  }
+  return s / norm;
+}
+
+// Periodic (seamless-tiling) value noise. Lattice coords wrap modulo the
+// supplied period, so a texture sampled over x,y ∈ [0, period) tiles with no
+// visible seam. Returns [0,1] like noise2.
+function wrapInt(a: number, p: number): number { return ((a % p) + p) % p; }
+function noise2p(x: number, y: number, px: number, py: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const a = hash2(wrapInt(xi, px),     wrapInt(yi, py));
+  const b = hash2(wrapInt(xi + 1, px), wrapInt(yi, py));
+  const c = hash2(wrapInt(xi, px),     wrapInt(yi + 1, py));
+  const d = hash2(wrapInt(xi + 1, px), wrapInt(yi + 1, py));
+  const u = fade(xf), v = fade(yf);
+  return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+}
+// Seamless fbm over a [0, period) domain. `base` is the lattice cells across
+// the tile at octave 0; each octave doubles frequency AND period so the wrap
+// stays exact.
+function fbmp(u: number, v: number, octaves: number, base: number): number {
+  let s = 0, amp = 0.5, freq = 1, norm = 0;
+  for (let i = 0; i < octaves; i++) {
+    const p = base * freq;
+    s += amp * noise2p(u * p, v * p, p, p);
     norm += amp;
     amp *= 0.5; freq *= 2;
   }
@@ -125,25 +159,315 @@ export function makeTexture(width: number, height: number,
   return out;
 }
 
+// Derive a tangent-space normal map from an RGBA albedo, treating its
+// luminance as a height field (Sobel gradient). Wraps at the edges so the
+// result tiles as seamlessly as the source. `strength` scales the bump.
+// Encoded to match the engine's decode (`v * 2/255 - 1` → [-1,1]): channels
+// store (n*0.5+0.5)*255. Blue ≈ up (flat) so an unbumped texel reads (0,0,1).
+export function heightToNormal(width: number, height: number,
+                               rgba: Uint8Array, strength: number): Uint8Array {
+  const w = width, h = height;
+  const lum = (x: number, y: number): number => {
+    const xi = ((x % w) + w) % w, yi = ((y % h) + h) % h;
+    const o = (yi * w + xi) * 4;
+    return (0.299 * rgba[o] + 0.587 * rgba[o + 1] + 0.114 * rgba[o + 2]) / 255;
+  };
+  const out = new Uint8Array(w * h * 4);
+  let o = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // Sobel gradient of the height field.
+      const gx = (lum(x + 1, y - 1) + 2 * lum(x + 1, y) + lum(x + 1, y + 1))
+               - (lum(x - 1, y - 1) + 2 * lum(x - 1, y) + lum(x - 1, y + 1));
+      const gy = (lum(x - 1, y + 1) + 2 * lum(x, y + 1) + lum(x + 1, y + 1))
+               - (lum(x - 1, y - 1) + 2 * lum(x, y - 1) + lum(x + 1, y - 1));
+      let nx = -gx * strength, ny = -gy * strength, nz = 1.0;
+      const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+      nx /= l; ny /= l; nz /= l;
+      out[o++] = Math.floor((nx * 0.5 + 0.5) * 255);
+      out[o++] = Math.floor((ny * 0.5 + 0.5) * 255);
+      out[o++] = Math.floor((nz * 0.5 + 0.5) * 255);
+      out[o++] = 255;
+    }
+  }
+  return out;
+}
+
+// Derive a glTF metallic-roughness map from an albedo: G = roughness, B =
+// metallic (0 here — all dielectric), R/A unused (kept 255). Roughness is
+// driven by albedo luminance so recessed/dark detail (mortar, grooves, plank
+// seams) reads rougher/matte and lighter faces a touch glossier. `hi` is the
+// roughness at luma 0, `lo` at luma 1 (linear between). Linear data — the
+// loader uploads it Unorm and the shader reads G/B directly (no sRGB decode).
+export function roughnessMR(width: number, height: number, rgba: Uint8Array,
+                            lo: number, hi: number): Uint8Array {
+  const out = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const luma = (0.299 * rgba[i * 4] + 0.587 * rgba[i * 4 + 1] + 0.114 * rgba[i * 4 + 2]) / 255;
+    const rough = hi - luma * (hi - lo);
+    const o = i * 4;
+    out[o] = 255;                                              // R (occlusion ch — unused here)
+    out[o + 1] = Math.max(0, Math.min(255, Math.floor(rough * 255)));  // G = roughness
+    out[o + 2] = 0;                                            // B = metallic (dielectric)
+    out[o + 3] = 255;
+  }
+  return out;
+}
+
 // Grass texture: green fbm + scattered brighter / darker tufts + occasional
 // dirt specks. Seamless wrap via modular hash inputs.
 export function grassTexture(size: number): Uint8Array {
   const s = size;
+  const cb = (n: number) => (n < 0 ? 0 : n > 255 ? 255 : Math.floor(n));
+  // fbmp returns [0,1] and tiles seamlessly over u,v ∈ [0,1).
   return makeTexture(s, s, (x, y) => {
     const u = x / s, v = y / s;
-    // Base fbm noise (wraps via *0.5 trick — not truly seamless but close
-    // enough for distant ground).
-    const n = fbm(u * 6, v * 6, 4);
-    // Small-scale "blade" noise.
-    const n2 = fbm(u * 32, v * 32, 2);
-    // Mix greens.
-    const r = Math.floor(52 + n * 40 + n2 * 12);
-    const g = Math.floor(92 + n * 60 + n2 * 20);
-    const b = Math.floor(38 + n * 30 + n2 * 10);
-    // Occasional dirt speck.
-    const speck = hash2((x * 17) | 0, (y * 17) | 0);
-    if (speck > 0.985) return [110, 82, 50, 255];
+    // Three seamless scales: big lush/dry patches, medium tufts, fine blades.
+    const patch = fbmp(u, v, 4, 3);
+    const clump = fbmp(u, v, 3, 10);
+    const blade = fbmp(u, v, 2, 38);
+    // Dryness drives a lush-green → olive shift across large areas.
+    const dry = Math.max(0, Math.min(1, (patch - 0.34) / 0.40));
+    let r = 58 + dry * 54;          // lush 58 → dry/olive 112
+    let g = 112 + dry * 6;          // stays green, dry a touch lighter
+    let b = 46 + dry * 16;          // lush cool → dry warm
+    // Tuft shading: clumps catch light (brighter), gaps recede (darker). A
+    // little extra green in the tuft highlights reads as fresh blades. Floor
+    // the multiplier so gaps darken without going muddy/near-black.
+    const shade = Math.max(0.72, 1 + (clump - 0.5) * 0.4 + (blade - 0.5) * 0.32);
+    r *= shade;
+    g = g * shade + (clump - 0.5) * 26;
+    b *= shade;
+    // Sparse dirt/earth patches (low-freq, only the high tail) for variety.
+    const dirt = fbmp(u, v, 3, 5);
+    if (dirt > 0.66) {
+      const dt = Math.min(1, (dirt - 0.66) / 0.14);
+      r = r + (118 - r) * dt;
+      g = g + (88 - g) * dt;
+      b = b + (58 - b) * dt;
+    }
+    return [cb(r), cb(g), cb(b), 255];
+  });
+}
+
+// Leaf-cluster cutout texture (RGBA with a real alpha channel) for PUBG-style
+// foliage cards: clumpy green leaves with transparent gaps, so an alpha-tested
+// quad reads as a clump of leaves instead of a solid card. The alpha is hard
+// (0/255) for crisp MASK cutout, faded to transparent near the card border so
+// the quad's square edge disappears.
+export function leafTexture(size: number): Uint8Array {
+  const s = size;
+  // fbm/noise2 return [0,1] centred ~0.5 (hash2 is fixed to unsigned — the
+  // old signed version made them zero-centred, which is what the previous
+  // "zero-centred ±0.3" comment worked around).
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;
+    const clump  = fbm(u * 4.5, v * 4.5, 4);   // [0,1] large foliage masses
+    const detail = fbm(u * 22, v * 22, 3);     // [0,1] leaf-scale nibbling
+    // Coverage field: ~60% of the card opaque, organic clumps with real sky
+    // gaps. Zero-centre the noise around the cutoff explicitly.
+    let mask = 0.62 + (clump - 0.5) * 2.4 + (detail - 0.5) * 1.2;
+    // Fade the card border to transparent so quads don't show a hard square.
+    const edge = Math.min(Math.min(u, 1 - u), Math.min(v, 1 - v));
+    mask *= fade(Math.min(1, edge / 0.12));
+    const a = mask > 0.5 ? 255 : 0;
+    // Realistic foliage albedo: deep greens ~sRGB(58,93,31) with warm/cool
+    // per-leaf variation, highlights capped well below sRGB 140 so sunlit
+    // canopies saturate instead of blowing to white.
+    const yellow = noise2(u * 9 + 3.1, v * 9 + 7.7);          // [0,1]
+    const shade = 0.8 + (detail - 0.5) * 0.6;                 // [0.5, 1.1]
+    const r = Math.min(255, Math.floor((52 + yellow * 40) * shade));
+    const g = Math.min(255, Math.floor((92 + clump * 48) * shade));
+    const b = Math.min(255, Math.floor((30 + yellow * 18) * shade));
+    return [r, g, b, a];
+  });
+}
+
+// Grass-blade cutout (RGBA) for scattered ground tufts. A spray of thin
+// tapering blades — opaque inside each blade, transparent elsewhere — so an
+// alpha-MASK card reads as a clump of grass. Card UVs put v=0 at the card
+// BOTTOM, and glTF samples v=0 at the texture TOP, so blade ROOTS live at the
+// top row (v=0) and TIPS at the bottom (v→tip height); that lands roots at the
+// ground end of the card. Tips are brighter, roots darker (fake AO).
+export function grassBladeTexture(size: number): Uint8Array {
+  const s = size;
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;   // v: 0 = root end, increasing toward tips
+    let a = 0, shade = 0;
+    const NB = 13;
+    for (let i = 0; i < NB; i++) {
+      const base = (i + 0.5) / NB + (hash2(i * 3, 1) - 0.5) * 0.04;
+      const bh = 0.62 + hash2(i, 11) * 0.36;          // tip height (in v)
+      if (v < bh) {
+        const lean = (hash2(i, 17) - 0.5) * 0.55;
+        const cx = base + lean * (v / bh);             // blade curves over with height
+        const w = (0.016 + hash2(i, 7) * 0.018) * (1 - (v / bh) * 0.85);
+        if (Math.abs(u - cx) < w) {
+          a = 255;
+          const sh = 0.42 + (v / bh) * 0.55 + hash2(i, 5) * 0.14;
+          if (sh > shade) shade = sh;
+        }
+      }
+    }
+    if (a === 0) return [0, 0, 0, 0];
+    const g = Math.min(255, Math.floor(72 + shade * 118));
+    const r = Math.min(255, Math.floor(40 + shade * 50));
+    const b = Math.min(255, Math.floor(26 + shade * 30));
+    return [r, g, b, a];
+  });
+}
+
+// Wildflower cutout (RGBA): a few thin green stems each topped with a small
+// coloured blossom (white / yellow / pink / lilac), on transparent. Same UV
+// orientation convention as grassBladeTexture (v=0 = root/card-bottom). Adds
+// colour pops to the otherwise all-green meadow.
+export function flowerTexture(size: number): Uint8Array {
+  const s = size;
+  const palR = [240, 248, 232, 188];
+  const palG = [240, 224, 120, 158];
+  const palB = [248, 96, 150, 238];
+  const palN = 4;
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;       // v: 0 root → increasing toward tip
+    let a = 0;
+    let cr = 50, cg = 110, cb = 40;
+    const NB = 6;
+    for (let i = 0; i < NB; i++) {
+      const base = (i + 0.5) / NB + (hash2(i * 3, 1) - 0.5) * 0.05;
+      const bh = 0.55 + hash2(i, 11) * 0.30;          // blossom height (in v)
+      const lean = (hash2(i, 17) - 0.5) * 0.40;
+      // Stem.
+      if (v < bh) {
+        const cx = base + lean * (v / bh);
+        const w = 0.011 * (1 - (v / bh) * 0.5);
+        if (Math.abs(u - cx) < w) { a = 255; cr = 46; cg = 104; cb = 36; }
+      }
+      // Blossom at the tip.
+      const bcx = base + lean;
+      const dx = u - bcx, dy = v - bh;
+      const br = 0.045 + hash2(i, 23) * 0.022;
+      const dd = Math.sqrt(dx * dx + dy * dy);
+      if (dd < br) {
+        a = 255;
+        // hash2 here is SIGNED (~[-1,1]); take the fractional part for a safe
+        // [0,1) → palette index (a raw negative index would read undefined).
+        const hv = hash2(i, 31);
+        const fr = hv - Math.floor(hv);
+        const idx = Math.min(palN - 1, Math.floor(fr * palN));
+        if (dd < br * 0.38) { cr = 250; cg = 210; cb = 70; }   // yellow centre
+        else { cr = palR[idx]; cg = palG[idx]; cb = palB[idx]; }
+      }
+    }
+    if (a === 0) return [0, 0, 0, 0];
+    return [cr, cg, cb, 255];
+  });
+}
+
+// Bark texture: vertical brown fibres with darker grooves + knots, for the
+// tree trunk. Opaque.
+export function barkTexture(size: number): Uint8Array {
+  const s = size;
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;
+    // Vertical fibres: high-freq in u (around the trunk), low-freq in v (up).
+    // fbm returns [0,1] already — the old `+ 0.5` remaps pushed shade ~40%
+    // hot and the trunks rendered pale beige instead of bark brown.
+    const fibre = fbm(u * 26, v * 4, 4);
+    const groove = Math.sin(u * Math.PI * 2 * 14 + fbm(u * 5, v * 5, 2) * 6) * 0.5 + 0.5;
+    const knot = fbm(u * 3, v * 3, 3);
+    const g0 = 0.6 + groove * 0.4;
+    const shade = (0.6 + fibre * 0.5) * g0 * (0.85 + knot * 0.3);
+    const r = Math.min(255, Math.floor(95 * shade + 30));
+    const g = Math.min(255, Math.floor(66 * shade + 22));
+    const b = Math.min(255, Math.floor(44 * shade + 14));
     return [r, g, b, 255];
+  });
+}
+
+// Stone-block wall texture. Running-bond courses of warm-grey blocks with
+// recessed dark mortar, per-block tint variation, edge AO, and two scales of
+// surface grain. Seamless (fbmp + integer block grid). Tiles at TILE_METRES
+// (2 m) in the prop builder, so 3 cols × 4 rows ≈ 0.66 m blocks.
+export function stoneTexture(size: number): Uint8Array {
+  const s = size;
+  const cb = (n: number) => (n < 0 ? 0 : n > 255 ? 255 : Math.floor(n));
+  const COLS = 3, ROWS = 4, MORTAR = 0.06;
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;
+    const rowF = v * ROWS;
+    const row = Math.floor(rowF);
+    const fbv = rowF - row;
+    const bu = u * COLS + (row % 2) * 0.5;     // running-bond half-offset
+    const col = Math.floor(bu);
+    const fbu = bu - col;
+    const eu = Math.min(fbu, 1 - fbu);
+    const ev = Math.min(fbv, 1 - fbv);
+    const m = Math.min(eu, ev);                // distance to nearest mortar
+    const bid = hash2(col + (row % 2) * 977, row);   // stable per-block tint
+    const grain = fbmp(u, v, 4, 24);           // fine pitting
+    const blot  = fbmp(u, v, 3, 6);            // larger weathering blotches
+    let base = 98 + bid * 42 + (grain - 0.5) * 44 + (blot - 0.5) * 30;
+    // Edge AO: blocks darken toward their borders (chamfer/shadow).
+    base *= 0.78 + 0.22 * Math.min(1, m / 0.16);
+    let r = base * 1.04, g = base * 0.99, b = base * 0.88;
+    if (m < MORTAR) { const d = 0.46; r *= d; g *= d; b *= d; }  // recessed mortar
+    return [cb(r), cb(g), cb(b), 255];
+  });
+}
+
+// Wood-plank texture (crates / props). Vertical planks separated by dark gaps,
+// each plank a slightly different warm-brown tone, with along-grain streaks.
+export function woodTexture(size: number): Uint8Array {
+  const s = size;
+  const cb = (n: number) => (n < 0 ? 0 : n > 255 ? 255 : Math.floor(n));
+  const PLANKS = 4;
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;
+    const pf = u * PLANKS;
+    const p = Math.floor(pf);
+    const fp = pf - p;
+    const pid = hash2(p, 7);
+    // Grain runs along the plank (v): high-freq across (u), low along (v).
+    const grain = fbmp(u, v * 0.5, 4, 32);
+    const streak = Math.sin((fp + (grain - 0.5) * 0.6) * Math.PI * 3.0) * 0.5 + 0.5;
+    let base = 120 + pid * 40 + (grain - 0.5) * 36 + streak * 22;
+    const gap = Math.min(fp, 1 - fp) < 0.04 ? 0.5 : 1.0;   // dark seam between planks
+    base *= gap;
+    return [cb(base * 1.0), cb(base * 0.72), cb(base * 0.46), 255];
+  });
+}
+
+// Brushed-metal texture: cool grey with fine horizontal brushing + a few darker
+// streaks. Low roughness in the material; this just supplies albedo variation.
+export function metalTexture(size: number): Uint8Array {
+  const s = size;
+  const cb = (n: number) => (n < 0 ? 0 : n > 255 ? 255 : Math.floor(n));
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;
+    const brush = fbmp(u * 0.25, v, 3, 64);     // streaky along u
+    const blot = fbmp(u, v, 3, 8);
+    let base = 150 + (brush - 0.5) * 60 + (blot - 0.5) * 24;
+    return [cb(base * 0.96), cb(base * 0.97), cb(base * 1.02), 255];
+  });
+}
+
+// Floor texture: warm wooden boards laid along one axis, darker board seams,
+// per-board tone variation. Seamless.
+export function floorTexture(size: number): Uint8Array {
+  const s = size;
+  const cb = (n: number) => (n < 0 ? 0 : n > 255 ? 255 : Math.floor(n));
+  const BOARDS = 4;
+  return makeTexture(s, s, (x, y) => {
+    const u = x / s, v = y / s;
+    const bf = v * BOARDS;
+    const b = Math.floor(bf);
+    const fb = bf - b;
+    const bid = hash2(b, 31);
+    const grain = fbmp(u * 0.5, v, 4, 40);
+    let base = 132 + bid * 34 + (grain - 0.5) * 40;
+    const seam = Math.min(fb, 1 - fb) < 0.035 ? 0.55 : 1.0;
+    base *= seam;
+    return [cb(base * 0.92), cb(base * 0.68), cb(base * 0.44), 255];
   });
 }
 

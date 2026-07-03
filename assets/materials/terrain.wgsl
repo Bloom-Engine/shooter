@@ -10,6 +10,8 @@
 // Phase 6 hot-reloadable: edit this file at runtime to retune.
 
 #include "material_abi.wgsl"
+#include "common/pbr.wgsl"
+#include "common/shadows.wgsl"
 
 struct TerrainParams {
   grass_dry:  vec4<f32>,  // xyz rgb, w unused
@@ -89,7 +91,7 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // Direct lighting — Lambert against PerView's sun + ambient.
   // PerView.sun_dir.xyz is the direction the light TRAVELS toward
   // the surface, so flip for the to-light vector.
-  let sun_dir = normalize(-view.sun_dir.xyz);
+  let sun_dir = normalize(view.sun_dir.xyz);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
 
   // Cloud shadows — large-scale scrolling noise on world XZ
@@ -101,8 +103,16 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let cn = fbm2(cp);
   let cloud = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
 
-  let direct  = view.sun_color.rgb * n_dot_l * cloud;
-  let lit     = final_albedo * (view.ambient.rgb * 0.55 + direct);
+  // Cascaded sun shadow (building / trees / enemies now cast onto the
+  // terrain). Normal-offset variant — the constant depth bias alone
+  // acnes on hillsides once the terrain self-casts.
+  let sun_shadow = sample_sun_shadow_n(in.world_pos, n);
+
+  let direct  = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
+  // Sky-fill: HDR irradiance by the terrain normal (slopes facing away
+  // from the sky darken naturally) + a small flat-ambient floor.
+  let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
+  let lit     = final_albedo * (fill + direct);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);

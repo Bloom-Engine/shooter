@@ -12,5 +12,10 @@
   },
   "dependencies": {
     "bloom": "file:../engine/"
+  },
+  "perry": {
+    "allow": {
+      "nativeLibrary": ["bloom", "bloom/core", "bloom/scene", "bloom/physics"]
+    }
   }
 }
