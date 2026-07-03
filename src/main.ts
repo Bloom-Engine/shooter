@@ -96,11 +96,11 @@ enableShadows();
 // Tier 1.4 — auto-exposure. The HDR pipeline tonemaps to surface
 // sRGB with a fixed exposure if this is off; auto follows scene
 // luminance which is the right behaviour outdoors. The engine's
-// histogram AE targets the key value below — 0.18 (photo standard)
-// read visibly overexposed against this HDR sky, washing the stone
-// building to white; 0.12 keeps midtones anchored.
+// histogram AE targets the key value below — tuned against the
+// IBL-fill material lighting: 0.18 washed the stone to white before
+// the materials sampled real irradiance, 0.12 went moody-dark after.
 setAutoExposure(true);
-setAutoExposureKey(0.12);
+setAutoExposureKey(0.155);
 // Tier 1.5 — pale-blue distance haze. r,g,b,density,heightRef,
 // heightFalloff. Density 0.012 reads as a soft far-plane haze
 // without dimming the foreground.
@@ -628,6 +628,7 @@ const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
 const GRASS_INSTANCED_WGSL =
   '#include "material_abi.wgsl"\n' +
   '#include "common/shadows.wgsl"\n' +
+  '#include "common/pbr.wgsl"\n' +
   '\n' +
   'struct GrassParams { base: vec4<f32>, };\n' +
   '@group(2) @binding(11) var<uniform> grass: GrassParams;\n' +
@@ -704,7 +705,12 @@ const GRASS_INSTANCED_WGSL =
   '  let direct = view.sun_color.rgb * direct_w * cloud * shadow;\n' +
   '  let albedo = in.blade_tint * (0.7 + 0.3 * in.tip_weight);\n' +
   '  let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;\n' +
-  '  let lit = albedo * (view.ambient.rgb * 0.55 + direct) + trans * trans_color * cloud;\n' +
+  // Sky-fill: HDR irradiance sampled straight up (thin blades respond to
+  // the sky dome; a fixed direction avoids per-blade ambient flicker from
+  // the ±normal card sides) + a small flat floor. Mirrors
+  // assets/materials/grass_instanced.wgsl — keep the two in sync.
+  '  let fill = sample_env_diffuse(vec3<f32>(0.0, 1.0, 0.0)) + view.ambient.rgb * 0.20;\n' +
+  '  let lit = albedo * (fill + direct) + trans * trans_color * cloud;\n' +
   '  var out: OpaqueOut;\n' +
   '  out.hdr      = vec4<f32>(lit, 1.0);\n' +
   '  out.material = vec2<f32>(0.0, 0.92);\n' +

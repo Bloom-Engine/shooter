@@ -7,6 +7,7 @@
 // twice with meshIdx 0 and meshIdx 1.
 
 #include "material_abi.wgsl"
+#include "common/pbr.wgsl"
 
 struct TreeParams {
   // x,y = wind direction (xz plane, normalised)
@@ -89,7 +90,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let n_dot_l = max(dot(n, sun_dir), 0.0);
   let cloud   = cloud_shadow(in.world_pos.xz, frame.time);
   let direct  = view.sun_color.rgb * n_dot_l * cloud;
-  let lit     = albedo * (view.ambient.rgb * 0.55 + direct);
+  // Sky-fill: HDR irradiance by the surface normal — canopy tops read
+  // sky-lit, undersides shade toward ground bounce — plus a small floor.
+  let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
+  let lit     = albedo * (fill + direct);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);

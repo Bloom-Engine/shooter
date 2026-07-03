@@ -10,6 +10,7 @@
 // Phase 6 hot-reloadable: edit this file at runtime to retune.
 
 #include "material_abi.wgsl"
+#include "common/pbr.wgsl"
 
 struct TerrainParams {
   grass_dry:  vec4<f32>,  // xyz rgb, w unused
@@ -102,7 +103,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let cloud = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
 
   let direct  = view.sun_color.rgb * n_dot_l * cloud;
-  let lit     = final_albedo * (view.ambient.rgb * 0.55 + direct);
+  // Sky-fill: HDR irradiance by the terrain normal (slopes facing away
+  // from the sky darken naturally) + a small flat-ambient floor.
+  let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
+  let lit     = final_albedo * (fill + direct);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);

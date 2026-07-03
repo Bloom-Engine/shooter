@@ -5,6 +5,7 @@
 // instead of solid colour.
 
 #include "material_abi.wgsl"
+#include "common/pbr.wgsl"
 
 struct BldgParams {
   base:   vec4<f32>,  // xyz base colour, w noise mix amount (0..1)
@@ -82,7 +83,13 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let cn = value_noise(cp);
   let cloud  = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
   let direct = view.sun_color.rgb * n_dot_l * cloud;
-  let lit    = albedo * (view.ambient.rgb * 0.55 + direct);
+  // Sky-fill: convolved HDR irradiance sampled by the surface normal (env
+  // intensity pre-applied) instead of a flat ambient constant — shadow-side
+  // walls pick up directional sky colour + ground bounce from the HDRI
+  // rather than reading flat grey. A small flat floor keeps interiors and
+  // overhangs from going pitch black.
+  let fill   = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
+  let lit    = albedo * (fill + direct);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
