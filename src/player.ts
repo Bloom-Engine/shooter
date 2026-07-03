@@ -45,10 +45,20 @@ export function updatePlayerController(
 
   const accel = grounded ? ACCEL : AIR_ACCEL;
   const t = 1 - Math.exp(-accel * dt);
-  const nx = v.x + (targetX - v.x) * t;
-  const nz = v.z + (targetZ - v.z) * t;
 
-  let ny = v.y;
+  // Arena footing: when grounded with no movement input, snap horizontal
+  // velocity to zero instead of letting it decay. The decay path only damped
+  // ~20%/frame, so gravity projected along any terrain grade kept regenerating
+  // a downhill velocity each frame → a steady slide on slopes that should read
+  // as flat. Zeroing it plants the player; sloped terrain no longer drifts you.
+  const noInput = moveX === 0 && moveZ === 0;
+  const nx = grounded && noInput ? 0 : v.x + (targetX - v.x) * t;
+  const nz = grounded && noInput ? 0 : v.z + (targetZ - v.z) * t;
+
+  // Don't carry accumulated downward velocity while grounded — that was the
+  // gravity component the slide fed on. updateCharacter re-applies gravity this
+  // frame to keep ground contact.
+  let ny = grounded ? 0 : v.y;
   if (jumpPressed && grounded) ny = JUMP_IMPULSE;
 
   setCharacterLinearVelocity(character, vec3(nx, ny, nz));
