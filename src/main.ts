@@ -24,7 +24,8 @@ import {
   setTonemap, Tonemap, setWind,
 } from 'bloom/core';
 import { setProceduralSky, setSunDirection } from 'bloom';
-import { addPointLight } from 'bloom/scene';
+import { addPointLight, createSceneNode, attachModelToNode, setSceneNodeTrs } from 'bloom/scene';
+import { setOcclusionCulling } from 'bloom/core';
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
@@ -143,6 +144,24 @@ const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
 }
+
+// Retained-mode statics: every static model becomes scene-graph nodes (one
+// node per glTF primitive, Sponza-style). The scene path is the engine's most
+// capable — full PBR, frustum + occlusion culling, mesh-card GI capture,
+// BLAS/TLAS for hardware-traced SSGI, and inclusion in the water's planar
+// reflection — and it removes the per-frame draw-call loops entirely.
+// Skinned/dynamic draws (player, enemies, weapon, projectiles, pickups) stay
+// immediate-mode. setSceneNodeTrs is the Perry-safe all-scalar placement
+// call (the full-matrix setter crosses the FFI as an i64 array — rejected).
+function addStaticModel(mdl: { handle: number; meshCount: number },
+                        x: number, y: number, z: number,
+                        yaw: number, scale: number): void {
+  for (let mi = 0; mi < mdl.meshCount; mi++) {
+    const node = createSceneNode();
+    attachModelToNode(node, mdl.handle, mi);
+    setSceneNodeTrs(node, x, y, z, yaw, scale);
+  }
+}
 // Per-mesh collider from userData.collider === 'box'.
 for (let i = 0; i < W.MESH_COUNT; i++) {
   if (W.MESH_COLLIDER[i] === 1) {
@@ -154,6 +173,17 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
       friction: 0.9,
     });
   }
+}
+// Static world meshes (terrain, arena props) → scene nodes, created once.
+// Gizmo-box placeholders keep their per-frame drawCube fallback. Creation
+// order matters slightly: hero geometry first — later nodes are the first
+// to fall off the reflection-probe / GI-card capacity caps, so the grass
+// tufts (created further down) come last.
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  const mi = W.MESH_MODEL_IDX[i];
+  if (W.MODEL_IS_BOX[mi] === 1) continue;
+  addStaticModel(meshModelHandles[mi] as any,
+                 W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i], 0, W.MESH_SCALE[i]);
 }
 const worldStatus = W.WORLD_NAME + ' (' + W.COLLIDER_COUNT + '+' + W.MESH_COUNT + ' bodies)';
 
@@ -191,6 +221,7 @@ const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
 // it draws with a single drawModel at the origin. Replaces the flat-grey
 // drawCube placeholders; the boxes remain invisible physics colliders.
 const mdlHouse   = loadModel('assets/models/house.glb');
+addStaticModel(mdlHouse, 0, 0, 0, 0, 1.0);
 // PBR calibration rig (grey-albedo / roughness / metallic sphere grid). Only
 // drawn + framed when VERIFY_CALIB is on, for objective exposure/BRDF checks.
 const VERIFY_CALIB = false;
@@ -624,6 +655,12 @@ let tuftCount = 0;
     }
   }
 }
+// Tufts + wildflowers → scene nodes (created once; alpha-cutout materials
+// keep their wind sway + two-sided foliage shading on the scene path).
+for (let i = 0; i < tuftCount; i++) {
+  const mdl = tuftFlower[i] === 1 ? mdlFlower : mdlGrassTuft;
+  addStaticModel(mdl, tuftX[i], tuftY[i], tuftZ[i], tuftR[i], tuftS[i]);
+}
 
 // Perimeter treeline — a ring of extra trees around the playfield to frame the
 // arena, give the background depth, and hide the hard terrain edge that an open
@@ -658,6 +695,10 @@ let rtCount = 0;
     rtR[rtCount] = hashf(i, 13) * 6.2832;
     rtCount++;
   }
+}
+// Perimeter trees → scene nodes.
+for (let i = 0; i < rtCount; i++) {
+  addStaticModel(mdlTreeRing, rtX[i], rtY[i], rtZ[i], rtR[i], rtS[i]);
 }
 
 function findDormantSlot(kind: number): number {
@@ -846,6 +887,12 @@ setBloomEnabled(true);
 // not a shadow bug. Full res + TAA = real anti-aliasing, no resolution loss.
 setTaaEnabled(true);
 setRenderScale(1.0);
+// Hi-Z occlusion culling OFF: with this arena's scene-node layout the grid
+// test false-culls most nodes in steady state (house/props/tufts vanished
+// while their shadows stayed — verified by toggling; engine-side
+// investigation filed). This scene is ~750 small nodes at 60 fps — frustum
+// culling alone is plenty until the grid bug is fixed.
+setOcclusionCulling(false);
 setSsrEnabled(true);
 setSsgiEnabled(true);
 setSsgiIntensity(0.6);   // more colour-bounce into the shaded faces (the
@@ -1253,41 +1300,23 @@ while (!windowShouldClose()) {
     drawMeshWithMaterial(matTest, matTestMesh,
       vec3(0, 3, 15), 3.0, { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Static meshes — either drawModel for real GLBs, or coloured drawCube
-  // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
-  // tint (0 generic / 1 building / 2 terrain / 3 prop).
+  // Static meshes, the house, tufts and the perimeter treeline are all
+  // retained scene nodes now (created once at startup — see addStaticModel);
+  // only the gizmo-box placeholders still draw immediate-mode each frame.
+  // MESH_CATEGORY drives the cube tint (0 generic / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
-    if (W.MODEL_IS_BOX[mi] === 1) {
-      const c = W.MESH_CATEGORY[i];
-      // Building boxes (category 1) are drawn collectively as the stone-textured
-      // house.glb below — skip their flat-grey placeholder cubes here.
-      if (c === 1) continue;
-      const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
-      drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
-               W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
-               col);
-    } else {
-      drawModel(meshModelHandles[mi],
-                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
-                W.MESH_SCALE[i], WHITE);
-    }
+    if (W.MODEL_IS_BOX[mi] !== 1) continue;   // real GLBs are scene nodes
+    const c = W.MESH_CATEGORY[i];
+    // Building boxes (category 1) are represented by the baked stone
+    // house.glb (scene nodes) — skip their flat-grey placeholder cubes.
+    if (c === 1) continue;
+    const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
+    drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+             W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
+             col);
   }
-  // The house — one stone-textured mesh baked from every building box, with
-  // world-space vertices, so it draws at the origin with identity transform.
-  drawModel(mdlHouse, vec3(0, 0, 0), 1.0, WHITE);
   if (VERIFY_CALIB) drawModel(mdlCalib, CALIB_AT, 1.0, WHITE);
-  // Scattered ground grass tufts + wildflowers (alpha-cutout, wind-swaying).
-  for (let i = 0; i < tuftCount; i++) {
-    const mdl = tuftFlower[i] === 1 ? mdlFlower : mdlGrassTuft;
-    drawModelRotated(mdl, vec3(tuftX[i], tuftY[i], tuftZ[i]),
-                     tuftS[i], tuftR[i], WHITE);
-  }
-  // Perimeter treeline framing the arena.
-  for (let i = 0; i < rtCount; i++) {
-    drawModelRotated(mdlTreeRing, vec3(rtX[i], rtY[i], rtZ[i]),
-                     rtS[i], rtR[i], WHITE);
-  }
   // Water — one reflective material plane per river segment (see WATER_WGSL
   // setup near the top). The planar-reflection probe renders the mirrored
   // scene each frame; the shader blends it with Fresnel + animated wave
