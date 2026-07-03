@@ -6,14 +6,14 @@ import {
   setAmbientLight, setDirectionalLight, setEnvClearFromHdr,
   getScreenWidth, getScreenHeight,
   vec3,
-  isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
+  isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp, isAnyInputPressed,
   disableCursor, enableCursor, takeScreenshot,
   loadModel, drawModel, loadModelAnimation, updateModelAnimation,
   createMesh, createMeshExplicit, genMeshCube,
   compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume,
-  loadMusic, playMusic, updateMusicStream, setMusicVolume,
+  loadMusic, playMusic, stopMusic, updateMusicStream, setMusicVolume,
   setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
@@ -47,12 +47,14 @@ const sfxPickup = loadSound('assets/sounds/pickup.wav');
 setSoundVolume(sfxFire, 0.35);
 setSoundVolume(sfxAttack, 0.6);
 setSoundVolume(sfxPickup, 0.8);
-// game.wav is the new full gameplay track (2026-07-03 asset drop); the old
-// ambient.ogg loop stays in the repo as a fallback. menu.wav is wired up
-// whenever a menu/title state exists.
+// Two tracks from the 2026-07-03 asset drop: menu.wav on the title screen,
+// game.wav once play starts (see the gameState transition in the loop).
+// The old ambient.ogg loop stays in the repo as a fallback.
+const musicMenu = loadMusic('assets/sounds/menu.wav');
 const musicAmbient = loadMusic('assets/sounds/game.wav');
+setMusicVolume(musicMenu, 0.4);
 setMusicVolume(musicAmbient, 0.35);
-playMusic(musicAmbient);
+playMusic(musicMenu);
 
 const physics = createWorld({ gravity: vec3(0, -20, 0) });
 // Make NON_MOVING (static) and MOVING (character/dynamic) collide.
@@ -1026,8 +1028,18 @@ const animAliens = [
 ];
 // Animation indices — IQE declaration order. Dretch (and most others):
 // 0 stand, 1 attack, 4 die, 14 run, 20 walk. We map gameplay -> anim idx.
-const ANIM_WALK_IDX   = [14, 14, 14, 14, 14];
-const ANIM_ATTACK_IDX = [1, 1, 1, 1, 1];
+// Per-kind animation indices, in kind order [dretch, mantis, marauder,
+// dragoon, tyrant]. The GLBs do NOT share one layout — the old flat
+// [14,...]/[1,...] tables played run_right on the dragoon, pain2 on the
+// tyrant, and stand1 as the mantis "attack". Verified against each GLB's
+// animation list (tools/inspect-glb.ts).
+const ANIM_WALK_IDX   = [14, 18, 14, 12, 15];   // 'run'
+const ANIM_ATTACK_IDX = [ 1,  4,  1,  6,  1];   // 'attack'
+const ANIM_DIE_IDX    = [ 4,  7,  4,  7,  5];   // 'die'
+// Die-anim durations (max keyframe time per GLB). The engine WRAPS anim
+// time (t % duration), so death playback clamps just short of these to
+// freeze on the final collapsed pose instead of re-looping the fall.
+const ANIM_DIE_DUR    = [1.55, 1.567, 0.883, 1.8, 2.567];
 // Procedural motion parameters (cheap substitute for skeletal animation).
 // Each enemy has a phase accumulator — sinusoids on top give a bob + side-
 // sway while walking, and a forward-lunge while attacking.
@@ -1064,6 +1076,12 @@ const enKind  = new Array<number>(MAX_ENEMIES);
 const enAttackCD = new Array<number>(MAX_ENEMIES);
 const enFlashT = new Array<number>(MAX_ENEMIES);
 const enPhase = new Array<number>(MAX_ENEMIES);        // walk-cycle phase accumulator
+// Death playback: corpse keeps drawing at its last position while the die
+// animation plays (then sinks), independent of enAlive so wave logic and
+// AI treat the enemy as gone immediately.
+const enDying    = new Array<number>(MAX_ENEMIES);     // 1 = death anim in progress
+const enDeathT   = new Array<number>(MAX_ENEMIES);     // seconds since the kill
+const enDeathYaw = new Array<number>(MAX_ENEMIES);     // facing frozen at death
 const enBody: BodyHandle[] = new Array<BodyHandle>(MAX_ENEMIES);
 for (let k = 0; k < KIND_COUNT; k++) {
   const shape = boxShape(vec3(KIND_HX[k], KIND_HY[k], KIND_HZ[k]));
@@ -1073,6 +1091,11 @@ for (let k = 0; k < KIND_COUNT; k++) {
     enHP[i] = 0; enAlive[i] = 0; enAttackCD[i] = 0; enFlashT[i] = 0;
     enPhase[i] = Math.random() * Math.PI * 2;   // stagger the bob phases
     enKind[i] = k;
+    // Explicit init — Perry arrays don't default-fill, and findDormantSlot
+    // compares enDying with === 0.
+    enDying[i] = 0;
+    enDeathT[i] = 0;
+    enDeathYaw[i] = 0;
     enBody[i] = createBody(physics, shape, {
       motionType: MotionType.KINEMATIC,
       position: vec3(0, -100, 0),
@@ -1107,7 +1130,9 @@ function countAlive(): number {
 function findDormantSlot(kind: number): number {
   for (let j = 0; j < BODIES_PER_KIND; j++) {
     const i = kind * BODIES_PER_KIND + j;
-    if (enAlive[i] === 0) return i;
+    // A dying slot still owns the corpse on screen — don't respawn into it
+    // or the death anim snaps into a fresh enemy mid-fall.
+    if (enAlive[i] === 0 && enDying[i] === 0) return i;
   }
   return -1;
 }
@@ -1155,6 +1180,9 @@ let fireCD = 0;
 
 let playerHP = PLAYER_HP_MAX;
 let gameOver = false;
+// 0 = title screen (menu.wav, world rendering as the backdrop, no waves /
+// no firing / no movement), 1 = playing. Any input starts the game.
+let gameState = 0;
 const MUZZLE_FLASH_DUR = 0.08;
 let muzzleFlashT = 0;
 let damageFlashT = 0;
@@ -1208,6 +1236,9 @@ function despawnAllEnemies(): void {
     enAttackCD[i] = 0;
     enFlashT[i] = 0;
     enPhase[i] = Math.random() * Math.PI * 2;
+    enDying[i] = 0;
+    enDeathT[i] = 0;
+    enDeathYaw[i] = 0;
     enX[i] = 0; enY[i] = -100; enZ[i] = 0;
     setBodyPosition(enBody[i], vec3(0, -100, 0), false);
   }
@@ -1276,7 +1307,7 @@ while (!windowShouldClose()) {
   const dt = getDeltaTime();
   const sw = getScreenWidth();
   const sh = getScreenHeight();
-  updateMusicStream(musicAmbient);
+  updateMusicStream(gameState === 0 ? musicMenu : musicAmbient);
 
   // Tab toggles cursor capture so you can free the mouse to screenshot etc.
   if (isKeyPressed(Key.TAB)) {
@@ -1324,7 +1355,7 @@ while (!windowShouldClose()) {
   if (isKeyPressed(Key.TWO))  { currentWeapon = WEAPON_BLASTER; fireCD = 0; }
 
   // Freeze player movement while dead or after victory; physics still steps.
-  if (!gameOver && !gameWon) {
+  if (gameState === 1 && !gameOver && !gameWon) {
     const yawNow = CAM[0];
     const fwd = vec3(Math.sin(yawNow), 0, -Math.cos(yawNow));
     const rgt = vec3(Math.cos(yawNow), 0, Math.sin(yawNow));
@@ -1401,7 +1432,7 @@ while (!windowShouldClose()) {
   playerAnimT = playerAnimT + dt;
 
   // ---- Enemy AI + wave director (M5 / M6) -------------------------------
-  if (!gameOver && !gameWon) {
+  if (gameState === 1 && !gameOver && !gameWon) {
     const pp = playerPosition();
     for (let i = 0; i < MAX_ENEMIES; i++) {
       if (enAlive[i] === 0) continue;
@@ -1541,8 +1572,15 @@ while (!windowShouldClose()) {
             enHP[i] = enHP[i] - RIFLE_DAMAGE;
             enFlashT[i] = DRETCH_HIT_FLASH;
             if (enHP[i] <= 0) {
+              // Death: AI/waves see it gone (enAlive 0), the physics body
+              // leaves play, but the corpse keeps drawing at its last
+              // position while the die animation plays (see the dying
+              // pass in the draw loop).
               enAlive[i] = 0;
-              enY[i] = -100;
+              enDying[i] = 1;
+              enDeathT[i] = 0;
+              const pk = playerPosition();
+              enDeathYaw[i] = Math.atan2(pk.x - enX[i], -(pk.z - enZ[i]));
               setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
               playSound(sfxAttack);   // reuse clank as death thud
             }
@@ -1584,8 +1622,13 @@ while (!windowShouldClose()) {
           enFlashT[j] = DRETCH_HIT_FLASH;
           shotsHit = shotsHit + 1;
           if (enHP[j] <= 0) {
+            // Same death path as the rifle kill: corpse plays the die anim
+            // at its last position; body leaves play immediately.
             enAlive[j] = 0;
-            enY[j] = -100;
+            enDying[j] = 1;
+            enDeathT[j] = 0;
+            const pk2 = playerPosition();
+            enDeathYaw[j] = Math.atan2(pk2.x - enX[j], -(pk2.z - enZ[j]));
             setBodyPosition(enBody[j], vec3(enX[j], -100, enZ[j]), false);
             playSound(sfxAttack);
           }
@@ -1877,6 +1920,23 @@ while (!windowShouldClose()) {
       : WHITE;
     drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], tint);
   }
+  // Dying enemies: play the death animation once, frozen on its final
+  // collapsed pose (the engine wraps anim time, so playback clamps just
+  // short of the real clip duration), then sink the corpse into the
+  // ground and free the slot. Replaces the old teleport-to-y=-100
+  // despawn that made kills feel like the enemy just vanished.
+  for (let i = 0; i < MAX_ENEMIES; i++) {
+    if (enDying[i] !== 1) continue;
+    enDeathT[i] = enDeathT[i] + dt;
+    const k = enKind[i];
+    const dur = ANIM_DIE_DUR[k];
+    const at = enDeathT[i] < dur - 0.04 ? enDeathT[i] : dur - 0.04;
+    const sink = enDeathT[i] > dur + 0.6 ? (enDeathT[i] - dur - 0.6) * 0.9 : 0;
+    updateModelAnimation(animAliens[k], ANIM_DIE_IDX[k], at, KIND_SCALE[k],
+      enX[i], enY[i] - sink, enZ[i], enDeathYaw[i]);
+    drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], WHITE);
+    if (enDeathT[i] > dur + 2.0) enDying[i] = 0;
+  }
   // Pickups — bobbing cubes, color-coded per kind.
   const tNow = getTime();
   for (let i = 0; i < PICKUP_COUNT; i++) {
@@ -1962,7 +2022,7 @@ while (!windowShouldClose()) {
   // Wave HUD — top-center. Shows "WAVE X — enemies K/N" while spawning,
   // or a "NEXT WAVE IN ..." countdown between waves.
   const aliveNow = countAlive();
-  if (!gameOver && !gameWon) {
+  if (gameState === 1 && !gameOver && !gameWon) {
     if (waveBreakTimer > 0 && waveIdx < wavePlan.length) {
       const label = 'WAVE ' + (waveIdx + 1) + ' IN ' + waveBreakTimer.toFixed(1) + 's';
       const lw = measureText(label, 22);
@@ -1973,6 +2033,28 @@ while (!windowShouldClose()) {
       const label = 'WAVE ' + (waveIdx + 1) + ' — ' + remaining + ' / ' + waveSize;
       const lw = measureText(label, 20);
       drawText(label, (sw - lw) / 2, 18, 20, { r: 230, g: 220, b: 160, a: 230 });
+    }
+  }
+
+  // Title screen — the live world renders as the backdrop, menu.wav plays,
+  // waves/firing/movement are gated off. Any input starts the run.
+  if (gameState === 0) {
+    // measureText under-reports at these sizes (the WAVE HUD drifts right
+    // for the same reason), so centre with an explicit monospace estimate:
+    // glyph advance ≈ 0.58 × size.
+    const title = 'BLOOM SHOOTER';
+    const tw = title.length * 54 * 0.58;
+    drawText(title, (sw - tw) / 2, 170, 54, { r: 236, g: 226, b: 178, a: 255 });
+    const sub = 'press any key';
+    const subw = sub.length * 22 * 0.58;
+    const pulse = Math.floor(175 + Math.sin(getTime() * 3.0) * 70);
+    drawText(sub, (sw - subw) / 2, 244, 22, { r: 225, g: 225, b: 225, a: pulse });
+    if (isAnyInputPressed()) {
+      gameState = 1;
+      stopMusic(musicMenu);
+      playMusic(musicAmbient);
+      fireCD = 0.35;                       // swallow the starting press as a shot
+      waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
     }
   }
 
