@@ -6,6 +6,7 @@
 
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
+#include "common/shadows.wgsl"
 
 struct BldgParams {
   base:   vec4<f32>,  // xyz base colour, w noise mix amount (0..1)
@@ -82,7 +83,11 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let cp = in.world_pos.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
   let cn = value_noise(cp);
   let cloud  = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
-  let direct = view.sun_color.rgb * n_dot_l * cloud;
+  // Cascaded sun shadow. The building both casts and receives now —
+  // the normal-offset variant keeps its vertical walls acne-free
+  // (a constant depth bias can't cover a wall's depth slope).
+  let sun_shadow = sample_sun_shadow_n(in.world_pos, n);
+  let direct = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
   // Sky-fill: convolved HDR irradiance sampled by the surface normal (env
   // intensity pre-applied) instead of a flat ambient constant — shadow-side
   // walls pick up directional sky colour + ground bounce from the HDRI

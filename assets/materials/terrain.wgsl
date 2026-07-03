@@ -11,6 +11,7 @@
 
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
+#include "common/shadows.wgsl"
 
 struct TerrainParams {
   grass_dry:  vec4<f32>,  // xyz rgb, w unused
@@ -102,7 +103,12 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let cn = fbm2(cp);
   let cloud = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
 
-  let direct  = view.sun_color.rgb * n_dot_l * cloud;
+  // Cascaded sun shadow (building / trees / enemies now cast onto the
+  // terrain). Normal-offset variant — the constant depth bias alone
+  // acnes on hillsides once the terrain self-casts.
+  let sun_shadow = sample_sun_shadow_n(in.world_pos, n);
+
+  let direct  = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
   // Sky-fill: HDR irradiance by the terrain normal (slopes facing away
   // from the sky darken naturally) + a small flat-ambient floor.
   let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;

@@ -23,7 +23,11 @@ import {
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setTaaEnabled, setRenderScale,
 } from 'bloom/core';
-import { addPointLight, enableShadows } from 'bloom/scene';
+import {
+  addPointLight, enableShadows,
+  createSceneNode, attachModelToNode, setSceneNodeTrs,
+  setSceneNodeGiOnly, setSceneNodeCastShadow, setSceneNodeColor,
+} from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
@@ -1298,6 +1302,55 @@ disableCursor();
 setVignette(0.4, 0.55);    // darken frame edges
 setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckle
                            // over sky/shadow areas (phase-0 calibration).
+
+// ---- GI proxies ------------------------------------------------------------
+// The world renders through the material system, which Lumen's inputs
+// (BLAS/TLAS, mesh cards, SDF clipmap) never see — so SSGI had no
+// off-screen geometry to bounce from. Register invisible scene-node
+// duplicates of the big static geometry, flagged gi_only: they feed the
+// GI stack but are skipped by the main render, reflections, and the sun
+// shadow pass (the material path casts those shadows itself). Node
+// colour approximates each material's mid albedo so bounce carries the
+// right hue.
+{
+  // Terrain instance(s) from the world's static-mesh list.
+  // loadModel/createMeshExplicit return Model OBJECTS — the scene attach
+  // FFI wants the raw .handle number.
+  for (let i = 0; i < W.MESH_COUNT; i++) {
+    const mi = W.MESH_MODEL_IDX[i];
+    if (mi === terrainPropIdx && W.MODEL_IS_BOX[mi] !== 1) {
+      const n = createSceneNode();
+      attachModelToNode(n, (meshModelHandles[mi] as any).handle, 0);
+      setSceneNodeTrs(n, W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i], 0, W.MESH_SCALE[i]);
+      setSceneNodeColor(n, 84, 116, 51);          // ≈ grass_mid albedo
+      setSceneNodeCastShadow(n, false);
+      setSceneNodeGiOnly(n, true);
+    }
+  }
+  // The generated building shell (drawn at origin, scale 1).
+  if (matBuildingMesh.handle > 0) {
+    const n = createSceneNode();
+    attachModelToNode(n, matBuildingMesh.handle, 0);
+    setSceneNodeTrs(n, 0, 0, 0, 0, 1);
+    setSceneNodeColor(n, 214, 208, 196);          // plaster base
+    setSceneNodeCastShadow(n, false);
+    setSceneNodeGiOnly(n, true);
+  }
+  // Forest trees — every primitive of every placed tree. glTF materials
+  // ride along through attachModelToNode, so trunks bounce brown and
+  // canopies green without per-node colour overrides.
+  for (let i = 0; i < FOREST_COUNT; i++) {
+    const v = treeVariants[FOREST_VAR[i]];
+    const meshCount = TREE_MESH_COUNTS[FOREST_VAR[i]];
+    for (let mIdx = 0; mIdx < meshCount; mIdx++) {
+      const n = createSceneNode();
+      attachModelToNode(n, (v as any).handle, mIdx);
+      setSceneNodeTrs(n, FOREST_X[i], FOREST_Y[i], FOREST_Z[i], 0, FOREST_SCALE[i]);
+      setSceneNodeCastShadow(n, false);
+      setSceneNodeGiOnly(n, true);
+    }
+  }
+}
 
 
 // ---- Self-test harness ----------------------------------------------------

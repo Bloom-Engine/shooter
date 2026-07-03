@@ -8,6 +8,7 @@
 
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
+#include "common/shadows.wgsl"
 
 struct TreeParams {
   // x,y = wind direction (xz plane, normalised)
@@ -92,7 +93,16 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let sun_dir = normalize(view.sun_dir.xyz);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
   let cloud   = cloud_shadow(in.world_pos.xz, frame.time);
-  let direct  = view.sun_color.rgb * n_dot_l * cloud;
+  // Cascaded sun shadow — trees shade themselves and each other now.
+  // Leaves take it at HALF strength: a low-poly canopy's flat facets
+  // terrace hard against their own blocky shadow-map silhouette (slat
+  // stripes), and real foliage scatters enough light that full-depth
+  // self-shadow reads wrong anyway. The trunk keeps the full factor,
+  // and the ground below still receives the full canopy shadow from
+  // its own material.
+  let sun_shadow_raw = sample_sun_shadow_n(in.world_pos, n);
+  let sun_shadow = mix(sun_shadow_raw, 0.5 + 0.5 * sun_shadow_raw, trunk_t);
+  let direct  = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
   // Sky-fill: HDR irradiance by the surface normal — canopy tops read
   // sky-lit, undersides shade toward ground bounce — plus a small floor.
   let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
