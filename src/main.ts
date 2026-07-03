@@ -858,15 +858,6 @@ setSsgiIntensity(0.6);   // more colour-bounce into the shaded faces (the
 // sun-shafts (their haze was the other half of the wash-out).
 setProceduralSky(true);
 setSunDirection(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z), 1.0);
-// Sky-fill ambient + warm key sun (matched to the procedural-sky sun
-// direction). Set ONCE — the engine persists the primary sun/ambient across
-// frames (begin_frame only clears the addPointLight/addDirectionalLight
-// lists). Key:fill ratio ~6:1 — natural outdoor daylight: shadowed faces
-// read as blue-grey daylight instead of crushed black, sunlit stone stays
-// below clipping.
-setAmbientLight({ r: 120, g: 138, b: 168, a: 255 }, 0.40);
-setDirectionalLight(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z),
-                    { r: 255, g: 236, b: 206, a: 255 }, 2.0);
 // Gentle breeze — sways the alpha-cut foliage cards (engine reads this in the
 // scene vertex shader for any alpha-cutout material).
 setWind(1.0, 0.4, 0.4, 1.1);
@@ -1195,8 +1186,15 @@ while (!windowShouldClose()) {
   clearBackground({ r: Math.floor(W.ENV_SKY_R * 255),
                     g: Math.floor(W.ENV_SKY_G * 255),
                     b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
-  // (Sun + ambient are set once at startup — the engine persists them across
-  // frames; only the per-frame addPointLight list resets each frame.)
+  // Sun + ambient MUST be set every frame: the engine's begin_frame resets
+  // the whole lighting block to LightingUniforms::defaults() (immediate-mode
+  // convention — renderer/mod.rs begin_frame), so anything set only at init
+  // silently reverts to default lighting from frame 2 onward. Key:fill ratio
+  // ~6:1 — natural outdoor daylight: shadowed faces read as blue-grey
+  // daylight instead of crushed black, sunlit stone stays below clipping.
+  setAmbientLight({ r: 120, g: 138, b: 168, a: 255 }, 0.40);
+  setDirectionalLight(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z),
+                      { r: 255, g: 236, b: 206, a: 255 }, 2.0);
   // TEMP verification camera (off → normal third-person view).
   const VERIFY_WATER = false;
   const VERIFY_BEAUTY = false;
