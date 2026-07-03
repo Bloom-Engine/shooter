@@ -3,29 +3,27 @@ import {
   setTargetFPS, getDeltaTime, getFPS, getTime,
   beginMode3D, endMode3D,
   drawCube, drawSphere, drawText, drawRect, drawCircle, measureText,
-  setAmbientLight, setDirectionalLight,
+  setAmbientLight, setDirectionalLight, setEnvClearFromHdr,
   getScreenWidth, getScreenHeight,
   vec3,
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
-  loadModel, drawModel, drawModelRotated, loadModelAnimation, updateModelAnimation,
-  createMesh, compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
-  genMeshCube, createPlanarReflection, setMaterialReflectionProbe,
+  loadModel, drawModel, loadModelAnimation, updateModelAnimation,
+  createMesh, createMeshExplicit, genMeshCube,
+  compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
+  compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
+  setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
+  splatImpulse, setMaterialParams,
+  compileMaterialFromFile, loadMaterial,
 } from 'bloom';
 import {
   setVignette, setFilmGrain,
-  setQualityPreset, QualityPreset,
-  setShadowsEnabled, setSsaoEnabled, setSsaoIntensity, setSsaoRadius,
-  setBloomEnabled, setBloomIntensity, setTaaEnabled, setRenderScale,
-  setAutoExposure, setManualExposure, setAutoExposureKey, setEnvIntensity,
-  setSsrEnabled, setSsgiEnabled, setSsgiIntensity, setFog, setSunShafts,
-  setTonemap, Tonemap, setWind,
+  setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
+  setTaaEnabled, setRenderScale,
 } from 'bloom/core';
-import { setProceduralSky, setSunDirection } from 'bloom';
-import { addPointLight, createSceneNode, attachModelToNode, setSceneNodeTrs } from 'bloom/scene';
-import { setOcclusionCulling } from 'bloom/core';
+import { addPointLight, enableShadows } from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
@@ -41,28 +39,6 @@ initWindow(1024, 640, 'Bloom Shooter');
 setTargetFPS(60);
 initInput();
 
-// ---- Loading screen -------------------------------------------------------
-// The heavy startup work (GLB model parse/upload, the tessellated water-mesh
-// scratch upload, audio decode) runs synchronously before the game loop, so
-// the window would otherwise sit frozen-black for several seconds. Render a
-// progress frame between the major steps so startup shows a bar.
-function drawLoading(progress: number, label: string): void {
-  beginDrawing();
-  clearBackground({ r: 16, g: 18, b: 26, a: 255 });
-  const sw = getScreenWidth(), sh = getScreenHeight();
-  const title = 'BLOOM SHOOTER';
-  drawText(title, (sw - measureText(title, 34)) / 2, sh * 0.30, 34,
-           { r: 222, g: 232, b: 244, a: 255 });
-  const bw = 440, bh = 22, bx = (sw - bw) / 2, by = sh * 0.55;
-  const p = progress < 0 ? 0 : (progress > 1 ? 1 : progress);
-  drawText(label, bx, by - 26, 15, { r: 165, g: 178, b: 196, a: 255 });
-  drawRect(bx - 2, by - 2, bw + 4, bh + 4, { r: 70, g: 78, b: 92, a: 255 });
-  drawRect(bx, by, bw, bh, { r: 28, g: 31, b: 40, a: 255 });
-  drawRect(bx, by, bw * p, bh, { r: 96, g: 176, b: 226, a: 255 });
-  endDrawing();
-}
-drawLoading(0.05, 'Starting up…');
-
 // ---- M8 polish: audio -----------------------------------------------------
 initAudio();
 const sfxFire = loadSound('assets/sounds/rifle_fire.wav');
@@ -71,10 +47,12 @@ const sfxPickup = loadSound('assets/sounds/pickup.wav');
 setSoundVolume(sfxFire, 0.35);
 setSoundVolume(sfxAttack, 0.6);
 setSoundVolume(sfxPickup, 0.8);
-const musicAmbient = loadMusic('assets/sounds/ambient.ogg');
+// game.wav is the new full gameplay track (2026-07-03 asset drop); the old
+// ambient.ogg loop stays in the repo as a fallback. menu.wav is wired up
+// whenever a menu/title state exists.
+const musicAmbient = loadMusic('assets/sounds/game.wav');
 setMusicVolume(musicAmbient, 0.35);
 playMusic(musicAmbient);
-drawLoading(0.20, 'Building world…');
 
 const physics = createWorld({ gravity: vec3(0, -20, 0) });
 // Make NON_MOVING (static) and MOVING (character/dynamic) collide.
@@ -90,7 +68,9 @@ setLayerCollides(physics, Layer.MOVING, Layer.MOVING, true);
 const spawnPos: Vec3 = vec3(W.SPAWN_X, W.SPAWN_Y, W.SPAWN_Z);
 const spawnYaw = W.SPAWN_YAW;
 
-// Apply environment settings from the world file.
+// Apply environment settings from the world file. Tier-1 visual
+// quality work (see docs/visual-quality.md) layers IBL + shadows +
+// fog + auto-exposure on top of the existing ambient + sun.
 setAmbientLight(
   { r: Math.floor(W.ENV_AMBIENT_R * 255), g: Math.floor(W.ENV_AMBIENT_G * 255),
     b: Math.floor(W.ENV_AMBIENT_B * 255), a: 255 },
@@ -100,6 +80,52 @@ setDirectionalLight(
   { r: Math.floor(W.ENV_SUN_R * 255), g: Math.floor(W.ENV_SUN_G * 255),
     b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
   W.ENV_SUN_I);
+
+// Tier 1.1 — load an HDR equirectangular environment. The engine
+// convolves it into env_tex (specular) + env_diffuse_tex (ambient
+// diffuse) at load time; refractive water + glass automatically
+// pick it up via sample_env(). With nothing loaded the env binds
+// are 1×1 black and PBR specular is dead.
+setEnvClearFromHdr('assets/env/outdoor.hdr');
+// Tier 1.2 — IBL strength. 1.0 = unit; bump up if the scene reads
+// dim against the new HDR sky, pull back if it blows out.
+setEnvIntensity(1.0);
+// Tier 1.3 — three-cascade sun shadows. Adds ~3 ms of GPU work
+// but grounds every object visually.
+enableShadows();
+// Tier 1.4 — auto-exposure. The HDR pipeline tonemaps to surface
+// sRGB with a fixed exposure if this is off; auto follows scene
+// luminance which is the right behaviour outdoors. The engine's
+// histogram AE targets the key value below — 0.18 (photo standard)
+// read visibly overexposed against this HDR sky, washing the stone
+// building to white; 0.12 keeps midtones anchored.
+setAutoExposure(true);
+setAutoExposureKey(0.12);
+// Tier 1.5 — pale-blue distance haze. r,g,b,density,heightRef,
+// heightFalloff. Density 0.012 reads as a soft far-plane haze
+// without dimming the foreground.
+// Pale-blue distance haze. Density ramps up at ground level and
+// clears within ~10 m above, so river dips and tree-base shadows
+// pool low fog while ridges stay clear — adds depth without
+// muddying the whole frame.
+setFog(0.78, 0.84, 0.90, 0.024, 0.0, 6.0);
+// Tier 1.7 — warm god-rays through the trees. Optional polish;
+// strength 0.4 keeps it subtle.
+setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
+// EN-013 — global wind UBO. All foliage materials (grass, trees,
+// future ferns/clovers) read these values from PerFrame.wind so
+// one source of truth drives the whole scene's swing.
+//   dirX / dirZ — wind direction in the XZ plane (need not be unit)
+//   amp         — peak displacement at full tip weight (~0.10 m for grass)
+//   freq        — Hz; ~1 = lazy breeze, ~3 = gusty
+setWind(0.85, 0.50, 0.10, 1.6);
+// Windows/Perry pipeline correction (feat/visual-overhaul): TAA defaults ON
+// in the engine, and its legacy coupling silently HALVES the internal render
+// resolution (TSR-style reconstruction) unless a render scale was ever set
+// explicitly. Pin full res so TAA is pure anti-aliasing — without this the
+// game renders internally at 512×320 and every surface reads soft.
+setTaaEnabled(true);
+setRenderScale(1.0);
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -139,29 +165,126 @@ for (let i = 0; i < W.COLLIDER_COUNT; i++) {
 const MESH_TINT_R = [150, 196, 120, 130];
 const MESH_TINT_G = [148, 168,  90,  95];
 const MESH_TINT_B = [140, 130,  70,  80];
-drawLoading(0.35, 'Loading models…');
 const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
 }
+// Tier 3b — replace the cardboard-cutout prop_tree.glb with four
+// real CC0 variants (oak, fat, detailed, default) drawn in
+// rotation. Picked per-mesh by index hash so the same world
+// always lays out the same trees, but adjacent trees never
+// match exactly. Scale jitter via the same hash adds height
+// variety. See docs/visual-quality.md.
+const treeVariants: number[] = [
+  loadModel('assets/models/tree_oak.glb'),
+  loadModel('assets/models/tree_fat.glb'),
+  loadModel('assets/models/tree_detailed.glb'),
+  loadModel('assets/models/tree_default.glb'),
+];
 
-// Retained-mode statics: every static model becomes scene-graph nodes (one
-// node per glTF primitive, Sponza-style). The scene path is the engine's most
-// capable — full PBR, frustum + occlusion culling, mesh-card GI capture,
-// BLAS/TLAS for hardware-traced SSGI, and inclusion in the water's planar
-// reflection — and it removes the per-frame draw-call loops entirely.
-// Skinned/dynamic draws (player, enemies, weapon, projectiles, pickups) stay
-// immediate-mode. setSceneNodeTrs is the Perry-safe all-scalar placement
-// call (the full-matrix setter crosses the FFI as an i64 array — rejected).
-function addStaticModel(mdl: { handle: number; meshCount: number },
-                        x: number, y: number, z: number,
-                        yaw: number, scale: number): void {
-  for (let mi = 0; mi < mdl.meshCount; mi++) {
-    const node = createSceneNode();
-    attachModelToNode(node, mdl.handle, mi);
-    setSceneNodeTrs(node, x, y, z, yaw, scale);
+// Tree wind-sway material. Vertex displaces proportional to local
+// y² (canopy moves more than trunk), per-tree phase derived from
+// world XZ origin so neighbours desync. Loaded via the file API
+// for hot-reload + drawn through drawMeshWithMaterial across both
+// primitives of the tree GLBs.
+const matTree = compileMaterialFromFile('assets/materials/tree.wgsl', 'opaque');
+const TREE_PARAMS = [
+  // wind dir.xz, max sway (m at canopy), wind frequency (rad/s)
+  0.85, 0.50,  0.18,  1.4,
+  // trunk colour rgb, trunk_top_y (model-space height below which
+  // a vertex reads as trunk). Kenney tree trunks top out around
+  // y ≈ 0.6 in model space.
+  0.30, 0.20,  0.12,  0.65,
+];
+if (matTree > 0) setMaterialParams(matTree, TREE_PARAMS);
+// Kenney trees mix 2 or 3 primitives — read meshCount per-variant.
+const TREE_MESH_COUNTS: number[] = [2, 2, 3, 2];  // oak, fat, detailed, default
+
+// Forest scatter — pre-place ~120 trees across the open field at
+// startup using deterministic LCG. Each gets a variant, scale
+// jitter, position jitter, and a subtle per-tree hue tint so the
+// forest doesn't read as "the same model copy-pasted." Trees go
+// in a flat array so the per-frame draw loop is a single pass.
+const FOREST_COUNT_MAX = 120;
+const FOREST_X     = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_Y     = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_Z     = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_VAR   = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_SCALE = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_TINT_R = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_TINT_G = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_TINT_B = new Array<number>(FOREST_COUNT_MAX);
+let FOREST_COUNT = 0;
+{
+  let seed = 0x55aa1234 | 0;
+  // Building rect to reject (matches gen-building.ts)
+  const BX0 = -30, BX1 = -12, BZ0 = -19, BZ1 = -7;
+  for (let attempt = 0; attempt < FOREST_COUNT_MAX * 4 && FOREST_COUNT < FOREST_COUNT_MAX; attempt++) {
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r1 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r2 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r3 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r4 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r5 = seed / 0x7fffffff;
+    const px = -36 + r1 * 72;
+    const pz = -36 + r2 * 72;
+    if (px > BX0 - 1 && px < BX1 + 1 && pz > BZ0 - 1 && pz < BZ1 + 1) continue;
+    if (Math.abs(pz - 12) < 4 && Math.abs(px) < 40) continue;          // river
+    if (Math.hypot(px - 3, pz - 18) < 6) continue;                       // player spawn
+    // Sample heightmap (inlined; same code as grass scatter).
+    const u = (px - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
+    const v = (pz - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
+    let py = 0;
+    if (u >= 0 && v >= 0 && u < T.TERRAIN_SAMPLE_COUNT - 1 && v < T.TERRAIN_SAMPLE_COUNT - 1) {
+      const ix = Math.floor(u), iz = Math.floor(v);
+      const fx = u - ix, fz = v - iz;
+      const h00 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix];
+      const h10 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix + 1];
+      const h01 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix];
+      const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix + 1];
+      py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
+           (h01 * (1 - fx) + h11 * fx) * fz;
+    }
+    FOREST_X[FOREST_COUNT]     = px;
+    FOREST_Y[FOREST_COUNT]     = py;
+    FOREST_Z[FOREST_COUNT]     = pz;
+    FOREST_VAR[FOREST_COUNT]   = Math.floor(r3 * 4) & 3;
+    FOREST_SCALE[FOREST_COUNT] = 2.5 * (0.78 + r4 * 0.45);  // 1.95 .. 3.06
+    // Per-tree hue tint — slight greens vary canopy, drier on the
+    // sunny side. Shifts ±10% around white.
+    const hueShift = (r5 - 0.5) * 0.20;
+    FOREST_TINT_R[FOREST_COUNT] = Math.max(0, Math.min(255, Math.floor(255 * (1.0 - hueShift * 0.5))));
+    FOREST_TINT_G[FOREST_COUNT] = Math.max(0, Math.min(255, Math.floor(255 * (1.0 + hueShift * 0.4))));
+    FOREST_TINT_B[FOREST_COUNT] = Math.max(0, Math.min(255, Math.floor(255 * (1.0 - hueShift * 0.6))));
+    FOREST_COUNT++;
   }
 }
+let treePropIdx = -1;
+let terrainPropIdx = -1;
+for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
+  if (W.UNIQUE_MODELS[i] === 'assets/models/prop_tree.glb')     { treePropIdx    = i; }
+  if (W.UNIQUE_MODELS[i] === 'assets/models/terrain_hills.glb') { terrainPropIdx = i; }
+}
+
+// Tier 2a — terrain colour material. Compile via the file-based
+// API for hot-reload, then push the param UBO via setMaterialParams
+// directly (loadMaterial's array-length pass-through is unreliable
+// under Perry — the FFI receives zero count for inline literals).
+//   grass_dry rgb  pad   grass_mid rgb  pad   grass_deep rgb pad   dirt rgb pad
+//   noise_freq, slope_threshold, ridge_height, pale_strength
+const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opaque');
+const TERRAIN_PARAMS = [
+  0.55, 0.62, 0.30,  0.0,
+  0.20, 0.46, 0.16,  0.0,
+  0.10, 0.28, 0.08,  0.0,
+  0.34, 0.26, 0.18,  0.0,
+  0.18, 0.78, 4.0,   0.55,
+];
+if (matTerrain > 0) setMaterialParams(matTerrain, TERRAIN_PARAMS);
 // Per-mesh collider from userData.collider === 'box'.
 for (let i = 0; i < W.MESH_COUNT; i++) {
   if (W.MESH_COLLIDER[i] === 1) {
@@ -173,17 +296,6 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
       friction: 0.9,
     });
   }
-}
-// Static world meshes (terrain, arena props) → scene nodes, created once.
-// Gizmo-box placeholders keep their per-frame drawCube fallback. Creation
-// order matters slightly: hero geometry first — later nodes are the first
-// to fall off the reflection-probe / GI-card capacity caps, so the grass
-// tufts (created further down) come last.
-for (let i = 0; i < W.MESH_COUNT; i++) {
-  const mi = W.MESH_MODEL_IDX[i];
-  if (W.MODEL_IS_BOX[mi] === 1) continue;
-  addStaticModel(meshModelHandles[mi] as any,
-                 W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i], 0, W.MESH_SCALE[i]);
 }
 const worldStatus = W.WORLD_NAME + ' (' + W.COLLIDER_COUNT + '+' + W.MESH_COUNT + ' bodies)';
 
@@ -200,13 +312,11 @@ createPlayer(physics, spawnPos);
 //   CAM[2] camX          CAM[7] tgtZ
 //   CAM[3] camY          CAM[8] initialised (0/1)
 //   CAM[4] camZ
-const CAM = [spawnYaw, 0.3, 0, 0, 0, 0, 0, 0, 0];
-// Third-person orbit pitch limits (camera elevation about the player).
-const TP_PITCH_MIN = -0.35;
-const TP_PITCH_MAX = 1.05;
-const TP_ORBIT_DIST = 6.0;   // (unused in first-person)
+const CAM = [spawnYaw, 0.35, 0, 0, 0, 0, 0, 0, 0];
+const TP_PITCH_MIN = -0.25;
+const TP_PITCH_MAX = 1.20;
+const TP_ORBIT_DIST = 6.0;
 const TP_EYE_HEIGHT = 1.4;
-const FP_EYE_HEIGHT = 0.6;   // eye above the capsule centre (playerPosition)
 const TP_SMOOTH = 10.0;
 const TP_FOVY = 70;
 
@@ -216,17 +326,6 @@ const TP_FOVY = 70;
 // "away from the camera" (classic 3rd-person over-the-shoulder feel).
 const mdlPlayer  = loadModel('assets/models/player_bsuit.glb');
 const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
-// The house: all "building"-tagged box colliders baked into ONE stone-textured
-// mesh (tools/build-props.ts makeHouse), vertices already in world space — so
-// it draws with a single drawModel at the origin. Replaces the flat-grey
-// drawCube placeholders; the boxes remain invisible physics colliders.
-const mdlHouse   = loadModel('assets/models/house.glb');
-addStaticModel(mdlHouse, 0, 0, 0, 0, 1.0);
-// PBR calibration rig (grey-albedo / roughness / metallic sphere grid). Only
-// drawn + framed when VERIFY_CALIB is on, for objective exposure/BRDF checks.
-const VERIFY_CALIB = false;
-const CALIB_AT = vec3(0, 6, 0);
-const mdlCalib   = loadModel('assets/models/calib_rig.glb');
 // human_bsuit animation indices (IQE declaration order):
 //   0 idle, 7 attack, 8 run, 12 walk.
 const PLAYER_ANIM_IDLE   = 0;
@@ -307,181 +406,593 @@ const MAT_TEST_INDS: number[] = [
   16,17,18, 16,18,19,
   20,21,22, 20,22,23,
 ];
-// Phase 1c material smoke-test cube. Disabled on the Windows/Perry-0.5.1171
-// path: `createMesh` passes a number[] straight into `bloom_create_mesh`'s
-// `i64` vertex/index-pointer params, but Perry 0.5.1171 tightened the native
-// ABI so an `i64` parameter must be a safe-integer number, not an array
-// (TypeError: "Expected safe integer for native i64 parameter"). The engine
-// needs to migrate this FFI to Perry's `buffer+len` descriptor (or the
-// physics-style scratch-buffer push) before the material path works again.
-// The cube is a dev bring-up artifact, not gameplay — gate it off.
-const MAT_SMOKE = false;
-const matTestMesh = MAT_SMOKE ? createMesh(MAT_TEST_VERTS, MAT_TEST_INDS) : 0;
+const matTestMesh = createMesh(MAT_TEST_VERTS, MAT_TEST_INDS);
 
-// Build a tessellated flat grid plane (sx × sz, centred at origin, y=0) for
-// the water surface. The grid is dense enough for the vertex shader to
-// displace it into real waves (fixing the flat-silhouette look). 12 floats
-// per vertex: pos3, nrm3, col4, uv2. Uses the (now array-free) createMesh.
-function buildWaterGrid(sx: number, sz: number) {
-  const NX = Math.max(2, Math.ceil(sx / 0.55));
-  const NZ = Math.max(2, Math.ceil(sz / 0.55));
-  const VX = NX + 1, VZ = NZ + 1;
-  const verts = new Array<number>(VX * VZ * 12);
-  let o = 0;
-  for (let iz = 0; iz < VZ; iz++) {
-    for (let ix = 0; ix < VX; ix++) {
-      const u = ix / NX, v = iz / NZ;
-      verts[o] = (u - 0.5) * sx; verts[o + 1] = 0; verts[o + 2] = (v - 0.5) * sz;
-      verts[o + 3] = 0; verts[o + 4] = 1; verts[o + 5] = 0;
-      verts[o + 6] = 1; verts[o + 7] = 1; verts[o + 8] = 1; verts[o + 9] = 1;
-      verts[o + 10] = u; verts[o + 11] = v;
-      o = o + 12;
-    }
-  }
-  const inds = new Array<number>(NX * NZ * 6);
-  let io = 0;
-  for (let iz = 0; iz < NZ; iz++) {
-    for (let ix = 0; ix < NX; ix++) {
-      const a = iz * VX + ix, b = a + 1, c = a + VX, d = c + 1;
-      inds[io] = a; inds[io + 1] = c; inds[io + 2] = b;
-      inds[io + 3] = b; inds[io + 4] = c; inds[io + 5] = d;
-      io = io + 6;
-    }
-  }
-  return createMesh(verts, inds);
-}
+// ---- Phase 9 water — real shader-based river ----------------------------
+// Replaces the ~1800-cube tessellated river from earlier with a proper
+// WGSL material: three Gerstner waves for vertex displacement, per-vertex
+// normal from the wave derivatives, Fresnel-blended refraction (sampling
+// the SceneColor snapshot) and sky reflection (from the engine's env
+// cubemap), plus foam on high-slope crests. Single drawMeshWithMaterial
+// call; Phase 4b handles the snapshot + translucent pass automatically.
 
-// ---- Reflective water (planar-reflection material) ------------------------
-// Replaces the ~1800-cube procedural river with one flat plane per segment,
-// shaded by a custom WGSL material that samples a planar-reflection probe (the
-// engine's per-frame mirror render of the world above the surface) with
-// Fresnel blending, procedural wave normals, and a sun glint. The plane mesh
-// comes from genMeshCube (scalar args — avoids the createMesh i64 ABI issue),
-// and drawMeshWithMaterial submits it (all-f64 ABI).
 const WATER_WGSL =
   '#include "material_abi.wgsl"\n' +
-  'struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) wpos: vec3<f32>, @location(1) uv: vec2<f32> };\n' +
-  // Macro wave height (metres) — three directional swells. Displaces the
-  // tessellated grid vertices so the surface physically undulates (wavy
-  // silhouette + moving edges), not just a normal-mapped flat plane.
-  'fn wheight(p: vec2<f32>, t: f32) -> f32 {\n' +
-  '  return 0.12 * sin(p.x * 0.5 + t * 1.1)\n' +
-  '       + 0.06 * sin((p.x * 0.9 + p.y * 0.6) + t * 1.9)\n' +
-  '       + 0.035 * sin((p.x * 2.3 - p.y * 1.1) + t * 3.3);\n' +
+  '#include "common/pbr.wgsl"\n' +
+  '\n' +
+  '// Phase 5 — per-material user_params at @group(2) @binding(11).\n' +
+  '// Runtime tweakable from TS via setMaterialParams(matWater, [...]).\n' +
+  'struct WaterParams {\n' +
+  '  tint:     vec4<f32>,  // xyz = absorption tint, w = absorption mix\n' +
+  '  knobs:    vec4<f32>,  // x = foam strength, y = rim brightness, z = sky LOD, w = -\n' +
+  '};\n' +
+  '@group(2) @binding(11) var<uniform> water_params: WaterParams;\n' +
+  '\n' +
+  'struct VsOut {\n' +
+  '  @builtin(position) clip_pos: vec4<f32>,\n' +
+  '  @location(0) world_pos: vec3<f32>,\n' +
+  '  @location(1) world_normal: vec3<f32>,\n' +
+  '  @location(2) screen_uv: vec2<f32>,\n' +
+  '};\n' +
+  '\n' +
+  'fn gerstner(\n' +
+  '  pos: vec2<f32>, dir: vec2<f32>, wavelength: f32,\n' +
+  '  steepness: f32, time: f32,\n' +
+  '  tangent_accum:  ptr<function, vec3<f32>>,\n' +
+  '  binormal_accum: ptr<function, vec3<f32>>,\n' +
+  ') -> vec3<f32> {\n' +
+  '  let k = 6.28318 / wavelength;\n' +
+  '  let c = sqrt(9.81 / k);\n' +
+  '  let f = k * (dot(dir, pos) - c * time);\n' +
+  '  let a = steepness / k;\n' +
+  '  let cos_f = cos(f);\n' +
+  '  let sin_f = sin(f);\n' +
+  '  (*tangent_accum) = (*tangent_accum) + vec3<f32>(\n' +
+  '    -dir.x * dir.x * steepness * sin_f,\n' +
+  '     dir.x * steepness * cos_f,\n' +
+  '    -dir.x * dir.y * steepness * sin_f,\n' +
+  '  );\n' +
+  '  (*binormal_accum) = (*binormal_accum) + vec3<f32>(\n' +
+  '    -dir.x * dir.y * steepness * sin_f,\n' +
+  '     dir.y * steepness * cos_f,\n' +
+  '    -dir.y * dir.y * steepness * sin_f,\n' +
+  '  );\n' +
+  '  return vec3<f32>(dir.x * a * cos_f, a * sin_f, dir.y * a * cos_f);\n' +
   '}\n' +
-  '@vertex fn vs_main(in: VertexInput) -> VsOut {\n' +
-  '  var o: VsOut;\n' +
-  '  let wflat = (draw.model * vec4<f32>(in.position, 1.0)).xyz;\n' +
-  '  let disp = vec3<f32>(in.position.x, in.position.y + wheight(wflat.xz, frame.time), in.position.z);\n' +
-  '  let wd = draw.model * vec4<f32>(disp, 1.0);\n' +
-  '  o.wpos = wd.xyz;\n' +
-  '  o.uv = in.uv;\n' +
-  '  o.pos = draw.mvp * vec4<f32>(disp, 1.0);\n' +
-  '  return o;\n' +
-  '}\n' +
-  // Procedural surface normal from summed directional sine waves (analytic
-  // derivative -> perturbed normal; cheap, no normal-map texture needed).
-  'fn wnorm(p: vec2<f32>, t: f32) -> vec3<f32> {\n' +
-  // Three octaves: slow swell + medium chop + fine fast ripple. Strong
-  // slope (×0.30) so the surface reads as lively water on a flat plane.
-  '  let dx = 0.5 * cos(p.x * 0.5 + t * 1.1) + 0.7 * cos((p.x * 0.9 + p.y * 0.6) + t * 1.9) + 0.5 * cos((p.x * 2.3 - p.y * 1.1) + t * 3.3);\n' +
-  '  let dz = 0.5 * cos(p.y * 0.7 - t * 1.3) + 0.7 * cos((p.x * 0.6 + p.y * 0.9) + t * 1.9) + 0.5 * cos((p.x * 1.1 + p.y * 2.3) + t * 3.0);\n' +
-  '  return normalize(vec3<f32>(-dx * 0.30, 1.0, -dz * 0.30));\n' +
-  '}\n' +
-  // Analytic sky reflection. The engine's procedural sky renders via a
-  // separate LUT pass and never lands in env_tex, and the planar-reflection
-  // probe only captures material-system draws (this game is immediate-mode),
-  // so there is nothing real to mirror. Instead we reflect a believable sky
-  // dome built from the reflected ray R: zenith→horizon gradient + a sharp
-  // sun disk + soft glow, tinted by the engine's actual sun colour/intensity.
-  'fn sky_refl(R: vec3<f32>, sun_dir: vec3<f32>, sun_col: vec3<f32>, sun_int: f32) -> vec3<f32> {\n' +
-  '  let up = clamp(R.y, 0.0, 1.0);\n' +
-  '  let zenith  = vec3<f32>(0.11, 0.22, 0.42);\n' +
-  '  let horizon = vec3<f32>(0.38, 0.50, 0.64);\n' +
-  '  var sky = mix(horizon, zenith, pow(up, 0.55));\n' +
-  '  let sd = max(dot(R, normalize(sun_dir)), 0.0);\n' +
-  '  sky = sky + sun_col * (pow(sd, 900.0) * 2.5 + pow(sd, 12.0) * 0.15) * max(sun_int, 0.4);\n' +
-  '  return sky;\n' +
-  '}\n' +
-  // Refractive profile: sample the scene (riverbed) BEHIND the surface and
-  // distort it by the wave normal — real refraction (the bottom wobbles).
-  // Tint it by water depth (scene-depth → Beer-Lambert: shallow clear, deep
-  // murky blue), then blend a Fresnel planar reflection + sun glint + foam.
-  // Composited in-shader (opaque output) → reads as real water, not a flat
-  // tinted pane.
-  '@fragment fn fs_main(in: VsOut) -> TranslucentOut {\n' +
-  '  var out: TranslucentOut;\n' +
+  '\n' +
+  '@vertex\n' +
+  'fn vs_main(in: VertexInput) -> VsOut {\n' +
+  '  var out: VsOut;\n' +
+  '  var local = in.position;\n' +
+  '  let world_xz = (draw.model * vec4<f32>(local, 1.0)).xz;\n' +
   '  let t = frame.time;\n' +
-  '  let N = wnorm(in.wpos.xz, t);\n' +
-  '  let V = normalize(view.camera_pos.xyz - in.wpos);\n' +
-  '  let ndv = max(dot(N, V), 0.0001);\n' +
-  '  let screen_uv = in.pos.xy / vec2<f32>(frame.screen_resolution);\n' +
-  // Refraction — the riverbed, displaced by the wave normal.
-  '  let refr_uv = clamp(screen_uv + N.xz * 0.04, vec2<f32>(0.002), vec2<f32>(0.998));\n' +
-  '  let bottom = textureSample(scene_color_tex, scene_color_samp, refr_uv).rgb;\n' +
-  // Water column thickness from scene depth → absorption. textureLoad avoids
-  // depth-sampler issues; clamp keeps it plausible if depth is imprecise.
-  '  let dsz = vec2<f32>(textureDimensions(scene_depth_tex));\n' +
-  '  let bz = textureLoad(scene_depth_tex, vec2<i32>(screen_uv * dsz), 0);\n' +
-  '  let thick = max(0.0, linearize_depth(bz) - linearize_depth(in.pos.z));\n' +
-  // Beer-Lambert: shallow water stays clear (bed visible near the banks),
-  // deep water tints toward murky green-blue. Floor near 0 so the refracted
-  // riverbed reads through; ceiling < 1 so the deepest water keeps some bed.
-  '  let absorb = clamp(1.0 - exp(-thick * 0.85), 0.04, 0.88);\n' +
-  '  let deep = vec3<f32>(0.02, 0.11, 0.13);\n' +
-  '  let body = mix(bottom, deep, absorb);\n' +
-  // Reflected ray → analytic sky. Fresnel (water F0≈0.02, Schlick) ramps the
-  // sky in hard at grazing angles, so the surface goes bright + sky-coloured
-  // toward the far bank and stays clear/see-through looking straight down.
-  '  let R = reflect(-V, N);\n' +
-  '  let sky = sky_refl(R, view.sun_dir.xyz, view.sun_color.rgb, view.sun_dir.w);\n' +
-  // Planar reflection probe: the actual mirrored scene (trees / house). The
-  // probe clears to alpha 0 and reflected geometry writes alpha 1, so blend the
-  // probe over the analytic sky by its alpha — real reflections where geometry
-  // exists, the sky dome everywhere else. Wave normal perturbs the lookup.
-  '  let prefl = textureSample(planar_reflection_tex, planar_reflection_samp, clamp(screen_uv + N.xz * 0.03, vec2<f32>(0.001), vec2<f32>(0.999)));\n' +
-  '  let refl = mix(sky, prefl.rgb, clamp(prefl.a, 0.0, 1.0));\n' +
-  // Cap Fresnel below 1 so even grazing water keeps ~30% of its body colour
-  // instead of becoming a pure mirror — that full-mirror grazing reflection was
-  // what turned the whole river into a blown-white sheet at eye level.
-  '  let fres = clamp(0.02 + 0.98 * pow(1.0 - ndv, 5.0), 0.0, 0.70);\n' +
-  // Tight specular sun glint on top of the Fresnel sky reflection.
-  // view.sun_dir is direction-TO-sun, so L = +sun_dir (was negated to
-  // compensate for the old below-horizon SUN_DIR; fixed now).
-  '  let L = normalize(view.sun_dir.xyz);\n' +
-  '  let H = normalize(L + V);\n' +
-  '  let spec = pow(max(dot(N, H), 0.0), 400.0) * max(view.sun_dir.w, 0.6) * 0.6;\n' +
-  '  var color = mix(body, refl, fres) + vec3<f32>(1.0, 0.97, 0.9) * spec;\n' +
-  // Shoreline foam.
-  '  let edge = min(min(in.uv.x, 1.0 - in.uv.x), min(in.uv.y, 1.0 - in.uv.y));\n' +
-  '  let foam_band = smoothstep(0.07, 0.0, edge);\n' +
-  '  let foam = foam_band * foam_band * (0.6 + 0.4 * sin(in.wpos.x * 6.0 + in.wpos.z * 5.0 + t * 3.0));\n' +
-  '  color = mix(color, vec3<f32>(0.80, 0.87, 0.92), foam * 0.42);\n' +
-  '  out.hdr = vec4<f32>(color, 1.0);\n' +
+  '  var tangent  = vec3<f32>(1.0, 0.0, 0.0);\n' +
+  '  var binormal = vec3<f32>(0.0, 0.0, 1.0);\n' +
+  '  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0,  0.3)), 5.0, 0.25, t, &tangent, &binormal);\n' +
+  '  local = local + gerstner(world_xz, normalize(vec2<f32>( 0.4,  1.0)), 3.5, 0.20, t, &tangent, &binormal);\n' +
+  '  local = local + gerstner(world_xz, normalize(vec2<f32>(-0.5,  0.8)), 2.2, 0.15, t, &tangent, &binormal);\n' +
+  '  let normal = normalize(cross(binormal, tangent));\n' +
+  '  let world  = draw.model * vec4<f32>(local, 1.0);\n' +
+  '  out.world_pos    = world.xyz;\n' +
+  '  out.world_normal = normalize((draw.model * vec4<f32>(normal, 0.0)).xyz);\n' +
+  '  out.clip_pos     = view.view_proj * world;\n' +
+  '  out.screen_uv    = out.clip_pos.xy / out.clip_pos.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);\n' +
+  '  return out;\n' +
+  '}\n' +
+  '\n' +
+  '@fragment\n' +
+  'fn fs_main(in: VsOut) -> @location(0) vec4<f32> {\n' +
+  '  let n = normalize(in.world_normal);\n' +
+  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
+  '\n' +
+  '  // Refraction — perturb screen UV by wave normal xz.\n' +
+  '  let refract_uv = clamp(in.screen_uv + n.xz * 0.04, vec2<f32>(0.001), vec2<f32>(0.999));\n' +
+  '  let refracted  = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;\n' +
+  '\n' +
+  '  // Sky reflection from the engine env — roughness-biased LOD fakes a softer highlight.\n' +
+  '  let r   = reflect(-v, n);\n' +
+  '  let sky = sample_env(r, water_params.knobs.z);\n' +
+  '\n' +
+  '  // Schlick Fresnel.\n' +
+  '  let cos_theta = max(dot(n, v), 0.0);\n' +
+  '  let fresnel   = 0.02 + (1.0 - 0.02) * pow(1.0 - cos_theta, 5.0);\n' +
+  '\n' +
+  '  // Absorption — tint + mix factor from user_params.\n' +
+  '  let tinted = mix(water_params.tint.xyz, refracted, water_params.tint.w);\n' +
+  '  var water  = mix(tinted, sky, fresnel);\n' +
+  '\n' +
+  '  // Foam on wave crests (slope proxy — high when normal tilts off +Y).\n' +
+  '  let crestness = clamp(1.0 - n.y, 0.0, 1.0);\n' +
+  '  let foam      = smoothstep(0.08, 0.25, crestness);\n' +
+  '  water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * water_params.knobs.x);\n' +
+  '\n' +
+  '  // Phase 4c — shoreline fade. Sample the opaque-depth snapshot,\n' +
+  '  // linearise both that and the fragment depth to view-space Z\n' +
+  '  // (metres), and fade out as the water column thins.\n' +
+  '  let depth_dims = textureDimensions(scene_depth_tex);\n' +
+  '  let depth_ix   = vec2<i32>(in.screen_uv * vec2<f32>(depth_dims));\n' +
+  '  let scene_d    = textureLoad(scene_depth_tex, depth_ix, 0);\n' +
+  '  let ndc_xy     = vec2<f32>(in.screen_uv.x * 2.0 - 1.0, 1.0 - in.screen_uv.y * 2.0);\n' +
+  '  let floor_v    = view.inv_proj * vec4<f32>(ndc_xy, scene_d, 1.0);\n' +
+  '  let surf_v     = view.inv_proj * vec4<f32>(ndc_xy, in.clip_pos.z, 1.0);\n' +
+  '  let floor_z    = floor_v.z / floor_v.w;\n' +
+  '  let surf_z     = surf_v.z / surf_v.w;\n' +
+  '  // Both z are negative (wgpu looks down -Z); water column = surf - floor.\n' +
+  '  let column     = max(surf_z - floor_z, 0.0);\n' +
+  '  let shore_t    = smoothstep(0.0, 0.15, column);\n' +
+  '  let rim        = (1.0 - shore_t) * water_params.knobs.y;\n' +
+  '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), rim);\n' +
+  '\n' +
+  '  // Phase 7 — sample the world-space impulse field for ripples.\n' +
+  '  // The engine maps the 128 m centred square to [0,1] UVs; we use\n' +
+  '  // textureLoad because the field is R32Float (non-filterable).\n' +
+  '  let imp_uv   = clamp(in.world_pos.xz / 128.0 + vec2<f32>(0.5), vec2<f32>(0.0), vec2<f32>(0.999));\n' +
+  '  let imp_dims = textureDimensions(impulse_tex);\n' +
+  '  let imp_ix   = vec2<i32>(imp_uv * vec2<f32>(imp_dims));\n' +
+  '  let imp      = textureLoad(impulse_tex, imp_ix, 0).r;\n' +
+  '  // Splat contributions — whiten where impulses hit, multiplied\n' +
+  '  // against the existing shore rim so water already near the shore\n' +
+  '  // gets an extra-bright footprint but deep water rings stay\n' +
+  '  // subtle.\n' +
+  '  let imp_mix = clamp(imp * 1.2, 0.0, 1.0);\n' +
+  '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), imp_mix * 0.85);\n' +
+  '  let alpha = mix(0.45, 0.92, shore_t);\n' +
+  '  return vec4<f32>(water, alpha);\n' +
+  '}\n';
+// Phase 6 — water source lives in assets/materials/water.wgsl on
+// disk. compileMaterialFromFile registers the path with the engine's
+// hot-reload watcher; editing the file at runtime triggers an
+// in-place pipeline rebuild. The inline WATER_WGSL string above is
+// kept as a fallback when the file isn't readable — useful for
+// shipping single-binary builds where assets aren't on disk.
+// Phase 5 — file-backed compile + direct setMaterialParams. Going
+// through loadMaterial would be cleaner but Perry mishandles the
+// inline-array .length pass-through to the FFI right now (FFI sees
+// zero), so we set the params explicitly.
+//   tint rgb       absorption_mix  foam  rim   sky_lod  pad
+const matWaterFromFile = compileMaterialFromFile('assets/materials/water.wgsl', 'refractive');
+const matWater = matWaterFromFile > 0
+  ? matWaterFromFile
+  : compileRefractiveMaterial(WATER_WGSL);
+// Tier 4 layout: absorption coefficient (red dies fastest, blue
+// slowest), deep-water colour (greenish-teal), then knobs:
+//   foam, rim, sky_lod, micro_normal_strength.
+const WATER_PARAMS = [
+  0.55, 0.10, 0.05,   0.0,    // absorption per metre
+  0.05, 0.18, 0.28,   0.0,    // deep_tint
+  0.60, 0.25,         2.0,   0.18,    // foam / rim / sky_lod / micro_strength
+];
+if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
+
+// ---- Water plane mesh — tessellated for Gerstner displacement ----------
+// One flat XZ plane covering the whole river footprint in arena_02.
+// Drawn at origin with scale 1, so the mesh's native dimensions are the
+// visible river size. Subdivide finely enough that the longest
+// Gerstner wave (~5 m wavelength) shows smooth wave peaks.
+const WATER_W = 80;   // metres along X — spans the arena's boundary walls
+const WATER_D = 5;    // metres along Z — river width
+const WATER_CX = 0;   // world X centre
+const WATER_CZ = 12;  // world Z centre (matches arena_02's river band)
+const WATER_Y  = 0.05;
+const WATER_COLS = 80;
+const WATER_ROWS = 10;
+const _wvc = (WATER_COLS + 1) * (WATER_ROWS + 1);
+const _wic = WATER_COLS * WATER_ROWS * 2 * 3;
+const WATER_VERTS = new Array<number>(_wvc * 12);
+const WATER_INDS  = new Array<number>(_wic);
+{
+  let vi = 0;
+  for (let r = 0; r <= WATER_ROWS; r++) {
+    for (let c = 0; c <= WATER_COLS; c++) {
+      const u = c / WATER_COLS;
+      const vv = r / WATER_ROWS;
+      // World-space positions — mesh has its own real extent.
+      WATER_VERTS[vi++] = -WATER_W * 0.5 + u * WATER_W;
+      WATER_VERTS[vi++] = 0;
+      WATER_VERTS[vi++] = -WATER_D * 0.5 + vv * WATER_D;
+      WATER_VERTS[vi++] = 0; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 0;
+      WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1;
+      WATER_VERTS[vi++] = u; WATER_VERTS[vi++] = vv;
+    }
+  }
+  let ii = 0;
+  const nc = WATER_COLS + 1;
+  for (let r = 0; r < WATER_ROWS; r++) {
+    for (let c = 0; c < WATER_COLS; c++) {
+      const tl = r * nc + c;
+      const tr = tl + 1;
+      const bl = tl + nc;
+      const br = bl + 1;
+      // CCW-from-above so default backface culling doesn't cull them.
+      WATER_INDS[ii++] = tl; WATER_INDS[ii++] = br; WATER_INDS[ii++] = bl;
+      WATER_INDS[ii++] = tl; WATER_INDS[ii++] = tr; WATER_INDS[ii++] = br;
+    }
+  }
+}
+const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
+
+// ---- SH-021 instanced grass — canonical blade × N instances -------------
+// Replaces the Tier-2b 5 000-blade baked-mesh path. One canonical
+// 6-vert cross-quad blade is uploaded once; per-frame draw is a
+// single drawMeshWithMaterialInstanced call against a 20 000-entry
+// instance buffer (pos / rot_y / scale / tint). Wind sway uses the
+// global PerFrame.wind UBO (EN-013); cascade sun shadows come
+// through sample_sun_shadow (EN-016). Both are folded into the
+// material so SH-011 (grass shading polish) ships in the same pass.
+//
+// IMPORTANT: GRASS_INSTANCED_WGSL is duplicated from
+// `assets/materials/grass_instanced.wgsl`. compileMaterialInstanced
+// only accepts a string source today (no from-file variant), so the
+// on-disk file is the source of truth and the inline copy must
+// track edits to it. SH-005 will auto-generate this from the file.
+const GRASS_INSTANCED_WGSL =
+  '#include "material_abi.wgsl"\n' +
+  '#include "common/shadows.wgsl"\n' +
+  '\n' +
+  'struct GrassParams { base: vec4<f32>, };\n' +
+  '@group(2) @binding(11) var<uniform> grass: GrassParams;\n' +
+  '\n' +
+  'struct InstancedVertexInput {\n' +
+  '  @location(0)  position:        vec3<f32>,\n' +
+  '  @location(1)  normal:          vec3<f32>,\n' +
+  '  @location(2)  color:           vec4<f32>,\n' +
+  '  @location(3)  uv:              vec2<f32>,\n' +
+  '  @location(4)  joints:          vec4<f32>,\n' +
+  '  @location(5)  weights:         vec4<f32>,\n' +
+  '  @location(6)  tangent:         vec4<f32>,\n' +
+  '  @location(7)  instance_pos:    vec3<f32>,\n' +
+  '  @location(8)  instance_rot_y:  f32,\n' +
+  '  @location(9)  instance_scale:  f32,\n' +
+  '  @location(10) instance_tint:   vec4<f32>,\n' +
+  '};\n' +
+  '\n' +
+  'struct VsOut {\n' +
+  '  @builtin(position) clip_pos:     vec4<f32>,\n' +
+  '  @location(0)       world_pos:    vec3<f32>,\n' +
+  '  @location(1)       world_normal: vec3<f32>,\n' +
+  '  @location(2)       blade_tint:   vec3<f32>,\n' +
+  '  @location(3)       tip_weight:   f32,\n' +
+  '};\n' +
+  '\n' +
+  '@vertex fn vs_main(in: InstancedVertexInput) -> VsOut {\n' +
+  '  var out: VsOut;\n' +
+  '  let scaled = in.position * in.instance_scale;\n' +
+  '  let cy = cos(in.instance_rot_y);\n' +
+  '  let sy = sin(in.instance_rot_y);\n' +
+  '  let rotated = vec3<f32>(cy * scaled.x + sy * scaled.z, scaled.y, -sy * scaled.x + cy * scaled.z);\n' +
+  '  let tip   = in.color.r;\n' +
+  '  let phase = dot(in.instance_pos.xz, frame.wind.xy * 0.6) + frame.time * frame.wind.w;\n' +
+  '  let sway  = sin(phase) * frame.wind.z * tip;\n' +
+  '  let displaced = rotated + vec3<f32>(frame.wind.x, 0.0, frame.wind.y) * sway;\n' +
+  '  let world = displaced + in.instance_pos;\n' +
+  '  let n_rot = vec3<f32>(cy * in.normal.x + sy * in.normal.z, in.normal.y, -sy * in.normal.x + cy * in.normal.z);\n' +
+  '  out.world_pos    = world;\n' +
+  '  out.world_normal = normalize(n_rot);\n' +
+  '  out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);\n' +
+  '  out.tip_weight   = tip;\n' +
+  '  out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;\n' +
+  '  return out;\n' +
+  '}\n' +
+  '\n' +
+  'fn cloud_shadow(world_xz: vec2<f32>, t: f32) -> f32 {\n' +
+  '  let p = world_xz * 0.025 + vec2<f32>(t * 0.5, t * 0.15);\n' +
+  '  let i = floor(p);\n' +
+  '  let f = fract(p);\n' +
+  '  let h00 = fract(sin(dot(i,                       vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let h10 = fract(sin(dot(i + vec2<f32>(1.0, 0.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let h01 = fract(sin(dot(i + vec2<f32>(0.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let h11 = fract(sin(dot(i + vec2<f32>(1.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let u  = f * f * (3.0 - 2.0 * f);\n' +
+  '  let nz = mix(mix(h00, h10, u.x), mix(h01, h11, u.x), u.y);\n' +
+  '  return mix(0.55, 1.0, smoothstep(0.35, 0.78, nz));\n' +
+  '}\n' +
+  '\n' +
+  '@fragment fn fs_main(in: VsOut) -> OpaqueOut {\n' +
+  '  let n = normalize(in.world_normal);\n' +
+  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
+  // view.sun_dir is direction-TO-sun (engine convention; the world data +
+  // all material shaders were normalised to it in the branch merge).
+  '  let l = normalize(view.sun_dir.xyz);\n' +
+  '  let wrap     = 0.5;\n' +
+  '  let n_dot_l  = (dot(n, l) + wrap) / (1.0 + wrap);\n' +
+  '  let direct_w = max(n_dot_l, 0.0);\n' +
+  '  let back  = max(dot(-n, l), 0.0);\n' +
+  '  let view_align = max(dot(v, -l), 0.0);\n' +
+  '  let trans = pow(back, 2.0) * pow(view_align, 1.5);\n' +
+  '  let cloud  = cloud_shadow(in.world_pos.xz, frame.time);\n' +
+  '  let shadow = sample_sun_shadow(in.world_pos);\n' +
+  '  let direct = view.sun_color.rgb * direct_w * cloud * shadow;\n' +
+  '  let albedo = in.blade_tint * (0.7 + 0.3 * in.tip_weight);\n' +
+  '  let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;\n' +
+  '  let lit = albedo * (view.ambient.rgb * 0.55 + direct) + trans * trans_color * cloud;\n' +
+  '  var out: OpaqueOut;\n' +
+  '  out.hdr      = vec4<f32>(lit, 1.0);\n' +
+  '  out.material = vec2<f32>(0.0, 0.92);\n' +
+  '  out.velocity = vec2<f32>(0.0, 0.0);\n' +
+  '  out.albedo   = vec4<f32>(albedo, 1.0);\n' +
   '  return out;\n' +
   '}\n';
-const waterMat = compileRefractiveMaterial(WATER_WGSL);
-// ONE continuous river plane spanning all segments + the carved channel. The
-// authored world has 6 short segments at alternating z (11/13) which rendered
-// as disconnected rectangles with gaps; a single plane over their bounding
-// span reads as one connected ribbon that fills the carved channel.
-let riverMinX = 1e9, riverMaxX = -1e9, waterYSum = 0;
-for (let i = 0; i < W.WATER_COUNT; i++) {
-  const lo = W.WATER_CX[i] - W.WATER_SX[i] * 0.5;
-  const hi = W.WATER_CX[i] + W.WATER_SX[i] * 0.5;
-  if (lo < riverMinX) riverMinX = lo;
-  if (hi > riverMaxX) riverMaxX = hi;
-  waterYSum = waterYSum + W.WATER_CY[i];
+const matGrass = compileMaterialInstanced(GRASS_INSTANCED_WGSL);
+const GRASS_PARAMS = [
+  // base hue rgb, transmission strength
+  0.30, 0.46, 0.18,  0.40,
+];
+if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
+
+// Canonical blade mesh — 6 verts × 12 floats (pos.3 normal.3
+// color.4 uv.2), 12 indices = 4 triangles (front + back of each
+// plane in the cross). color.r is the tip weight (0 at root, 1 at
+// tip) which the vertex shader uses to localise the wind sway.
+const GRASS_BLADE_W = 0.06;
+const GRASS_BLADE_H = 0.45;
+const GRASS_BLADE_VERTS: number[] = [
+  // Plane 1 (XY plane, normal +Z)
+  -GRASS_BLADE_W, 0,             0,    0, 0, 1,   0, 0, 1, 1,   0,   0,
+   GRASS_BLADE_W, 0,             0,    0, 0, 1,   0, 0, 1, 1,   1,   0,
+   0,             GRASS_BLADE_H, 0,    0, 0, 1,   1, 0, 1, 1,   0.5, 1,
+  // Plane 2 (YZ plane, normal +X)
+   0,             0,            -GRASS_BLADE_W,   1, 0, 0,   0, 0, 1, 1,   0,   0,
+   0,             0,             GRASS_BLADE_W,   1, 0, 0,   0, 0, 1, 1,   1,   0,
+   0,             GRASS_BLADE_H, 0,               1, 0, 0,   1, 0, 1, 1,   0.5, 1,
+];
+const GRASS_BLADE_INDS: number[] = [
+  // Plane 1 front (CCW from +Z) + back (CCW from -Z)
+  0, 1, 2,   0, 2, 1,
+  // Plane 2 front (CCW from +X) + back (CCW from -X)
+  3, 4, 5,   3, 5, 4,
+];
+const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, 6, GRASS_BLADE_INDS, 12);
+
+// Per-instance buffer — 20 000 blades × 9 floats (pos.xyz, rot_y,
+// scale, tint.rgba). Same RNG / heightmap / rejection logic as the
+// old baked-mesh path; deterministic given the seed so screenshot
+// diffs stay stable.
+const GRASS_INSTANCE_COUNT_MAX = 20000;
+const GRASS_INSTANCE_FLOATS    = 9;
+const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
+let GRASS_INSTANCE_COUNT = 0;
+{
+  // Building rect to reject (matches gen-building.ts).
+  const BX0 = -30, BX1 = -12, BZ0 = -19, BZ1 = -7;
+  let seed = 0x12345 | 0;
+  let wi = 0;
+  for (let attempt = 0; attempt < GRASS_INSTANCE_COUNT_MAX * 3 && GRASS_INSTANCE_COUNT < GRASS_INSTANCE_COUNT_MAX; attempt++) {
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r1 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r2 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r3 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r4 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r5 = seed / 0x7fffffff;
+    const px = -38 + r1 * 76;
+    const pz = -38 + r2 * 76;
+    if (px > BX0 && px < BX1 && pz > BZ0 && pz < BZ1) continue;
+    if (Math.abs(pz - 12) < 3.5 && Math.abs(px) < 40) continue;
+    // Bilinear heightmap sample.
+    const u = (px - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
+    const v = (pz - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
+    let py = 0;
+    if (u >= 0 && v >= 0 && u < T.TERRAIN_SAMPLE_COUNT - 1 && v < T.TERRAIN_SAMPLE_COUNT - 1) {
+      const ixc = Math.floor(u), iz = Math.floor(v);
+      const fx = u - ixc, fz = v - iz;
+      const h00 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ixc];
+      const h10 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ixc + 1];
+      const h01 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ixc];
+      const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ixc + 1];
+      py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
+           (h01 * (1 - fx) + h11 * fx) * fz;
+    }
+    GRASS_INSTANCES[wi++] = px;
+    GRASS_INSTANCES[wi++] = py;
+    GRASS_INSTANCES[wi++] = pz;
+    GRASS_INSTANCES[wi++] = r3 * 6.2832;             // rot_y radians
+    GRASS_INSTANCES[wi++] = 0.85 + r4 * 0.40;        // scale 0.85..1.25
+    // Per-blade tint multiplier — biased toward green, ±15% per
+    // channel so the field reads as natural variation rather than
+    // a single colour.
+    GRASS_INSTANCES[wi++] = 0.85 + r5 * 0.30;
+    GRASS_INSTANCES[wi++] = 0.95 + r4 * 0.10;
+    GRASS_INSTANCES[wi++] = 0.85 + r3 * 0.30;
+    GRASS_INSTANCES[wi++] = 1.0;
+    GRASS_INSTANCE_COUNT++;
+  }
 }
-const waterY = W.WATER_COUNT > 0 ? waterYSum / W.WATER_COUNT : 0.05;
-const RIVER_CX = (riverMinX + riverMaxX) * 0.5;
-const RIVER_W = riverMaxX - riverMinX;
-const RIVER_CZ = 12.0;     // carved-channel centre (see build-terrain.ts)
-const RIVER_DEPTH = 5.0;   // fits the channel bed (z ≈ 9.4–14.6)
-drawLoading(0.65, 'Building water…');
-const waterMesh = buildWaterGrid(RIVER_W, RIVER_DEPTH);
-const waterProbe = createPlanarReflection(waterY, 0, 1, 0, 512);
-if (waterMat > 0) setMaterialReflectionProbe(waterMat, waterProbe);
+// EN-001 — pass instanceCount explicitly (Perry's `.length` reports
+// the literal-init size, not how many were written).
+const matGrassInstances = matGrass > 0
+  ? createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT)
+  : 0;
+
+// ---- Building stone material — bake all box-placeholder building
+// entries into a single static mesh, drawn once per frame against
+// a noise + horizontal-band material. Replaces the flat-beige
+// drawCube path for category-1 (building) entities.
+const matBuilding = compileMaterialFromFile('assets/materials/building.wgsl', 'opaque');
+const BUILDING_PARAMS = [
+  // base rgb (warm sandstone)        noise mix
+  0.72, 0.66, 0.55,                   0.55,
+  // band rgb (darker mortar line)    band tightness (higher = sharper)
+  0.40, 0.34, 0.28,                   1.4,
+  // noise_freq, band_period (m), unused, unused
+  0.50, 3.0,                          0.0,   0.0,
+];
+if (matBuilding > 0) setMaterialParams(matBuilding, BUILDING_PARAMS);
+
+// Count the building boxes first so we can size the arrays.
+let _bldgCount = 0;
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  const mi = W.MESH_MODEL_IDX[i];
+  if (W.MODEL_IS_BOX[mi] === 1 && W.MESH_CATEGORY[i] === 1) _bldgCount++;
+}
+const _bvc = _bldgCount * 24;     // 24 verts per cube (4 per face × 6 faces)
+const _bic = _bldgCount * 36;     // 36 indices per cube (2 tris × 6 faces)
+const BUILDING_VERTS = new Array<number>(_bvc * 12);
+const BUILDING_INDS  = new Array<number>(_bic);
+{
+  let vi = 0, ii = 0, vbase = 0;
+  for (let i = 0; i < W.MESH_COUNT; i++) {
+    const mi = W.MESH_MODEL_IDX[i];
+    if (W.MODEL_IS_BOX[mi] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
+    const cx = W.MESH_X[i], cy = W.MESH_Y[i], cz = W.MESH_Z[i];
+    const hx = W.MESH_COLLIDER_HX[i];
+    const hy = W.MESH_COLLIDER_HY[i];
+    const hz = W.MESH_COLLIDER_HZ[i];
+    const xn = cx - hx, xp = cx + hx;
+    const yn = cy - hy, yp = cy + hy;
+    const zn = cz - hz, zp = cz + hz;
+    // Six faces, 4 verts each. Vertex layout: pos(3) normal(3)
+    // color(4) uv(2) — colors all white, UVs unused (material
+    // samples world XY/XZ/YZ).
+    // +X face (normal +X)
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // -X face
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // +Y face (top)
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // -Y face (bottom)
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // +Z face
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+    // -Z face
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
+    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
+    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
+
+    // 36 indices: 6 faces × 2 tris × 3, CCW from outside.
+    BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  1; BUILDING_INDS[ii++] = vbase +  2;
+    BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  2; BUILDING_INDS[ii++] = vbase +  3;
+    BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  5; BUILDING_INDS[ii++] = vbase +  6;
+    BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  6; BUILDING_INDS[ii++] = vbase +  7;
+    BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase +  9; BUILDING_INDS[ii++] = vbase + 10;
+    BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase + 10; BUILDING_INDS[ii++] = vbase + 11;
+    BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 13; BUILDING_INDS[ii++] = vbase + 14;
+    BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 14; BUILDING_INDS[ii++] = vbase + 15;
+    BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 17; BUILDING_INDS[ii++] = vbase + 18;
+    BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 18; BUILDING_INDS[ii++] = vbase + 19;
+    BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 21; BUILDING_INDS[ii++] = vbase + 22;
+    BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 22; BUILDING_INDS[ii++] = vbase + 23;
+    vbase += 24;
+  }
+}
+const matBuildingMesh = createMeshExplicit(BUILDING_VERTS, _bvc, BUILDING_INDS, _bic);
+
+// ---- Phase 10 glass — second material consumer, proves the ABI works -----
+// Second material using the Phase 4b refractive path (scene-colour snapshot
+// at group 4). No Gerstner waves; flat normal, heavier Fresnel so edges
+// reflect the sky and the centre of the pane stays clearest. Placed in the
+// south-wall door opening of the h1 house (gap at x=-22..-20, y=0..2.4,
+// z=-10) so the player can see the interior refracted through it on the
+// approach. Phase 10's acceptance criterion: no engine change between
+// Phase 9 and 10 — only TypeScript.
+
+const GLASS_WGSL =
+  '#include "material_abi.wgsl"\n' +
+  '#include "common/pbr.wgsl"\n' +
+  '\n' +
+  'struct GlassVsOut {\n' +
+  '  @builtin(position) clip_pos: vec4<f32>,\n' +
+  '  @location(0) world_pos:    vec3<f32>,\n' +
+  '  @location(1) world_normal: vec3<f32>,\n' +
+  '  @location(2) screen_uv:    vec2<f32>,\n' +
+  '};\n' +
+  '\n' +
+  '@vertex\n' +
+  'fn vs_main(in: VertexInput) -> GlassVsOut {\n' +
+  '  var out: GlassVsOut;\n' +
+  '  let world  = draw.model * vec4<f32>(in.position, 1.0);\n' +
+  '  out.world_pos    = world.xyz;\n' +
+  '  out.world_normal = normalize((draw.model * vec4<f32>(in.normal, 0.0)).xyz);\n' +
+  '  out.clip_pos     = view.view_proj * world;\n' +
+  '  out.screen_uv    = out.clip_pos.xy / out.clip_pos.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);\n' +
+  '  return out;\n' +
+  '}\n' +
+  '\n' +
+  '@fragment\n' +
+  'fn fs_main(in: GlassVsOut) -> @location(0) vec4<f32> {\n' +
+  '  let n = normalize(in.world_normal);\n' +
+  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
+  '\n' +
+  '  // Subtle refraction through the pane — glass bends light far less\n' +
+  '  // than water, so 0.008 gets the parallax look without distorting the\n' +
+  '  // scene into abstraction.\n' +
+  '  let refract_uv = clamp(in.screen_uv + n.xy * 0.008,\n' +
+  '                         vec2<f32>(0.001), vec2<f32>(0.999));\n' +
+  '  let refracted  = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;\n' +
+  '\n' +
+  '  // Sharp sky reflection on the front face — clear glass is nearly\n' +
+  '  // mirror-smooth at grazing angles.\n' +
+  '  let r   = reflect(-v, n);\n' +
+  '  let sky = sample_env(r, 0.5);\n' +
+  '\n' +
+  '  // Glass F0 is ~0.04. Schlick Fresnel — grazing angles turn\n' +
+  '  // near-mirror, face-on is ~4%.\n' +
+  '  let cos_theta = max(dot(n, v), 0.0);\n' +
+  '  let fresnel   = 0.04 + (1.0 - 0.04) * pow(1.0 - cos_theta, 5.0);\n' +
+  '\n' +
+  '  // Faint cyan tint in the transmitted colour — window glass is never\n' +
+  '  // perfectly neutral.\n' +
+  '  let tinted = refracted * vec3<f32>(0.92, 0.96, 0.98);\n' +
+  '  let glass  = mix(tinted, sky, fresnel);\n' +
+  '\n' +
+  '  // Alpha follows the Fresnel curve: face-on we see mostly through,\n' +
+  '  // glancing angles go opaque with reflection.\n' +
+  '  // Face-on: ~25% alpha (mostly transparent, slight tint). Grazing:\n' +
+  '  // near-opaque as the reflection dominates.\n' +
+  '  let alpha = 0.25 + 0.75 * fresnel;\n' +
+  '  return vec4<f32>(glass, alpha);\n' +
+  '}\n';
+// Phase 6 — glass also lives on disk + hot-reloadable. Inline WGSL
+// retained as a fallback for binary-only ship builds.
+const matGlassFromFile = compileMaterialFromFile(
+  'assets/materials/glass.wgsl', 'refractive',
+);
+const matGlass = matGlassFromFile > 0
+  ? matGlassFromFile
+  : compileRefractiveMaterial(GLASS_WGSL);
+
+// Glass pane mesh — a single 2m × 2.4m quad on the XY plane, normal +Z.
+// Subdivided 1×1 (two triangles) because glass has no per-vertex
+// displacement; the shader runs entirely in fs_main.
+const GLASS_W = 2.0;   // metres along X — door opening width
+const GLASS_H = 2.4;   // metres along Y — door opening height
+const GLASS_VERTS: number[] = [
+  // pos(3)         normal(3)   color(4)     uv(2)
+  -GLASS_W*0.5, 0,        0,  0,0,1,  1,1,1,1,  0,0,
+   GLASS_W*0.5, 0,        0,  0,0,1,  1,1,1,1,  1,0,
+   GLASS_W*0.5, GLASS_H,  0,  0,0,1,  1,1,1,1,  1,1,
+  -GLASS_W*0.5, GLASS_H,  0,  0,0,1,  1,1,1,1,  0,1,
+];
+// CCW from +Z so the pane is front-facing when viewed from outside.
+const GLASS_INDS: number[] = [0, 1, 2, 0, 2, 3];
+const matGlassMesh = createMesh(GLASS_VERTS, GLASS_INDS);
+
+// ---- Muzzle flash — additive-bucket material (Bucket::Additive) ----------
+// First consumer of the additive blend path. Fragment fakes a
+// volumetric warm flash inside a unit cube via radial falloff from
+// local-space centre. Per-draw tint alpha carries the flash intensity.
+const matMuzzleFlash = compileMaterialFromFile(
+  'assets/materials/muzzle_flash.wgsl', 'additive',
+);
+const matMuzzleFlashMesh = genMeshCube(1, 1, 1);
 
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
@@ -493,7 +1004,6 @@ if (waterMat > 0) setMaterialReflectionProbe(waterMat, waterProbe);
 //   4 = tyrant   — boss tier; rare, big, tanky
 const KIND_COUNT = 5;
 const KIND_NAME  = ['DRETCH', 'MANTIS', 'MARAUDER', 'DRAGOON', 'TYRANT'];
-drawLoading(0.85, 'Loading enemies…');
 const mdlAliens  = [
   loadModel('assets/models/enemy_dretch.glb'),
   loadModel('assets/models/enemy_mantis.glb'),
@@ -588,119 +1098,6 @@ function countAlive(): number {
   return c;
 }
 
-// Sample the terrain heightfield (same data the Jolt heightfield collider uses)
-// so enemies walk ON the ground instead of a flat y=0 plane — otherwise they
-// sink into hills and appear to float on top of the river. Over the carved
-// river channel the result is clamped to WADE_FLOOR so crossing aliens wade at
-// the water surface rather than sinking out of sight to the −0.55 bed.
-const WADE_FLOOR = -0.2;
-function terrainHeight(x: number, z: number): number {
-  const ix = Math.round((x - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE);
-  const iz = Math.round((z - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE);
-  if (ix < 0 || iz < 0 || ix >= T.TERRAIN_SAMPLE_COUNT || iz >= T.TERRAIN_SAMPLE_COUNT) return 0;
-  return T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix];
-}
-function enemyGroundY(x: number, z: number): number {
-  const h = terrainHeight(x, z);
-  return h < WADE_FLOOR ? WADE_FLOOR : h;
-}
-
-// ---- Scattered ground foliage --------------------------------------------
-// Deterministic grass-tuft scatter across the play field (hash-jittered grid),
-// placed on the terrain surface, skipping the river channel, the house
-// footprint, and a clear radius around spawn. Drawn each frame; the tufts are
-// alpha-cutout foliage so they sway in the wind via the engine's scene shader.
-const mdlGrassTuft = loadModel('assets/models/prop_grasstuft.glb');
-const mdlFlower = loadModel('assets/models/prop_flower.glb');
-const TUFT_MAX = 320;
-const tuftX = new Array<number>(TUFT_MAX);
-const tuftY = new Array<number>(TUFT_MAX);
-const tuftZ = new Array<number>(TUFT_MAX);
-const tuftS = new Array<number>(TUFT_MAX);
-const tuftR = new Array<number>(TUFT_MAX);
-const tuftFlower = new Array<number>(TUFT_MAX);  // 1 = wildflower, 0 = grass
-let tuftCount = 0;
-{
-  const hashf = (a: number, b: number): number => {
-    let h = ((a * 374761393 + b * 668265263) >>> 0);
-    h = (((h ^ (h >>> 13)) >>> 0) * 1274126177) >>> 0;
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
-  };
-  const GRID = 26;
-  const SPAN = 70;            // metres across, centred on origin
-  const step = SPAN / GRID;
-  for (let gz = 0; gz < GRID; gz++) {
-    for (let gx = 0; gx < GRID; gx++) {
-      if (tuftCount >= TUFT_MAX) break;
-      // ~35% thinning for natural clumping rather than a regular lawn.
-      if (hashf(gx + 7, gz + 13) < 0.35) continue;
-      const jx = hashf(gx, gz) - 0.5;
-      const jz = hashf(gx + 101, gz + 57) - 0.5;
-      const wx = -SPAN / 2 + (gx + 0.5 + jx * 0.95) * step;
-      const wz = -SPAN / 2 + (gz + 0.5 + jz * 0.95) * step;
-      const h = terrainHeight(wx, wz);
-      if (h < 0.15) continue;                                   // river / wet ground
-      if (wx > -29 && wx < -13 && wz > -19 && wz < -9) continue; // house footprint
-      const sdx = wx - spawnPos.x, sdz = wz - spawnPos.z;
-      if (sdx * sdx + sdz * sdz < 9) continue;                   // clear spawn
-      tuftX[tuftCount] = wx; tuftY[tuftCount] = h; tuftZ[tuftCount] = wz;
-      // ~1 in 6 is a wildflower clump (smaller); rest are grass tufts.
-      const flower = hashf(gx + 41, gz + 83) < 0.17 ? 1 : 0;
-      tuftFlower[tuftCount] = flower;
-      tuftS[tuftCount] = flower
-        ? 0.8 + hashf(gx + 31, gz + 19) * 0.7
-        : 0.75 + hashf(gx + 31, gz + 19) * 1.15;
-      tuftR[tuftCount] = hashf(gx + 5, gz + 71) * 6.2832;
-      tuftCount++;
-    }
-  }
-}
-// Tufts + wildflowers → scene nodes (created once; alpha-cutout materials
-// keep their wind sway + two-sided foliage shading on the scene path).
-for (let i = 0; i < tuftCount; i++) {
-  const mdl = tuftFlower[i] === 1 ? mdlFlower : mdlGrassTuft;
-  addStaticModel(mdl, tuftX[i], tuftY[i], tuftZ[i], tuftR[i], tuftS[i]);
-}
-
-// Perimeter treeline — a ring of extra trees around the playfield to frame the
-// arena, give the background depth, and hide the hard terrain edge that an open
-// field otherwise ends on. Skips the river band and the house. Same hash so the
-// layout is stable build-to-build.
-const mdlTreeRing = loadModel('assets/models/prop_tree.glb');
-const RTREE_MAX = 64;
-const rtX = new Array<number>(RTREE_MAX);
-const rtY = new Array<number>(RTREE_MAX);
-const rtZ = new Array<number>(RTREE_MAX);
-const rtS = new Array<number>(RTREE_MAX);
-const rtR = new Array<number>(RTREE_MAX);
-let rtCount = 0;
-{
-  const hashf = (a: number, b: number): number => {
-    let h = ((a * 374761393 + b * 668265263) >>> 0);
-    h = (((h ^ (h >>> 13)) >>> 0) * 1274126177) >>> 0;
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
-  };
-  const N = 60;
-  for (let i = 0; i < N; i++) {
-    if (rtCount >= RTREE_MAX) break;
-    const ang = (i / N) * 6.2832 + (hashf(i, 2) - 0.5) * 0.12;
-    const rad = 27 + hashf(i, 3) * 9;                          // 27–36 m ring
-    const wx = Math.cos(ang) * rad;
-    const wz = Math.sin(ang) * rad;
-    if (wz > 7 && wz < 17) continue;                           // river band
-    if (wx > -31 && wx < -11 && wz > -21 && wz < -7) continue; // house
-    const h = terrainHeight(wx, wz);
-    rtX[rtCount] = wx; rtY[rtCount] = h > 0 ? h : 0; rtZ[rtCount] = wz;
-    rtS[rtCount] = 0.9 + hashf(i, 9) * 0.8;
-    rtR[rtCount] = hashf(i, 13) * 6.2832;
-    rtCount++;
-  }
-}
-// Perimeter trees → scene nodes.
-for (let i = 0; i < rtCount; i++) {
-  addStaticModel(mdlTreeRing, rtX[i], rtY[i], rtZ[i], rtR[i], rtS[i]);
-}
-
 function findDormantSlot(kind: number): number {
   for (let j = 0; j < BODIES_PER_KIND; j++) {
     const i = kind * BODIES_PER_KIND + j;
@@ -715,8 +1112,8 @@ function spawnEnemy(): void {
   if (slot < 0) return;   // all bodies of this kind busy; retry next tick
   const sp = waveSpawned % 4;
   enX[slot] = spawnerX[sp];
+  enY[slot] = 0;
   enZ[slot] = spawnerZ[sp];
-  enY[slot] = enemyGroundY(enX[slot], enZ[slot]);
   enHP[slot] = KIND_HP[kind];
   enAlive[slot] = 1;
   enAttackCD[slot] = 0;
@@ -850,87 +1247,14 @@ function spawnSpark(p: Vec3): void {
 
 let cursorLocked = true;
 let screenshotSeq = 0;
+let perfOverlayOn = false;
 disableCursor();
 
 // ---- M8 polish: post-FX ---------------------------------------------------
 // Called once at startup — these are cheap, always-on stylistic passes.
-setVignette(0.38, 0.55);   // cinematic edge darkening (gentle)
-setFilmGrain(0.018);       // barely-there noise — 0.05 read as heavy speckle
-                           // over the dark sky / shadowed walls.
-
-// ---- High-end rendering pipeline (UE-class), art-directed -----------------
-// Full deferred stack + procedural atmosphere. The trick to not washing the
-// saturated arena out to grey: keep the sky's image-based ambient modest
-// (setEnvIntensity) and a low cool fill, then let a strong WARM directional
-// sun carry the lighting and cast the shadows. Manual exposure (not auto) so
-// the bright sky doesn't drag the scene's exposure around.
-// SUN_DIR is the DIRECTION TO THE SUN (unit-ish). The engine's scene diffuse
-// (max(dot(N, light_dir),0)), shadow cascade fit (light placed at center +
-// light_dir·d), and the sky-view LUT (mu_s = sun.y) ALL treat this as
-// direction-to-sun, so it must point UP (y>0) for daylight. The previous value
-// pointed DOWN (y=-0.30) → engine thought the sun was below the horizon: ground
-// got no direct sun (flat ambient look) and shadows were fit from a grazing/
-// below-horizon light ("weird shadows"). Now upper +x/+z, ~33° elevation.
-const SUN_DIR_X = 0.55, SUN_DIR_Y = 0.58, SUN_DIR_Z = 0.42;
-setQualityPreset(QualityPreset.High);
-setShadowsEnabled(true);
-setSsaoEnabled(true);
-setSsaoIntensity(0.85);   // 1.15 read as grimy contact-dirt; lighter AO is
-setSsaoRadius(0.9);       // more believable for an outdoor daylight scene.
-setBloomEnabled(true);
-// TAA on — but pin the render scale to 1.0 FIRST: the engine's legacy
-// coupling silently drops render_scale to 0.5 (TSR-style half-res
-// reconstruction) whenever TAA is enabled and setRenderScale was never
-// called explicitly. That meant the game rendered internally at 512×320 —
-// the softness and the "camera-move shadow swimming" that prompted the TAA
-// bisect were the half-res reconstruction + temporal AO/GI reconverging,
-// not a shadow bug. Full res + TAA = real anti-aliasing, no resolution loss.
-setTaaEnabled(true);
-setRenderScale(1.0);
-// Hi-Z occlusion culling OFF: with this arena's scene-node layout the grid
-// test false-culls most nodes in steady state (house/props/tufts vanished
-// while their shadows stayed — verified by toggling; engine-side
-// investigation filed). This scene is ~750 small nodes at 60 fps — frustum
-// culling alone is plenty until the grid bug is fixed.
-setOcclusionCulling(false);
-setSsrEnabled(true);
-setSsgiEnabled(true);
-setSsgiIntensity(0.6);   // more colour-bounce into the shaded faces (the
-                         // building's shadow side picks up warm ground GI
-                         // instead of reading as a dead slab).
-// Real procedural atmosphere. The earlier grey wash-out came from the sky's
-// image-based ambient flooding every surface — keep env-intensity very LOW so
-// the warm key sun carries the lighting and colours stay saturated, while the
-// sky still provides a proper gradient + sun disc in the background. No fog /
-// sun-shafts (their haze was the other half of the wash-out).
-setProceduralSky(true);
-setSunDirection(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z), 1.0);
-// Gentle breeze — sways the alpha-cut foliage cards (engine reads this in the
-// scene vertex shader for any alpha-cutout material).
-setWind(1.0, 0.4, 0.4, 1.1);
-setEnvIntensity(0.50);
-// MANUAL exposure (not auto): the bright sky + reflective water cover a big
-// chunk of frame and were dragging auto-exposure all over the place, crushing
-// the midtones to black on some frames and blowing the walls out on others.
-// A fixed exposure gives a stable, art-directed daylight key that the lighting
-// ratio above is tuned against.
-setAutoExposure(false);
-setManualExposure(2.4);
-// AgX tonemap (new engine control): more filmic highlight roll-off + punchier
-// colour than ACES — keeps the bright sky from greying the scene, and rolls the
-// sunlit highlights off smoothly instead of clipping to white. Light touch of
-// bloom on the true highlights (muzzle flash, pickups, sun glints).
-setTonemap(Tonemap.AgX);
-setBloomIntensity(0.05);
-// Subtle scene-scale aerial haze. Matched to the sky horizon so distant
-// geometry (and the far terrain edge) fades into the sky instead of ending
-// on a hard line — adds depth without the grey wash-out that global fog used
-// to cause (low density + ground-hugging height falloff keep near surfaces
-// crisp). The engine's procedural-sky aerial LUT is km-scaled and negligible
-// over this ~80 m arena, so this world-scale march carries the depth cue.
-setFog(0.60, 0.71, 0.85, 0.011, 1.0, 0.10);
-// (Sun-shafts tried here — even at low strength they flood this open arena
-// with haze and wash the colours out, so they stay off.)
+setVignette(0.4, 0.55);    // darken frame edges
+setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckle
+                           // over sky/shadow areas (phase-0 calibration).
 
 
 // ---- Self-test harness ----------------------------------------------------
@@ -941,7 +1265,6 @@ const SELFTEST = false;
 let testFrame = 0;
 
 
-drawLoading(1.0, 'Ready');
 while (!windowShouldClose()) {
   beginDrawing();
   const dt = getDeltaTime();
@@ -959,6 +1282,11 @@ while (!windowShouldClose()) {
   if (isKeyPressed(Key.F12)) {
     screenshotSeq = screenshotSeq + 1;
     takeScreenshot('shooter_' + screenshotSeq + '.png');
+  }
+  // F3 toggles the Phase 8 profiler overlay.
+  if (isKeyPressed(Key.F3)) {
+    perfOverlayOn = !perfOverlayOn;
+    setProfilerEnabled(perfOverlayOn);
   }
 
   const input = readInput();
@@ -997,9 +1325,24 @@ while (!windowShouldClose()) {
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump);
   }
   stepPhysics(physics, dt);
-  // Third-person (PUBG-style) orbit camera: behind + above the player at the
-  // mouse-driven yaw/pitch, smoothly following. The body (drawn below) faces
-  // the same yaw, so the mouse turns both camera and character together.
+
+  // Phase 7 — footstep / water-entry splats. When the player is
+  // inside the river band, submit an impulse at their XZ every
+  // frame they're moving. The compute pass decays these over ~2s
+  // so the water shader can render persistent ripples.
+  {
+    const pp = playerPosition();
+    const inRiver = pp.z > WATER_CZ - WATER_D * 0.5 &&
+                    pp.z < WATER_CZ + WATER_D * 0.5 &&
+                    Math.abs(pp.x) < WATER_W * 0.5;
+    const moving = Math.abs(input.moveX) + Math.abs(input.moveZ) > 0.1;
+    if (inRiver && moving) {
+      splatImpulse(pp.x, pp.z, 1.2, 0.6);
+    }
+  }
+
+  // Smooth orbit camera follow after physics step.
+  // Inline orbit-camera follow with wall-aware distance.
   {
     const pp0 = playerPosition();
     const ya = CAM[0], pi = CAM[1];
@@ -1007,21 +1350,46 @@ while (!windowShouldClose()) {
     const fX = pp0.x;
     const fY = pp0.y + TP_EYE_HEIGHT;
     const fZ = pp0.z;
-    const wX = fX - Math.sin(ya) * cpi * TP_ORBIT_DIST;
-    const wY = fY + spi * TP_ORBIT_DIST;
-    const wZ = fZ + Math.cos(ya) * cpi * TP_ORBIT_DIST;
+    // Direction from focus to ideal camera position.
+    const dxRaw = -Math.sin(ya) * cpi;
+    const dyRaw =  Math.sin(pi);
+    const dzRaw =  Math.cos(ya) * cpi;
+    // Raycast from the focus point outward toward the orbit
+    // direction. If anything (wall, tree trunk, terrain) is closer
+    // than TP_ORBIT_DIST, shorten the orbit so the camera zooms
+    // in instead of clipping through geometry. Leave a small skin
+    // so we don't kiss the wall exactly.
+    let orbitDist = TP_ORBIT_DIST;
+    const hit = raycast(physics,
+      vec3(fX, fY, fZ),
+      vec3(dxRaw, dyRaw, dzRaw),
+      TP_ORBIT_DIST, ALL_LAYERS_MASK);
+    if (hit !== null) {
+      orbitDist = Math.max(0.8, hit.fraction * TP_ORBIT_DIST - 0.25);
+    }
+    const wX = fX + dxRaw * orbitDist;
+    const wY = fY + dyRaw * orbitDist;
+    const wZ = fZ + dzRaw * orbitDist;
     if (CAM[8] === 0) {
       CAM[2] = wX; CAM[3] = wY; CAM[4] = wZ;
       CAM[5] = fX; CAM[6] = fY; CAM[7] = fZ;
       CAM[8] = 1;
     } else {
-      const t = 1 - Math.exp(-TP_SMOOTH * dt);
-      CAM[2] = CAM[2] + (wX - CAM[2]) * t;
-      CAM[3] = CAM[3] + (wY - CAM[3]) * t;
-      CAM[4] = CAM[4] + (wZ - CAM[4]) * t;
-      CAM[5] = CAM[5] + (fX - CAM[5]) * t;
-      CAM[6] = CAM[6] + (fY - CAM[6]) * t;
-      CAM[7] = CAM[7] + (fZ - CAM[7]) * t;
+      // Snap inward fast (zoom-in is responsive) but lerp outward
+      // smoothly so the camera doesn't suddenly fly back when the
+      // player rounds a corner.
+      const desired = vec3(wX, wY, wZ);
+      const curDist = Math.hypot(CAM[2] - fX, CAM[3] - fY, CAM[4] - fZ);
+      const tIn  = 1 - Math.exp(-TP_SMOOTH * 2.5 * dt);
+      const tOut = 1 - Math.exp(-TP_SMOOTH * dt);
+      const t = orbitDist < curDist ? tIn : tOut;
+      CAM[2] = CAM[2] + (desired.x - CAM[2]) * t;
+      CAM[3] = CAM[3] + (desired.y - CAM[3]) * t;
+      CAM[4] = CAM[4] + (desired.z - CAM[4]) * t;
+      const tF = 1 - Math.exp(-TP_SMOOTH * dt);
+      CAM[5] = CAM[5] + (fX - CAM[5]) * tF;
+      CAM[6] = CAM[6] + (fY - CAM[6]) * tF;
+      CAM[7] = CAM[7] + (fZ - CAM[7]) * tF;
     }
   }
   playerAnimT = playerAnimT + dt;
@@ -1040,7 +1408,6 @@ while (!windowShouldClose()) {
         const move = step < dist ? step : dist;
         enX[i] = enX[i] + (dx / dist) * move;
         enZ[i] = enZ[i] + (dz / dist) * move;
-        enY[i] = enemyGroundY(enX[i], enZ[i]);
         setBodyPosition(enBody[i],
           vec3(enX[i], enY[i] + KIND_Y_OFF[k], enZ[i]), true);
       } else if (enAttackCD[i] <= 0) {
@@ -1113,7 +1480,8 @@ while (!windowShouldClose()) {
       setBodyPosition(enBody[0], vec3(-6, KIND_Y_OFF[0], -6), true);
     }
     if (testFrame === 30)  { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t0_5s.png'); }
-    if (testFrame === 180) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t3_0s.png'); break; }
+    if (testFrame === 180) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t3_0s.png'); }
+    if (testFrame === 185) { break; }
   }
 
   // ---- Fire (M4 / M7) ---------------------------------------------------
@@ -1230,40 +1598,27 @@ while (!windowShouldClose()) {
     if (sparkT[i] > 0) sparkT[i] = sparkT[i] - dt;
   }
 
+  // The HDR sky pass overrides the clear colour, but leave this in
+  // as a fallback when the HDR file is missing.
   clearBackground({ r: Math.floor(W.ENV_SKY_R * 255),
                     g: Math.floor(W.ENV_SKY_G * 255),
                     b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
-  // Sun + ambient MUST be set every frame: the engine's begin_frame resets
-  // the whole lighting block to LightingUniforms::defaults() (immediate-mode
-  // convention — renderer/mod.rs begin_frame), so anything set only at init
-  // silently reverts to default lighting from frame 2 onward. Key:fill ratio
-  // ~6:1 — natural outdoor daylight: shadowed faces read as blue-grey
-  // daylight instead of crushed black, sunlit stone stays below clipping.
-  setAmbientLight({ r: 120, g: 138, b: 168, a: 255 }, 0.40);
-  setDirectionalLight(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z),
-                      { r: 255, g: 236, b: 206, a: 255 }, 2.0);
-  // TEMP verification camera (off → normal third-person view).
-  const VERIFY_WATER = false;
-  const VERIFY_BEAUTY = false;
-  beginMode3D(VERIFY_CALIB ? {
-    position: vec3(3, 6.6, 9.5),
-    target:   vec3(3, 6.0, -2.0),
-    up: vec3(0, 1, 0),
-    fovy: 58,
-    projection: 0,
-  } : VERIFY_BEAUTY ? {
-    position: vec3(-2, 6.0, 22.0),
-    target:   vec3(13, 0.6, 2.0),
-    up: vec3(0, 1, 0),
-    fovy: 60,
-    projection: 0,
-  } : VERIFY_WATER ? {
-    position: vec3(6, 1.1, 16.0),
-    target:   vec3(4, 0.1, 11.0),
-    up: vec3(0, 1, 0),
-    fovy: 60,
-    projection: 0,
-  } : {
+  // Sun + ambient MUST be re-set every frame: the engine's begin_frame
+  // resets the whole lighting block to defaults (immediate-mode convention,
+  // renderer begin_frame — verified the hard way in the visual-overhaul
+  // branch). Values come from the world data, so the editor stays the
+  // single source of truth.
+  setAmbientLight(
+    { r: Math.floor(W.ENV_AMBIENT_R * 255), g: Math.floor(W.ENV_AMBIENT_G * 255),
+      b: Math.floor(W.ENV_AMBIENT_B * 255), a: 255 },
+    W.ENV_AMBIENT_I);
+  setDirectionalLight(
+    vec3(W.ENV_SUN_DIR_X, W.ENV_SUN_DIR_Y, W.ENV_SUN_DIR_Z),
+    { r: Math.floor(W.ENV_SUN_R * 255), g: Math.floor(W.ENV_SUN_G * 255),
+      b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
+    W.ENV_SUN_I);
+
+  beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
     target:   vec3(CAM[5], CAM[6], CAM[7]),
     up: vec3(0, 1, 0),
@@ -1293,39 +1648,115 @@ while (!windowShouldClose()) {
            W.COLLIDER_HALF_X[0] * 2, W.COLLIDER_HALF_Y[0] * 2, W.COLLIDER_HALF_Z[0] * 2,
            { r: 85, g: 95, b: 75, a: 255 });
 
-  // Phase 1c smoke test — colour-pulsed cube in front of spawn,
-  // rendered via the new material pipeline. Proves the compile →
-  // submit → dispatch path works on a real frame.
-  if (MAT_SMOKE && matTest > 0 && matTestMesh > 0) {
-    drawMeshWithMaterial(matTest, matTestMesh,
-      vec3(0, 3, 15), 3.0, { r: 255, g: 255, b: 255, a: 255 });
+  // Phase 9 — real river. Single drawMeshWithMaterial replaces the old
+  // 1800-cube tessellated grid. Shader handles Gerstner-wave
+  // displacement, per-vertex normal, Fresnel-blended refraction (from
+  // the scene-colour snapshot), sky reflection, and foam on crests.
+  if (matWater > 0) {
+    drawMeshWithMaterial(matWater, matWaterMesh,
+      vec3(WATER_CX, WATER_Y, WATER_CZ), 1.0,
+      { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Static meshes, the house, tufts and the perimeter treeline are all
-  // retained scene nodes now (created once at startup — see addStaticModel);
-  // only the gizmo-box placeholders still draw immediate-mode each frame.
-  // MESH_CATEGORY drives the cube tint (0 generic / 2 terrain / 3 prop).
+  // Phase 10 — glass pane in the south-wall door opening of house h1.
+  // Second consumer of the material ABI, proves the infrastructure
+  // works for a different shader without any engine change.
+  if (matGlass > 0) {
+    drawMeshWithMaterial(matGlass, matGlassMesh,
+      vec3(-21, 0, -10), 1.0,
+      { r: 255, g: 255, b: 255, a: 255 });
+  }
+  // SH-021 — instanced grass. One drawMeshWithMaterialInstanced
+  // covers all 20 000 blades; the canonical 6-vert mesh is drawn N
+  // times against the per-instance pos/rot/scale/tint buffer. Wind
+  // sway reads frame.wind (EN-013); cascade shadows come through
+  // sample_sun_shadow (EN-016) — both folded into the material.
+  if (matGrass > 0 && matGrassInstances > 0) {
+    drawMeshWithMaterialInstanced(matGrass, matGrassMesh, 0,
+      matGrassInstances, GRASS_INSTANCE_COUNT);
+  }
+  // Building stone — single drawMeshWithMaterial covers all
+  // category-1 boxes; the noise + horizontal-band material in
+  // the fragment turns them from flat beige into something that
+  // reads as plastered stone.
+  if (matBuilding > 0) {
+    drawMeshWithMaterial(matBuilding, matBuildingMesh,
+      vec3(0, 0, 0), 1.0,
+      { r: 255, g: 255, b: 255, a: 255 });
+  }
+  // Forest scatter — ~120 trees pre-placed at startup. Through
+  // the tree wind-sway material when available; falls back to
+  // flat drawModel otherwise. Primitive 0 = trunk (warm brown),
+  // primitive 1 = leaves (green tinted with per-tree hue jitter).
+  for (let i = 0; i < FOREST_COUNT; i++) {
+    const pos = vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]);
+    const v = treeVariants[FOREST_VAR[i]];
+    const sc = FOREST_SCALE[i];
+    if (matTree > 0) {
+      // Single per-tree leaf tint. Material handles trunk-vs-leaf
+      // split internally based on local-y, so we can render every
+      // primitive of the GLB with the same colour and the trunk
+      // still reads as brown.
+      const leaves = {
+        r: Math.max(0, Math.min(255, FOREST_TINT_R[i] - 165)),
+        g: Math.max(0, Math.min(255, FOREST_TINT_G[i] -  85)),
+        b: Math.max(0, Math.min(255, FOREST_TINT_B[i] - 195)),
+        a: 255 };
+      const meshCount = TREE_MESH_COUNTS[FOREST_VAR[i]];
+      for (let mIdx = 0; mIdx < meshCount; mIdx++) {
+        drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, mIdx);
+      }
+    } else {
+      const fallback = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
+      drawModel(v, pos, sc, fallback);
+    }
+  }
+  // Static meshes — either drawModel for real GLBs, or coloured drawCube
+  // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
+  // tint (0 generic / 1 building / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
-    if (W.MODEL_IS_BOX[mi] !== 1) continue;   // real GLBs are scene nodes
-    const c = W.MESH_CATEGORY[i];
-    // Building boxes (category 1) are represented by the baked stone
-    // house.glb (scene nodes) — skip their flat-grey placeholder cubes.
-    if (c === 1) continue;
-    const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
-    drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
-             W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
-             col);
+    if (W.MODEL_IS_BOX[mi] === 1) {
+      // Buildings (category 1) are rendered through the baked
+      // matBuilding mesh below — skip here to avoid double-draw.
+      if (W.MESH_CATEGORY[i] === 1 && matBuilding > 0) continue;
+      const c = W.MESH_CATEGORY[i];
+      const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
+      drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+               W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
+               col);
+    } else if (mi === terrainPropIdx && matTerrain > 0) {
+      // Tier 2a — terrain via the colour-variation material. The
+      // material runs in the opaque pass; passes Lambert against
+      // PerView's directional sun + ambient, then writes both
+      // albedo and hdr.
+      drawMeshWithMaterial(matTerrain, meshModelHandles[mi] as any,
+                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+                W.MESH_SCALE[i], WHITE);
+    } else if (mi === treePropIdx) {
+      // Tier 3b — pick a tree variant + scale jitter from a stable
+      // index hash. Wind-sway material when available; fall back
+      // to drawModel for the no-material case.
+      const v = treeVariants[i & 3];
+      const scaleJitter = 0.85 + ((i * 17) & 31) / 100.0;  // 0.85 .. 1.16
+      const sc = W.MESH_SCALE[i] * scaleJitter * 2.5;
+      const pos = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
+      if (matTree > 0) {
+        const leaves = { r: 80, g: 165, b: 55, a: 255 };
+        const meshCount = TREE_MESH_COUNTS[i & 3];
+        for (let mIdx = 0; mIdx < meshCount; mIdx++) {
+          drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, mIdx);
+        }
+      } else {
+        drawModel(v, pos, sc, WHITE);
+      }
+    } else {
+      drawModel(meshModelHandles[mi],
+                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+                W.MESH_SCALE[i], WHITE);
+    }
   }
-  if (VERIFY_CALIB) drawModel(mdlCalib, CALIB_AT, 1.0, WHITE);
-  // Water — one reflective material plane per river segment (see WATER_WGSL
-  // setup near the top). The planar-reflection probe renders the mirrored
-  // scene each frame; the shader blends it with Fresnel + animated wave
-  // normals + a sun glint. Far cheaper than the old ~1800 cubes/frame and
-  // actually reflects the world above the surface.
-  if (waterMat > 0) {
-    drawMeshWithMaterial(waterMat, waterMesh,
-      vec3(RIVER_CX, waterY, RIVER_CZ), 1.0, WHITE);
-  }
+  // (Water rendering moved up — Phase 9 drawMeshWithMaterial replaces
+  // the old cube-grid loop that used to live here.)
   // Point lights from the world file — static scene lights.
   for (let i = 0; i < W.LIGHT_COUNT; i++) {
     addPointLight(W.LIGHT_X[i], W.LIGHT_Y[i], W.LIGHT_Z[i],
@@ -1346,27 +1777,16 @@ while (!windowShouldClose()) {
     // Player_bsuit's rest pose faces +X in model space (Unvanquished
     // convention, preserved through our X90 Z-up→Y-up root fix).
     // Camera-yaw forward at yaw=0 is -Z, so rotate the model by
-    // +π/2 about Y to line the character's front with the camera
+    // -π/2 about Y to line the character's front with the camera
     // direction. The bsuit's only "attack" animation is a melee
     // swing — a ranged shooter shouldn't use it; keep the walk/idle
     // pose and fake recoil + muzzle flash on the weapon itself.
-    // Face the camera's look direction (PUBG/aim-style), always.
-    // updateModelAnimation takes a SINGLE Y angle (radians) now — the old
-    // (sin,cos) overload was removed (the extra arg was silently dropped, so the
-    // body rotated by sin(camYaw) rad ≈ ±57° and "stayed looking left").
-    // set_joint_matrices_scaled maps the model's +X rest-facing to
-    // (cosθ,-sinθ); the camera looks along (sin camYaw, -cos camYaw), so
-    // θ = π/2 - camYaw. (General: to face world dir (dx,dz), rot_y = atan2(-dz,dx).)
-    const rotY = Math.PI / 2 - camYaw;
+    const modelYaw = camYaw - Math.PI / 2;
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
-    // Third-person (PUBG-style): render the character body.
-    const FIRST_PERSON = false;
-    if (!FIRST_PERSON) {
-      updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
-        pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, rotY);
-      drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
-                PLAYER_SCALE, WHITE);
-    }
+    updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
+      pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
+    drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
+              PLAYER_SCALE, WHITE);
 
     // Held weapon — sketched from cubes since we don't yet have a
     // converted tpweapon GLB. Rifle is a long grey body + thin
@@ -1411,19 +1831,20 @@ while (!windowShouldClose()) {
       muzzleZ = shoulder.z + fz * 0.28;
     }
 
-    // Muzzle flash — bright yellow core + wider orange halo that
-    // fades with muzzleFlashT. Two overlapping spheres read as a
-    // burst of flame even at small pixel sizes.
-    if (muzzleFlashT > 0) {
+    // Muzzle flash — additive material via Bucket::Additive. The
+    // shader builds a radial warm-yellow flash inside a unit cube;
+    // per-draw tint alpha is the flash intensity that the shader
+    // multiplies through. One drawMeshWithMaterial replaces the two
+    // alpha-blended drawSphere calls — better HDR + tonemap response,
+    // and a real test of the additive-bucket pipeline path.
+    if (muzzleFlashT > 0 && matMuzzleFlash > 0) {
       const k = muzzleFlashT / MUZZLE_FLASH_DUR;
-      const coreA = Math.min(255, Math.floor(k * 255));
-      const haloA = Math.min(200, Math.floor(k * 170));
-      const coreR = 0.10 + (1 - k) * 0.04;       // quick puff-out
-      const haloR = 0.22 + (1 - k) * 0.10;
-      drawSphere(vec3(muzzleX, muzzleY, muzzleZ), haloR,
-        { r: 255, g: 130, b:  40, a: haloA });
-      drawSphere(vec3(muzzleX, muzzleY, muzzleZ), coreR,
-        { r: 255, g: 240, b: 170, a: coreA });
+      // Quick puff-out: scale grows from 0.40 to ~0.55 m as the flash fades.
+      const flashScale = 0.40 + (1 - k) * 0.18;
+      const intensity255 = Math.min(255, Math.floor(k * 255));
+      drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+        vec3(muzzleX, muzzleY, muzzleZ), flashScale,
+        { r: 255, g: 200, b: 120, a: intensity255 });
     }
   }
   // Per-enemy: drive the skinned skeleton via updateModelAnimation (picks
@@ -1436,14 +1857,12 @@ while (!windowShouldClose()) {
     const k = enKind[i];
     const dxA = ppAim.x - enX[i];
     const dzA = ppAim.z - enZ[i];
-    const distA = Math.sqrt(dxA * dxA + dzA * dzA);
-    // Single Y angle (radians) — face the player. To face world dir (dx,dz):
-    // rot_y = atan2(-dz, dx) (see player facing note). atan2(0,0)→0 is fine.
-    const enRotY = Math.atan2(-dzA, dxA);
-    const attacking = distA <= KIND_MELEE[k];
+    // Yaw such that forward = (sin, -cos) points toward the player.
+    const faceYaw = Math.atan2(dxA, -dzA);
+    const attacking = Math.hypot(dxA, dzA) <= KIND_MELEE[k];
     const animIdx = attacking ? ANIM_ATTACK_IDX[k] : ANIM_WALK_IDX[k];
     updateModelAnimation(animAliens[k], animIdx, enPhase[i], KIND_SCALE[k],
-      enX[i], enY[i], enZ[i], enRotY);
+      enX[i], enY[i], enZ[i], faceYaw);
     const f = enFlashT[i] > 0 ? enFlashT[i] / DRETCH_HIT_FLASH : 0;
     const tint = f > 0
       ? { r: 255,
@@ -1472,15 +1891,31 @@ while (!windowShouldClose()) {
     if (sparkT[i] > 0) {
       const t = sparkT[i] / 0.35;
       const a = Math.min(255, Math.floor(t * 255));
-      drawSphere(vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.25 * t + 0.05,
-        { r: 255, g: 240, b: 140, a });
+      if (matMuzzleFlash > 0) {
+        // Same additive material as the muzzle flash — radial warm
+        // burst with HDR intensity scaled by per-draw alpha.
+        drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+          vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.45 * t + 0.10,
+          { r: 255, g: 230, b: 140, a });
+      } else {
+        drawSphere(vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.25 * t + 0.05,
+          { r: 255, g: 240, b: 140, a });
+      }
     }
   }
-  // Blaster projectiles — glowing cyan spheres.
+  // Blaster projectiles — additive cyan plasma using the muzzle-
+  // flash mesh + material, tinted cool. The radial-falloff in the
+  // shader already produces the soft glow shape.
   for (let i = 0; i < MAX_PROJ; i++) {
     if (pLife[i] > 0) {
-      drawSphere(vec3(pX[i], pY[i], pZ[i]), 0.16,
-        { r: 140, g: 220, b: 255, a: 255 });
+      if (matMuzzleFlash > 0) {
+        drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+          vec3(pX[i], pY[i], pZ[i]), 0.30,
+          { r: 110, g: 200, b: 255, a: 255 });
+      } else {
+        drawSphere(vec3(pX[i], pY[i], pZ[i]), 0.16,
+          { r: 140, g: 220, b: 255, a: 255 });
+      }
     }
   }
   endMode3D();
@@ -1574,6 +2009,55 @@ while (!windowShouldClose()) {
   drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
   drawText(diag1, 10, sh - 40, 13, { r: 200, g: 210, b: 230, a: 220 });
   drawText(diag2, 10, sh - 20, 13, { r: 180, g: 200, b: 220, a: 220 });
+
+  // Phase 8 — profiler overlay (F3). Lists every engine pass with
+  // CPU and GPU (µs) averaged over the profiler's 120-frame rolling
+  // window, sorted by CPU time descending.
+  if (perfOverlayOn) {
+    const rows = getProfilerOverlay();
+    const rowH = 16;
+    const ox = sw - 360;
+    // Phase 8 — frame-time histogram on top of the pass list so it
+    // stays visible regardless of how many passes are running. Each
+    // bar is one frame; height = total CPU+GPU time scaled to a
+    // 16.7 ms (60 fps) reference. Bars over full height = dropped
+    // frames (drawn red).
+    const hist = getProfilerFrameHistory();
+    const histY = 60;
+    const histH = 56;
+    const barW = 2;
+    const histW = Math.min(hist.length * barW, 360 - 16);
+    const refMs = 16.667;
+    drawRect(ox - 8, histY - 8, 360, histH + 32, { r: 0, g: 0, b: 0, a: 180 });
+    drawText('frame total ms (cpu+gpu, scale = 60 fps)',
+             ox, histY, 12, { r: 220, g: 220, b: 255, a: 230 });
+    drawRect(ox, histY + 18 + histH - 1, histW, 1,
+             { r: 100, g: 200, b: 100, a: 180 });
+    for (let i = 0; i < hist.length && i * barW < histW; i++) {
+      const totalMs = (hist[i].cpuUs + hist[i].gpuUs) / 1000;
+      const h = Math.max(1, Math.min(histH, Math.floor(totalMs / refMs * histH)));
+      const overBudget = totalMs > refMs;
+      const col = overBudget
+        ? { r: 230, g: 100, b:  90, a: 220 }
+        : { r:  90, g: 180, b: 230, a: 200 };
+      drawRect(ox + i * barW, histY + 18 + histH - h, barW - 1, h, col);
+    }
+
+    // Per-pass table below the histogram.
+    const oy = histY + histH + 36;
+    drawRect(ox - 8, oy - 8, 360, rowH * (rows.length + 2) + 12,
+             { r: 0, g: 0, b: 0, a: 180 });
+    drawText('pass                    cpu µs    gpu µs',
+             ox, oy, 13, { r: 220, g: 220, b: 255, a: 255 });
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const gpuStr = r.gpuUs < 0 ? '     -' : r.gpuUs.toFixed(1);
+      const line = r.label.padEnd(22, ' ') + r.cpuUs.toFixed(1).padStart(9, ' ') +
+                   '  ' + gpuStr.padStart(8, ' ');
+      drawText(line, ox, oy + rowH * (i + 1), 13,
+               { r: 200, g: 210, b: 230, a: 230 });
+    }
+  }
 
   if (isKeyPressed(Key.ESCAPE)) break;
   endDrawing();
