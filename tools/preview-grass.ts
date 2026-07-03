@@ -35,3 +35,8 @@ tile3('grass_preview', grassTexture(256), 256);
 tile3('stone_preview', stoneTexture(512), 512);
 overBg('blade_preview', grassBladeTexture(256), 256);
 overBg('flower_preview', flowerTexture(256), 256);
+
+// Phase-0: leaf + bark previews (leaf over sky to judge the cutout coverage).
+import { leafTexture, barkTexture } from './png';
+overBg('leaf_preview', leafTexture(256), 256);
+tile3('bark_preview', barkTexture(256), 256);

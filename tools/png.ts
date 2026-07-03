@@ -82,10 +82,16 @@ export function encodePng(width: number, height: number, rgba: Uint8Array): Uint
 // -----------------------------------------------------------------------------
 
 // Deterministic 2D value noise. Smooth enough for natural-looking textures.
+// Returns TRUE [0,1]: the final `^` yields a SIGNED i32 in JS, so without the
+// `>>> 0` reinterpret the result was [-0.5, 0.5] — which silently shifted
+// every generator that computes `(noise - 0.5)` by an extra −0.5. That one
+// bug made the stone near-charcoal (the "black house" wall), killed the
+// grass dry/dirt variation (monotone green terrain), and broke the flower
+// palette index. All the constants below assume [0,1] as written.
 function hash2(x: number, y: number): number {
   let h = (x * 374761393 + y * 668265263) >>> 0;
   h = ((h ^ (h >>> 13)) * 1274126177) >>> 0;
-  return ((h ^ (h >>> 16)) & 0xFFFFFFFF) / 0xFFFFFFFF;
+  return ((h ^ (h >>> 16)) >>> 0) / 0xFFFFFFFF;
 }
 function fade(t: number): number { return t * t * (3 - 2 * t); }
 function noise2(x: number, y: number): number {
@@ -251,25 +257,28 @@ export function grassTexture(size: number): Uint8Array {
 // the quad's square edge disappears.
 export function leafTexture(size: number): Uint8Array {
   const s = size;
-  // NOTE: this project's fbm/noise2 are zero-centred (~[-0.3, 0.3]), not [0,1]
-  // — they're designed to be ADDED to a base. Remap accordingly.
+  // fbm/noise2 return [0,1] centred ~0.5 (hash2 is fixed to unsigned — the
+  // old signed version made them zero-centred, which is what the previous
+  // "zero-centred ±0.3" comment worked around).
   return makeTexture(s, s, (x, y) => {
     const u = x / s, v = y / s;
-    const clump  = fbm(u * 4.5, v * 4.5, 4);   // ~[-0.3, 0.3]
-    const detail = fbm(u * 22, v * 22, 3);
-    // Clump density centred at 0.5; big clumps dominate, detail nibbles edges.
-    let mask = 0.5 + clump * 1.7 + detail * 0.8;
+    const clump  = fbm(u * 4.5, v * 4.5, 4);   // [0,1] large foliage masses
+    const detail = fbm(u * 22, v * 22, 3);     // [0,1] leaf-scale nibbling
+    // Coverage field: ~60% of the card opaque, organic clumps with real sky
+    // gaps. Zero-centre the noise around the cutoff explicitly.
+    let mask = 0.62 + (clump - 0.5) * 2.4 + (detail - 0.5) * 1.2;
     // Fade the card border to transparent so quads don't show a hard square.
     const edge = Math.min(Math.min(u, 1 - u), Math.min(v, 1 - v));
     mask *= fade(Math.min(1, edge / 0.12));
-    const a = mask > 0.42 ? 255 : 0;
-    // Green with leaf variation (remap the ±0.3 noise to ~0.2..0.8).
-    const cd = clump + 0.5, dd = detail + 0.5;
-    const yellow = noise2(u * 9 + 3.1, v * 9 + 7.7) + 0.5;
-    const shade = 0.72 + dd * 0.55;
-    const r = Math.min(255, Math.floor((40 + yellow * 78) * shade));
-    const g = Math.min(255, Math.floor((96 + cd * 86) * shade));
-    const b = Math.min(255, Math.floor((26 + yellow * 26) * shade));
+    const a = mask > 0.5 ? 255 : 0;
+    // Realistic foliage albedo: deep greens ~sRGB(58,93,31) with warm/cool
+    // per-leaf variation, highlights capped well below sRGB 140 so sunlit
+    // canopies saturate instead of blowing to white.
+    const yellow = noise2(u * 9 + 3.1, v * 9 + 7.7);          // [0,1]
+    const shade = 0.8 + (detail - 0.5) * 0.6;                 // [0.5, 1.1]
+    const r = Math.min(255, Math.floor((52 + yellow * 40) * shade));
+    const g = Math.min(255, Math.floor((92 + clump * 48) * shade));
+    const b = Math.min(255, Math.floor((30 + yellow * 18) * shade));
     return [r, g, b, a];
   });
 }
@@ -361,10 +370,11 @@ export function barkTexture(size: number): Uint8Array {
   return makeTexture(s, s, (x, y) => {
     const u = x / s, v = y / s;
     // Vertical fibres: high-freq in u (around the trunk), low-freq in v (up).
-    // fbm is zero-centred (~±0.3) — remap to ~0.2..0.8.
-    const fibre = fbm(u * 26, v * 4, 4) + 0.5;
+    // fbm returns [0,1] already — the old `+ 0.5` remaps pushed shade ~40%
+    // hot and the trunks rendered pale beige instead of bark brown.
+    const fibre = fbm(u * 26, v * 4, 4);
     const groove = Math.sin(u * Math.PI * 2 * 14 + fbm(u * 5, v * 5, 2) * 6) * 0.5 + 0.5;
-    const knot = fbm(u * 3, v * 3, 3) + 0.5;
+    const knot = fbm(u * 3, v * 3, 3);
     const g0 = 0.6 + groove * 0.4;
     const shade = (0.6 + fibre * 0.5) * g0 * (0.85 + knot * 0.3);
     const r = Math.min(255, Math.floor(95 * shade + 30));

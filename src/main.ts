@@ -18,7 +18,7 @@ import {
   setVignette, setFilmGrain,
   setQualityPreset, QualityPreset,
   setShadowsEnabled, setSsaoEnabled, setSsaoIntensity, setSsaoRadius,
-  setBloomEnabled, setBloomIntensity, setTaaEnabled,
+  setBloomEnabled, setBloomIntensity, setTaaEnabled, setRenderScale,
   setAutoExposure, setManualExposure, setAutoExposureKey, setEnvIntensity,
   setSsrEnabled, setSsgiEnabled, setSsgiIntensity, setFog, setSunShafts,
   setTonemap, Tonemap, setWind,
@@ -365,11 +365,11 @@ const WATER_WGSL =
   // sun disk + soft glow, tinted by the engine's actual sun colour/intensity.
   'fn sky_refl(R: vec3<f32>, sun_dir: vec3<f32>, sun_col: vec3<f32>, sun_int: f32) -> vec3<f32> {\n' +
   '  let up = clamp(R.y, 0.0, 1.0);\n' +
-  '  let zenith  = vec3<f32>(0.13, 0.27, 0.52);\n' +
-  '  let horizon = vec3<f32>(0.55, 0.68, 0.82);\n' +
+  '  let zenith  = vec3<f32>(0.11, 0.22, 0.42);\n' +
+  '  let horizon = vec3<f32>(0.38, 0.50, 0.64);\n' +
   '  var sky = mix(horizon, zenith, pow(up, 0.55));\n' +
   '  let sd = max(dot(R, normalize(sun_dir)), 0.0);\n' +
-  '  sky = sky + sun_col * (pow(sd, 900.0) * 6.0 + pow(sd, 12.0) * 0.25) * max(sun_int, 0.4);\n' +
+  '  sky = sky + sun_col * (pow(sd, 900.0) * 2.5 + pow(sd, 12.0) * 0.15) * max(sun_int, 0.4);\n' +
   '  return sky;\n' +
   '}\n' +
   // Refractive profile: sample the scene (riverbed) BEHIND the surface and
@@ -410,19 +410,22 @@ const WATER_WGSL =
   // exists, the sky dome everywhere else. Wave normal perturbs the lookup.
   '  let prefl = textureSample(planar_reflection_tex, planar_reflection_samp, clamp(screen_uv + N.xz * 0.03, vec2<f32>(0.001), vec2<f32>(0.999)));\n' +
   '  let refl = mix(sky, prefl.rgb, clamp(prefl.a, 0.0, 1.0));\n' +
-  '  let fres = clamp(0.02 + 0.98 * pow(1.0 - ndv, 5.0), 0.0, 1.0);\n' +
+  // Cap Fresnel below 1 so even grazing water keeps ~30% of its body colour
+  // instead of becoming a pure mirror — that full-mirror grazing reflection was
+  // what turned the whole river into a blown-white sheet at eye level.
+  '  let fres = clamp(0.02 + 0.98 * pow(1.0 - ndv, 5.0), 0.0, 0.70);\n' +
   // Tight specular sun glint on top of the Fresnel sky reflection.
   // view.sun_dir is direction-TO-sun, so L = +sun_dir (was negated to
   // compensate for the old below-horizon SUN_DIR; fixed now).
   '  let L = normalize(view.sun_dir.xyz);\n' +
   '  let H = normalize(L + V);\n' +
-  '  let spec = pow(max(dot(N, H), 0.0), 400.0) * max(view.sun_dir.w, 0.6) * 1.4;\n' +
+  '  let spec = pow(max(dot(N, H), 0.0), 400.0) * max(view.sun_dir.w, 0.6) * 0.6;\n' +
   '  var color = mix(body, refl, fres) + vec3<f32>(1.0, 0.97, 0.9) * spec;\n' +
   // Shoreline foam.
   '  let edge = min(min(in.uv.x, 1.0 - in.uv.x), min(in.uv.y, 1.0 - in.uv.y));\n' +
   '  let foam_band = smoothstep(0.07, 0.0, edge);\n' +
   '  let foam = foam_band * foam_band * (0.6 + 0.4 * sin(in.wpos.x * 6.0 + in.wpos.z * 5.0 + t * 3.0));\n' +
-  '  color = mix(color, vec3<f32>(0.85, 0.92, 0.97), foam * 0.6);\n' +
+  '  color = mix(color, vec3<f32>(0.80, 0.87, 0.92), foam * 0.42);\n' +
   '  out.hdr = vec4<f32>(color, 1.0);\n' +
   '  return out;\n' +
   '}\n';
@@ -810,8 +813,9 @@ disableCursor();
 
 // ---- M8 polish: post-FX ---------------------------------------------------
 // Called once at startup — these are cheap, always-on stylistic passes.
-setVignette(0.45, 0.5);    // cinematic edge darkening
-setFilmGrain(0.05);        // very subtle noise
+setVignette(0.38, 0.55);   // cinematic edge darkening (gentle)
+setFilmGrain(0.018);       // barely-there noise — 0.05 read as heavy speckle
+                           // over the dark sky / shadowed walls.
 
 // ---- High-end rendering pipeline (UE-class), art-directed -----------------
 // Full deferred stack + procedural atmosphere. The trick to not washing the
@@ -830,13 +834,23 @@ const SUN_DIR_X = 0.55, SUN_DIR_Y = 0.58, SUN_DIR_Z = 0.42;
 setQualityPreset(QualityPreset.High);
 setShadowsEnabled(true);
 setSsaoEnabled(true);
-setSsaoIntensity(1.15);
-setSsaoRadius(0.9);
+setSsaoIntensity(0.85);   // 1.15 read as grimy contact-dirt; lighter AO is
+setSsaoRadius(0.9);       // more believable for an outdoor daylight scene.
 setBloomEnabled(true);
+// TAA on — but pin the render scale to 1.0 FIRST: the engine's legacy
+// coupling silently drops render_scale to 0.5 (TSR-style half-res
+// reconstruction) whenever TAA is enabled and setRenderScale was never
+// called explicitly. That meant the game rendered internally at 512×320 —
+// the softness and the "camera-move shadow swimming" that prompted the TAA
+// bisect were the half-res reconstruction + temporal AO/GI reconverging,
+// not a shadow bug. Full res + TAA = real anti-aliasing, no resolution loss.
 setTaaEnabled(true);
+setRenderScale(1.0);
 setSsrEnabled(true);
 setSsgiEnabled(true);
-setSsgiIntensity(0.4);
+setSsgiIntensity(0.6);   // more colour-bounce into the shaded faces (the
+                         // building's shadow side picks up warm ground GI
+                         // instead of reading as a dead slab).
 // Real procedural atmosphere. The earlier grey wash-out came from the sky's
 // image-based ambient flooding every surface — keep env-intensity very LOW so
 // the warm key sun carries the lighting and colours stay saturated, while the
@@ -844,18 +858,32 @@ setSsgiIntensity(0.4);
 // sun-shafts (their haze was the other half of the wash-out).
 setProceduralSky(true);
 setSunDirection(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z), 1.0);
+// Sky-fill ambient + warm key sun (matched to the procedural-sky sun
+// direction). Set ONCE — the engine persists the primary sun/ambient across
+// frames (begin_frame only clears the addPointLight/addDirectionalLight
+// lists). Key:fill ratio ~6:1 — natural outdoor daylight: shadowed faces
+// read as blue-grey daylight instead of crushed black, sunlit stone stays
+// below clipping.
+setAmbientLight({ r: 120, g: 138, b: 168, a: 255 }, 0.40);
+setDirectionalLight(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z),
+                    { r: 255, g: 236, b: 206, a: 255 }, 2.0);
 // Gentle breeze — sways the alpha-cut foliage cards (engine reads this in the
 // scene vertex shader for any alpha-cutout material).
 setWind(1.0, 0.4, 0.4, 1.1);
-setEnvIntensity(0.45);
-setAutoExposure(true);
+setEnvIntensity(0.50);
+// MANUAL exposure (not auto): the bright sky + reflective water cover a big
+// chunk of frame and were dragging auto-exposure all over the place, crushing
+// the midtones to black on some frames and blowing the walls out on others.
+// A fixed exposure gives a stable, art-directed daylight key that the lighting
+// ratio above is tuned against.
+setAutoExposure(false);
+setManualExposure(2.4);
 // AgX tonemap (new engine control): more filmic highlight roll-off + punchier
-// colour than ACES — keeps the bright sky from greying the scene. Pair it with
-// a slightly low auto-exposure key so the midtones stay saturated, and a touch
-// of bloom on highlights (muzzle flash, pickups, sun-lit edges).
+// colour than ACES — keeps the bright sky from greying the scene, and rolls the
+// sunlit highlights off smoothly instead of clipping to white. Light touch of
+// bloom on the true highlights (muzzle flash, pickups, sun glints).
 setTonemap(Tonemap.AgX);
-setAutoExposureKey(0.24);
-setBloomIntensity(0.07);
+setBloomIntensity(0.05);
 // Subtle scene-scale aerial haze. Matched to the sky horizon so distant
 // geometry (and the far terrain edge) fades into the sky instead of ending
 // on a hard line — adds depth without the grey wash-out that global fog used
@@ -1167,14 +1195,8 @@ while (!windowShouldClose()) {
   clearBackground({ r: Math.floor(W.ENV_SKY_R * 255),
                     g: Math.floor(W.ENV_SKY_G * 255),
                     b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
-  // Low cool sky-fill ambient + a strong warm key sun (matched to the
-  // procedural-sky sun direction) for saturated colour and grounded shadows.
-  // Ambient kept low so cast shadows + SSAO read with real contrast instead
-  // of being flooded flat by skylight.
-  setAmbientLight({ r: 86, g: 100, b: 132, a: 255 }, 0.13);
-  setDirectionalLight(vec3(SUN_DIR_X, SUN_DIR_Y, SUN_DIR_Z),
-                      { r: 255, g: 232, b: 198, a: 255 }, 2.5);
-
+  // (Sun + ambient are set once at startup — the engine persists them across
+  // frames; only the per-frame addPointLight list resets each frame.)
   // TEMP verification camera (off → normal third-person view).
   const VERIFY_WATER = false;
   const VERIFY_BEAUTY = false;
