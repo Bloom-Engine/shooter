@@ -1647,12 +1647,11 @@ while (!windowShouldClose()) {
   }
 
   // ---- World: static meshes + water + lights (all from generated/world.ts) -
-  // Ground plate — big drawCube beneath the terrain mesh so the full
-  // 80×80 collider floor reads as a solid plane even where the hills
-  // haven't lifted anything off it. Matches COLLIDER[0] (the plaza floor).
-  drawCube(vec3(W.COLLIDER_X[0], W.COLLIDER_Y[0], W.COLLIDER_Z[0]),
-           W.COLLIDER_HALF_X[0] * 2, W.COLLIDER_HALF_Y[0] * 2, W.COLLIDER_HALF_Z[0] * 2,
-           { r: 85, g: 95, b: 75, a: 255 });
+  // (The old "ground plate" drawCube of COLLIDER[0] is gone: the merged
+  // world removed the plaza-floor collider, so index 0 is now the NORTH
+  // BOUNDARY WALL — the draw was painting an 80×8 m grey slab across the
+  // arena edge. The terrain mesh extends to ±140 m and fully carries the
+  // ground; the boundary colliders stay invisible physics.)
 
   // Phase 9 — real river. Single drawMeshWithMaterial replaces the old
   // 1800-cube tessellated grid. Shader handles Gerstner-wave

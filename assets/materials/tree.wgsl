@@ -83,7 +83,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // Blend trunk colour (UBO) and leaf colour (per-draw tint) by
   // vertex local-y. trunk_top_y is the cutoff height in model
   // space; everything below reads as trunk, above as leaves.
-  let trunk_t  = smoothstep(tp.trunk.w - 0.20, tp.trunk.w + 0.20, in.local_y);
+  // Tight blend band: the old ±0.20 smeared trunk brown across the lower
+  // half of every canopy (muddy gradient blobs); ±0.06 keeps a short
+  // natural transition right at the branch line.
+  let trunk_t  = smoothstep(tp.trunk.w - 0.06, tp.trunk.w + 0.06, in.local_y);
   let albedo   = mix(tp.trunk.rgb, draw.model_tint.rgb, trunk_t);
 
   let sun_dir = normalize(view.sun_dir.xyz);
