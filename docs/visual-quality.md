@@ -242,3 +242,125 @@ A side-by-side screenshot:
   with foliage volume, ground with grass detail.
 - Profiler overlay shows < 16 ms total frame time on the dev
   M-series machine.
+
+---
+
+# Tier 6+ — UE5-tier roadmap
+
+Tiers 1–5 above are essentially shipped (HDR env, shadows, fog,
+auto-exposure, terrain colour variation, instanced grass scatter,
+real tree GLBs with wind sway, multi-octave water with caustics
+and Beer–Lambert absorption). The scene reads coherent and "real
+outdoor afternoon" from the prescribed camera pose.
+
+The remaining gap to Unreal Engine 5 baseline is mostly about
+texture detail, shading models, and reflection fidelity — *not*
+rasterisation or geometry density. The full set of work is split
+into Phase A (shader-only, no engine change), Phase B (gated by
+small engine FFI additions), and Phase C (v2 roadmap territory).
+
+The **concrete unit-of-work tickets** live in
+[`docs/tickets.md`](tickets.md) (game side, SH-009..SH-024) and
+the engine repo's `docs/tickets.md` (EN-010..EN-017). This section
+just orders them.
+
+## Where the gap actually lives
+
+| Subsystem | Today | UE5 baseline | Practical gap |
+|---|---|---|---|
+| Ground | Procedural fbm tint, **zero textures** | Splat-mapped PBR (4–8 layers), detail normals, distance-field shadows | Macro + detail PBR textures + triplanar (SH-009/010) |
+| Grass | 5 000 cross-quads, Lambert | 50k–200k HISM, foliage shading model, alpha-cutout, distance LOD | Instanced draw + transmission lighting + density ring (SH-011/021) |
+| Trees | 4 low-poly GLB variants, single-sine wind | Foliage-card geometry, hierarchical wind, two-sided BRDF, imposter LOD | Two-sided lighting + wind regions + leaf cards (SH-012/013/014/020/024) |
+| Water | 3 Gerstner + IBL sky reflect + sin-lobe caustics | Single-Layer-Water BRDF, multi-octave Gerstner, planar reflection, sun glint, scrolling normal | Sun glint + multi-octave + planar reflection + texture caustics (SH-002/015/016/017/022) |
+| Lighting | 3-cascade CSM + IBL + SSGI single-bounce | Lumen GI + virtual shadow maps + ray-traced reflections (optional) | v2 roadmap — Phase C |
+
+## Phase A — shader-only, no engine change
+
+Ship in this order; each ticket is independent except where
+noted. Roughly 2–3 weeks of focused work.
+
+1. **SH-009** — Splat-mapped PBR terrain. *Largest single quality
+   leap available; gates SH-010 + SH-014.*
+2. **SH-010** — Detail normal + macro variation.
+3. **SH-002** *(existing)* — Scrolling normal map for water.
+4. **SH-015** — Multi-octave Gerstner + dense water tessellation.
+5. **SH-016** — GGX sun glint on water. *Cheapest "wow" upgrade in
+   the whole list.*
+6. **SH-017** — Texture-based water caustics.
+7. **SH-018** — Shore wetness.
+8. **SH-012** — Two-sided foliage lighting in `tree.wgsl`.
+9. **SH-013** — Hierarchical wind via vertex-color regions.
+10. **SH-014** — Bark normal + per-tree HSV variance (closes
+    SH-004).
+11. **SH-011** — Grass shading polish (transmission + shadow
+    receive + density LOD).
+12. **SH-019** — Underwater post-process. *Either with engine-
+    side EN-017, or with a `setFog` stop-gap.*
+
+**Acceptance for Phase A:** screenshot from the same camera pose
+reads as "modern game from 2018" — textured ground, leaves
+glowing back-lit, water with moving sun glints and crinkle, river
+edge visibly damp. Frame time still < 16 ms.
+
+## Phase B — gated on engine FFI additions
+
+Each game-side ticket has an engine-side counterpart that gates
+it. The engine work is small per ticket (~half-week to one week
+each) but additive.
+
+| Game ticket | Engine ticket | What it unlocks | Status |
+|---|---|---|---|
+| SH-021 high-density grass | EN-001 instanced draw | 4× grass density | ✅ shipped |
+| SH-020 leaf-card trees | EN-010 alpha-cutout bucket | Real leaf silhouettes | engine ✅, game ⏳ |
+| SH-022 planar-reflective river | EN-011 planar reflection capture | River reflects bank trees | both ⏳ |
+| SH-023 foliage shading model | EN-012 foliage BRDF in PBR ABI | Drop-in shading for new foliage | both ⏳ |
+| SH-024 imposter LOD | EN-015 imposter system | 1 000+ tree forests | both ⏳ |
+| (all foliage) | EN-013 global wind UBO | Sync grass + trees + future foliage | engine ✅, partial use |
+| SH-009 done cleanly | EN-014 texture-array binding | 4-layer terrain in one slot | both ⏳ |
+| (all custom mats) | EN-016 shadow-sample helper | One-line shadow receive | engine ✅, partial use |
+| SH-019 done cleanly | EN-017 post-pass slot | Game-side fullscreen FX | both ⏳ |
+
+**Recommended engine merge order:** EN-001 + EN-010 first (each
+unlocks one major shooter feature with one day of integration).
+EN-011 second (single biggest water upgrade). EN-016 + EN-013 as
+quality-of-life. EN-014 only when SH-009 hits the 12-slot limit
+in practice. EN-015 last; only matters at >500 trees.
+
+**Acceptance for Phase B:** scene approaches modern Unreal
+demo quality at 60 fps. River mirrors the bank, dense leaf-card
+forest, carpeted grass with proper LOD.
+
+## Phase C — v2 roadmap territory
+
+The engine's `bloom-renderer-spec-v2.md` plans these explicitly;
+they're 12+ months out and out of scope for the shooter today,
+listed here for completeness.
+
+- **Virtual shadow maps** (replaces 3-cascade CSM) — softer,
+  sharper, unlimited shadow casters. Spec phase D, months 10–14.
+- **Lumen-equivalent dynamic GI** — real bounce light under
+  canopies (today: single-bounce SSGI). Spec phase E, months
+  12–20.
+- **Nanite-equivalent virtualized geometry** — full-poly distant
+  trees, no LOD chain authoring. Spec phase C, months 8–14.
+- **FFT ocean (Tessendorf)** — overkill for a river; relevant if
+  the game ever opens to a coastline. Spec phase H, months
+  20–26.
+- **Procedural sky + sun disk** — Rayleigh/Mie scattering instead
+  of static HDR. Tracked in EN-005 🔴.
+
+## What to ship first
+
+If you want one ticket to land *now*, it's **SH-009** —
+splat-mapped PBR terrain. The current ground has zero texture
+detail at any scale below ~1 m and is the single most jarring
+"this looks 2010" element in the scene. Everything else benefits
+from the new texture-loading + normal-map pattern that SH-009
+establishes.
+
+If you want one ticket to land **second**, it's **SH-016** — GGX
+sun glint on water. It's a 20-line fragment-shader edit and the
+single biggest "wow" upgrade in the whole roadmap.
+
+After those two, ship Phase A linearly; then ask the engine team
+to land EN-001 + EN-010 + EN-011 in that order to unlock Phase B.

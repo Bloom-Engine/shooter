@@ -11,6 +11,7 @@ import {
   loadModel, drawModel, loadModelAnimation, updateModelAnimation,
   createMesh, createMeshExplicit, genMeshCube,
   compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
+  compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume,
   loadMusic, playMusic, updateMusicStream, setMusicVolume,
   setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
@@ -19,7 +20,7 @@ import {
 } from 'bloom';
 import {
   setVignette, setFilmGrain,
-  setEnvIntensity, setAutoExposure, setFog, setSunShafts,
+  setEnvIntensity, setAutoExposure, setFog, setSunShafts, setWind,
 } from 'bloom/core';
 import { addPointLight, enableShadows } from 'bloom/scene';
 import {
@@ -103,6 +104,13 @@ setFog(0.78, 0.84, 0.90, 0.024, 0.0, 6.0);
 // Tier 1.7 — warm god-rays through the trees. Optional polish;
 // strength 0.4 keeps it subtle.
 setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
+// EN-013 — global wind UBO. All foliage materials (grass, trees,
+// future ferns/clovers) read these values from PerFrame.wind so
+// one source of truth drives the whole scene's swing.
+//   dirX / dirZ — wind direction in the XZ plane (need not be unit)
+//   amp         — peak displacement at full tip weight (~0.10 m for grass)
+//   freq        — Hz; ~1 = lazy breeze, ~3 = gusty
+setWind(0.85, 0.50, 0.10, 1.6);
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -588,50 +596,150 @@ const WATER_INDS  = new Array<number>(_wic);
 }
 const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
 
-// ---- Tier 2b grass — scattered cross-quad blades ------------------------
-// Generates a single big mesh of N blades placed via deterministic RNG
-// across the playfield. Each blade is a cross of two perpendicular
-// quads (8 verts × 2 sides = double-sided 12 indices, total 24 indices)
-// so every blade is visible from any horizontal angle without needing
-// to disable backface culling at the pipeline level.
+// ---- SH-021 instanced grass — canonical blade × N instances -------------
+// Replaces the Tier-2b 5 000-blade baked-mesh path. One canonical
+// 6-vert cross-quad blade is uploaded once; per-frame draw is a
+// single drawMeshWithMaterialInstanced call against a 20 000-entry
+// instance buffer (pos / rot_y / scale / tint). Wind sway uses the
+// global PerFrame.wind UBO (EN-013); cascade sun shadows come
+// through sample_sun_shadow (EN-016). Both are folded into the
+// material so SH-011 (grass shading polish) ships in the same pass.
 //
-// Heights are sampled from the engine's TERRAIN_HEIGHTS heightmap so
-// blades sit flat against the slope. Skip points that fall in the
-// river band, in/under the building footprint, or on too-steep
-// ground where blades would float visibly.
-const matGrass = compileMaterialFromFile('assets/materials/grass.wgsl', 'opaque');
+// IMPORTANT: GRASS_INSTANCED_WGSL is duplicated from
+// `assets/materials/grass_instanced.wgsl`. compileMaterialInstanced
+// only accepts a string source today (no from-file variant), so the
+// on-disk file is the source of truth and the inline copy must
+// track edits to it. SH-005 will auto-generate this from the file.
+const GRASS_INSTANCED_WGSL =
+  '#include "material_abi.wgsl"\n' +
+  '#include "common/shadows.wgsl"\n' +
+  '\n' +
+  'struct GrassParams { base: vec4<f32>, };\n' +
+  '@group(2) @binding(11) var<uniform> grass: GrassParams;\n' +
+  '\n' +
+  'struct InstancedVertexInput {\n' +
+  '  @location(0)  position:        vec3<f32>,\n' +
+  '  @location(1)  normal:          vec3<f32>,\n' +
+  '  @location(2)  color:           vec4<f32>,\n' +
+  '  @location(3)  uv:              vec2<f32>,\n' +
+  '  @location(4)  joints:          vec4<f32>,\n' +
+  '  @location(5)  weights:         vec4<f32>,\n' +
+  '  @location(6)  tangent:         vec4<f32>,\n' +
+  '  @location(7)  instance_pos:    vec3<f32>,\n' +
+  '  @location(8)  instance_rot_y:  f32,\n' +
+  '  @location(9)  instance_scale:  f32,\n' +
+  '  @location(10) instance_tint:   vec4<f32>,\n' +
+  '};\n' +
+  '\n' +
+  'struct VsOut {\n' +
+  '  @builtin(position) clip_pos:     vec4<f32>,\n' +
+  '  @location(0)       world_pos:    vec3<f32>,\n' +
+  '  @location(1)       world_normal: vec3<f32>,\n' +
+  '  @location(2)       blade_tint:   vec3<f32>,\n' +
+  '  @location(3)       tip_weight:   f32,\n' +
+  '};\n' +
+  '\n' +
+  '@vertex fn vs_main(in: InstancedVertexInput) -> VsOut {\n' +
+  '  var out: VsOut;\n' +
+  '  let scaled = in.position * in.instance_scale;\n' +
+  '  let cy = cos(in.instance_rot_y);\n' +
+  '  let sy = sin(in.instance_rot_y);\n' +
+  '  let rotated = vec3<f32>(cy * scaled.x + sy * scaled.z, scaled.y, -sy * scaled.x + cy * scaled.z);\n' +
+  '  let tip   = in.color.r;\n' +
+  '  let phase = dot(in.instance_pos.xz, frame.wind.xy * 0.6) + frame.time * frame.wind.w;\n' +
+  '  let sway  = sin(phase) * frame.wind.z * tip;\n' +
+  '  let displaced = rotated + vec3<f32>(frame.wind.x, 0.0, frame.wind.y) * sway;\n' +
+  '  let world = displaced + in.instance_pos;\n' +
+  '  let n_rot = vec3<f32>(cy * in.normal.x + sy * in.normal.z, in.normal.y, -sy * in.normal.x + cy * in.normal.z);\n' +
+  '  out.world_pos    = world;\n' +
+  '  out.world_normal = normalize(n_rot);\n' +
+  '  out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);\n' +
+  '  out.tip_weight   = tip;\n' +
+  '  out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;\n' +
+  '  return out;\n' +
+  '}\n' +
+  '\n' +
+  'fn cloud_shadow(world_xz: vec2<f32>, t: f32) -> f32 {\n' +
+  '  let p = world_xz * 0.025 + vec2<f32>(t * 0.5, t * 0.15);\n' +
+  '  let i = floor(p);\n' +
+  '  let f = fract(p);\n' +
+  '  let h00 = fract(sin(dot(i,                       vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let h10 = fract(sin(dot(i + vec2<f32>(1.0, 0.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let h01 = fract(sin(dot(i + vec2<f32>(0.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let h11 = fract(sin(dot(i + vec2<f32>(1.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
+  '  let u  = f * f * (3.0 - 2.0 * f);\n' +
+  '  let nz = mix(mix(h00, h10, u.x), mix(h01, h11, u.x), u.y);\n' +
+  '  return mix(0.55, 1.0, smoothstep(0.35, 0.78, nz));\n' +
+  '}\n' +
+  '\n' +
+  '@fragment fn fs_main(in: VsOut) -> OpaqueOut {\n' +
+  '  let n = normalize(in.world_normal);\n' +
+  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
+  '  let l = normalize(-view.sun_dir.xyz);\n' +
+  '  let wrap     = 0.5;\n' +
+  '  let n_dot_l  = (dot(n, l) + wrap) / (1.0 + wrap);\n' +
+  '  let direct_w = max(n_dot_l, 0.0);\n' +
+  '  let back  = max(dot(-n, l), 0.0);\n' +
+  '  let view_align = max(dot(v, -l), 0.0);\n' +
+  '  let trans = pow(back, 2.0) * pow(view_align, 1.5);\n' +
+  '  let cloud  = cloud_shadow(in.world_pos.xz, frame.time);\n' +
+  '  let shadow = sample_sun_shadow(in.world_pos);\n' +
+  '  let direct = view.sun_color.rgb * direct_w * cloud * shadow;\n' +
+  '  let albedo = in.blade_tint * (0.7 + 0.3 * in.tip_weight);\n' +
+  '  let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;\n' +
+  '  let lit = albedo * (view.ambient.rgb * 0.55 + direct) + trans * trans_color * cloud;\n' +
+  '  var out: OpaqueOut;\n' +
+  '  out.hdr      = vec4<f32>(lit, 1.0);\n' +
+  '  out.material = vec2<f32>(0.0, 0.92);\n' +
+  '  out.velocity = vec2<f32>(0.0, 0.0);\n' +
+  '  out.albedo   = vec4<f32>(albedo, 1.0);\n' +
+  '  return out;\n' +
+  '}\n';
+const matGrass = compileMaterialInstanced(GRASS_INSTANCED_WGSL);
 const GRASS_PARAMS = [
-  // wind: dir.xz, amplitude (max sway in m), frequency (rad/s)
-  0.85, 0.50,  0.10,  1.6,
-  // base hue rgb, jitter amount (0..1)
-  0.30, 0.46, 0.18,   0.55,
+  // base hue rgb, transmission strength
+  0.30, 0.46, 0.18,  0.40,
 ];
 if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
 
-const GRASS_BLADE_COUNT = 5000;
+// Canonical blade mesh — 6 verts × 12 floats (pos.3 normal.3
+// color.4 uv.2), 12 indices = 4 triangles (front + back of each
+// plane in the cross). color.r is the tip weight (0 at root, 1 at
+// tip) which the vertex shader uses to localise the wind sway.
 const GRASS_BLADE_W = 0.06;
 const GRASS_BLADE_H = 0.45;
-// Each blade = a cross of two triangles (X-Y plane + Y-Z plane).
-// Triangle is root_left + root_right + tip; the tip taper reads
-// as a real grass blade silhouette instead of the old stick-like
-// cross-quad. 3 verts × 2 triangles = 6 per blade; both faces of
-// each triangle = 4 tris × 3 = 12 indices.
-const GRASS_VERTS_PER_BLADE = 6;
-const GRASS_INDS_PER_BLADE  = 12;
-const _gvc = GRASS_BLADE_COUNT * GRASS_VERTS_PER_BLADE;
-const _gic = GRASS_BLADE_COUNT * GRASS_INDS_PER_BLADE;
-const GRASS_VERTS = new Array<number>(_gvc * 12);
-const GRASS_INDS  = new Array<number>(_gic);
-{
-  // Building rect (matches gen-building.ts)
-  const BX0 = -30, BX1 = -12, BZ0 = -19, BZ1 = -7;
+const GRASS_BLADE_VERTS: number[] = [
+  // Plane 1 (XY plane, normal +Z)
+  -GRASS_BLADE_W, 0,             0,    0, 0, 1,   0, 0, 1, 1,   0,   0,
+   GRASS_BLADE_W, 0,             0,    0, 0, 1,   0, 0, 1, 1,   1,   0,
+   0,             GRASS_BLADE_H, 0,    0, 0, 1,   1, 0, 1, 1,   0.5, 1,
+  // Plane 2 (YZ plane, normal +X)
+   0,             0,            -GRASS_BLADE_W,   1, 0, 0,   0, 0, 1, 1,   0,   0,
+   0,             0,             GRASS_BLADE_W,   1, 0, 0,   0, 0, 1, 1,   1,   0,
+   0,             GRASS_BLADE_H, 0,               1, 0, 0,   1, 0, 1, 1,   0.5, 1,
+];
+const GRASS_BLADE_INDS: number[] = [
+  // Plane 1 front (CCW from +Z) + back (CCW from -Z)
+  0, 1, 2,   0, 2, 1,
+  // Plane 2 front (CCW from +X) + back (CCW from -X)
+  3, 4, 5,   3, 5, 4,
+];
+const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, 6, GRASS_BLADE_INDS, 12);
 
-  let vi = 0, ii = 0, vbase = 0, placed = 0;
-  // Manual Lehmer-LCG state inline (Perry codegen quirks make
-  // closures-with-captures finicky; better to keep mutating state
-  // visible in the loop).
+// Per-instance buffer — 20 000 blades × 9 floats (pos.xyz, rot_y,
+// scale, tint.rgba). Same RNG / heightmap / rejection logic as the
+// old baked-mesh path; deterministic given the seed so screenshot
+// diffs stay stable.
+const GRASS_INSTANCE_COUNT_MAX = 20000;
+const GRASS_INSTANCE_FLOATS    = 9;
+const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
+let GRASS_INSTANCE_COUNT = 0;
+{
+  // Building rect to reject (matches gen-building.ts).
+  const BX0 = -30, BX1 = -12, BZ0 = -19, BZ1 = -7;
   let seed = 0x12345 | 0;
-  for (let attempt = 0; attempt < GRASS_BLADE_COUNT * 3 && placed < GRASS_BLADE_COUNT; attempt++) {
+  let wi = 0;
+  for (let attempt = 0; attempt < GRASS_INSTANCE_COUNT_MAX * 3 && GRASS_INSTANCE_COUNT < GRASS_INSTANCE_COUNT_MAX; attempt++) {
     seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
     const r1 = seed / 0x7fffffff;
     seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
@@ -640,79 +748,46 @@ const GRASS_INDS  = new Array<number>(_gic);
     const r3 = seed / 0x7fffffff;
     seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
     const r4 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r5 = seed / 0x7fffffff;
     const px = -38 + r1 * 76;
     const pz = -38 + r2 * 76;
-    // Reject inside building or under it.
     if (px > BX0 && px < BX1 && pz > BZ0 && pz < BZ1) continue;
-    // Reject inside the river band (visual + perf cost when underwater).
     if (Math.abs(pz - 12) < 3.5 && Math.abs(px) < 40) continue;
-    // Sample TERRAIN_HEIGHTS bilinearly for the blade's Y so it
-    // sits flat on the heightmap. Inlined (Perry chokes on a
-    // helper closure that captures the array).
+    // Bilinear heightmap sample.
     const u = (px - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
     const v = (pz - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
     let py = 0;
     if (u >= 0 && v >= 0 && u < T.TERRAIN_SAMPLE_COUNT - 1 && v < T.TERRAIN_SAMPLE_COUNT - 1) {
-      const ix = Math.floor(u), iz = Math.floor(v);
-      const fx = u - ix, fz = v - iz;
-      const h00 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix];
-      const h10 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ix + 1];
-      const h01 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix];
-      const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ix + 1];
+      const ixc = Math.floor(u), iz = Math.floor(v);
+      const fx = u - ixc, fz = v - iz;
+      const h00 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ixc];
+      const h10 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ixc + 1];
+      const h01 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ixc];
+      const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ixc + 1];
       py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
            (h01 * (1 - fx) + h11 * fx) * fz;
     }
-    // Tiny per-blade height + hue jitter.
-    const heightScale = 0.85 + r3 * 0.30;
-    const hueJitter   = r4;
-    const w = GRASS_BLADE_W;
-    const h = GRASS_BLADE_H * heightScale;
-
-    // 6 verts × 12 floats: 2 triangles in perpendicular planes,
-    // each (root_left, root_right, tip). Layout: pos(3) normal(3)
-    // color(4) uv(2). color = (tip_weight, jitter, 1, 1).
-    // Triangle 1 — XY plane, normal +Z.
-    GRASS_VERTS[vi++] = px - w; GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = px + w; GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0.5; GRASS_VERTS[vi++] = 1;
-    // Triangle 2 — YZ plane, normal +X.
-    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz - w;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py;     GRASS_VERTS[vi++] = pz + w;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = px;     GRASS_VERTS[vi++] = py + h; GRASS_VERTS[vi++] = pz;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 0; GRASS_VERTS[vi++] = 0;
-    GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = hueJitter; GRASS_VERTS[vi++] = 1; GRASS_VERTS[vi++] = 1;
-    GRASS_VERTS[vi++] = 0.5; GRASS_VERTS[vi++] = 1;
-
-    // Indices: each triangle has front + back faces (12 indices total).
-    // Triangle 1 front (CCW from +Z): 0,1,2
-    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 1; GRASS_INDS[ii++] = vbase + 2;
-    // Triangle 1 back (CCW from -Z): 0,2,1
-    GRASS_INDS[ii++] = vbase + 0; GRASS_INDS[ii++] = vbase + 2; GRASS_INDS[ii++] = vbase + 1;
-    // Triangle 2 front (CCW from +X): 3,4,5
-    GRASS_INDS[ii++] = vbase + 3; GRASS_INDS[ii++] = vbase + 4; GRASS_INDS[ii++] = vbase + 5;
-    // Triangle 2 back (CCW from -X): 3,5,4
-    GRASS_INDS[ii++] = vbase + 3; GRASS_INDS[ii++] = vbase + 5; GRASS_INDS[ii++] = vbase + 4;
-
-    vbase += GRASS_VERTS_PER_BLADE;
-    placed++;
+    GRASS_INSTANCES[wi++] = px;
+    GRASS_INSTANCES[wi++] = py;
+    GRASS_INSTANCES[wi++] = pz;
+    GRASS_INSTANCES[wi++] = r3 * 6.2832;             // rot_y radians
+    GRASS_INSTANCES[wi++] = 0.85 + r4 * 0.40;        // scale 0.85..1.25
+    // Per-blade tint multiplier — biased toward green, ±15% per
+    // channel so the field reads as natural variation rather than
+    // a single colour.
+    GRASS_INSTANCES[wi++] = 0.85 + r5 * 0.30;
+    GRASS_INSTANCES[wi++] = 0.95 + r4 * 0.10;
+    GRASS_INSTANCES[wi++] = 0.85 + r3 * 0.30;
+    GRASS_INSTANCES[wi++] = 1.0;
+    GRASS_INSTANCE_COUNT++;
   }
 }
-const matGrassMesh = createMeshExplicit(GRASS_VERTS, _gvc, GRASS_INDS, _gic);
+// EN-001 — pass instanceCount explicitly (Perry's `.length` reports
+// the literal-init size, not how many were written).
+const matGrassInstances = matGrass > 0
+  ? createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT)
+  : 0;
 
 // ---- Building stone material — bake all box-placeholder building
 // entries into a single static mesh, drawn once per frame against
@@ -1561,13 +1636,14 @@ while (!windowShouldClose()) {
       vec3(-21, 0, -10), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Tier 2b — grass scatter. One drawMeshWithMaterial covers all
-  // ~4000 blades; wind sway happens in the vertex shader from
-  // frame.time + per-blade world XZ.
-  if (matGrass > 0) {
-    drawMeshWithMaterial(matGrass, matGrassMesh,
-      vec3(0, 0, 0), 1.0,
-      { r: 255, g: 255, b: 255, a: 255 });
+  // SH-021 — instanced grass. One drawMeshWithMaterialInstanced
+  // covers all 20 000 blades; the canonical 6-vert mesh is drawn N
+  // times against the per-instance pos/rot/scale/tint buffer. Wind
+  // sway reads frame.wind (EN-013); cascade shadows come through
+  // sample_sun_shadow (EN-016) — both folded into the material.
+  if (matGrass > 0 && matGrassInstances > 0) {
+    drawMeshWithMaterialInstanced(matGrass, matGrassMesh, 0,
+      matGrassInstances, GRASS_INSTANCE_COUNT);
   }
   // Building stone — single drawMeshWithMaterial covers all
   // category-1 boxes; the noise + horizontal-band material in
