@@ -19,6 +19,9 @@ struct VsOut {
   @builtin(position) clip_pos:     vec4<f32>,
   @location(0)       world_pos:    vec3<f32>,
   @location(1)       world_normal: vec3<f32>,
+  // EN-022 — clip positions for motion vectors.
+  @location(2)       curr_clip:    vec4<f32>,
+  @location(3)       prev_clip:    vec4<f32>,
 };
 
 @vertex
@@ -28,6 +31,9 @@ fn vs_main(in: VertexInput) -> VsOut {
   out.world_pos    = world.xyz;
   out.world_normal = normalize((draw.model * vec4<f32>(in.normal, 0.0)).xyz);
   out.clip_pos     = view.view_proj * world;
+  // EN-022 — static geometry: camera-reprojection motion vector.
+  out.curr_clip    = out.clip_pos;
+  out.prev_clip    = view.prev_view_proj * world;
   return out;
 }
 
@@ -99,7 +105,8 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
   out.material = vec2<f32>(0.0, 0.78);  // non-metal, mid-roughness stone
-  out.velocity = vec2<f32>(0.0, 0.0);
+  // EN-022 — real motion vectors (see terrain.wgsl).
+  out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);
   out.albedo   = vec4<f32>(albedo, 1.0);
   return out;
 }

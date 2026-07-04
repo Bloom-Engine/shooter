@@ -29,6 +29,9 @@ struct VsOut {
   @location(1)       world_normal: vec3<f32>,
   // local-y of the vertex — used in fs to blend trunk vs leaf colour
   @location(2)       local_y:      f32,
+  // EN-022 — clip positions for motion vectors.
+  @location(3)       curr_clip:    vec4<f32>,
+  @location(4)       prev_clip:    vec4<f32>,
 };
 
 @vertex
@@ -61,6 +64,19 @@ fn vs_main(in: VertexInput) -> VsOut {
   out.world_normal = world_normal;
   out.clip_pos     = view.view_proj * vec4<f32>(world_pos, 1.0);
   out.local_y      = in.position.y;
+
+  // EN-022 — previous-frame position: the same sway evaluated one
+  // frame back (PerFrame carries delta_time), projected by the
+  // previous VP. Wind sway finally produces real motion vectors
+  // instead of ghosting through TAA with velocity 0.
+  let t_prev     = frame.time - frame.delta_time;
+  let big_p      = sin(t_prev * tp.wind.w        + phase);
+  let small_p    = sin(t_prev * tp.wind.w * 2.7  + phase * 1.6) * 0.35;
+  let sway_prev  = (big_p + small_p) * tp.wind.z * w;
+  let prev_world = (draw.model * vec4<f32>(in.position, 1.0)).xyz
+                 + vec3<f32>(tp.wind.x, 0.0, tp.wind.y) * sway_prev;
+  out.curr_clip  = out.clip_pos;
+  out.prev_clip  = view.prev_view_proj * vec4<f32>(prev_world, 1.0);
   return out;
 }
 
@@ -137,7 +153,8 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
   out.material = vec2<f32>(0.0, 0.85);
-  out.velocity = vec2<f32>(0.0, 0.0);
+  // EN-022 — real motion vectors, including the wind sway.
+  out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);
   out.albedo   = vec4<f32>(albedo, 1.0);
   return out;
 }

@@ -675,6 +675,8 @@ const GRASS_INSTANCED_WGSL =
   '  @location(1)       world_normal: vec3<f32>,\n' +
   '  @location(2)       blade_tint:   vec3<f32>,\n' +
   '  @location(3)       tip_weight:   f32,\n' +
+  '  @location(4)       curr_clip:    vec4<f32>,\n' +
+  '  @location(5)       prev_clip:    vec4<f32>,\n' +
   '};\n' +
   '\n' +
   '@vertex fn vs_main(in: InstancedVertexInput) -> VsOut {\n' +
@@ -694,6 +696,14 @@ const GRASS_INSTANCED_WGSL =
   '  out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);\n' +
   '  out.tip_weight   = tip;\n' +
   '  out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;\n' +
+  // EN-022 — previous-frame sway → real motion vectors (mirrors
+  // assets/materials/grass_instanced.wgsl; keep in sync).
+  '  let t_prev  = frame.time - frame.delta_time;\n' +
+  '  let phase_p = dot(in.instance_pos.xz, frame.wind.xy * 0.6) + t_prev * frame.wind.w;\n' +
+  '  let sway_p  = sin(phase_p) * frame.wind.z * tip;\n' +
+  '  let world_p = rotated + vec3<f32>(frame.wind.x, 0.0, frame.wind.y) * sway_p + in.instance_pos;\n' +
+  '  out.curr_clip = out.clip_pos;\n' +
+  '  out.prev_clip = view.prev_view_proj * vec4<f32>(world_p, 1.0);\n' +
   '  return out;\n' +
   '}\n' +
   '\n' +
@@ -736,7 +746,7 @@ const GRASS_INSTANCED_WGSL =
   '  var out: OpaqueOut;\n' +
   '  out.hdr      = vec4<f32>(lit, 1.0);\n' +
   '  out.material = vec2<f32>(0.0, 0.92);\n' +
-  '  out.velocity = vec2<f32>(0.0, 0.0);\n' +
+  '  out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);\n' +
   '  out.albedo   = vec4<f32>(albedo, 1.0);\n' +
   '  return out;\n' +
   '}\n';

@@ -54,6 +54,9 @@ struct VsOut {
   @location(1)       world_normal: vec3<f32>,
   @location(2)       blade_tint:   vec3<f32>,
   @location(3)       tip_weight:   f32,
+  // EN-022 — clip positions for motion vectors.
+  @location(4)       curr_clip:    vec4<f32>,
+  @location(5)       prev_clip:    vec4<f32>,
 };
 
 @vertex
@@ -94,6 +97,20 @@ fn vs_main(in: InstancedVertexInput) -> VsOut {
   out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);
   out.tip_weight   = tip;
   out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;
+
+  // EN-022 — previous-frame position: same sway one frame back
+  // (PerFrame.delta_time), projected by the previous VP. Sub-pixel
+  // blades finally carry real motion vectors so TAA's motion clamp
+  // engages (the audit's thin-grass shimmer mechanism).
+  let t_prev  = frame.time - frame.delta_time;
+  let phase_p = dot(in.instance_pos.xz, frame.wind.xy * 0.6)
+              + t_prev * frame.wind.w;
+  let sway_p  = sin(phase_p) * frame.wind.z * tip;
+  let world_p = rotated
+              + vec3<f32>(frame.wind.x, 0.0, frame.wind.y) * sway_p
+              + in.instance_pos;
+  out.curr_clip = out.clip_pos;
+  out.prev_clip = view.prev_view_proj * vec4<f32>(world_p, 1.0);
   return out;
 }
 
@@ -152,7 +169,8 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
   out.material = vec2<f32>(0.0, 0.92);
-  out.velocity = vec2<f32>(0.0, 0.0);
+  // EN-022 — real motion vectors, including per-blade sway.
+  out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);
   out.albedo   = vec4<f32>(albedo, 1.0);
   return out;
 }
