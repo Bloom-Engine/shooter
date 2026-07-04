@@ -1,8 +1,9 @@
-# Perry 0.5.158 codegen quirks
+# Perry 0.5.x codegen/runtime quirks
 
-Three reproducible bugs observed while building this shooter. All of
-them affect `bloom/world` in the engine and force us to hardcode
-world data in TypeScript until they're fixed.
+Reproducible bugs observed while building this shooter. Most affect
+`bloom/world` in the engine and force us to hardcode world data in
+TypeScript until they're fixed; #5 is a runtime memory-safety bug that
+crashed the shipped game.
 
 ## 1. Reachable `throw new Error` segfaults at startup
 
@@ -110,6 +111,36 @@ Hardcode level geometry in TypeScript (`src/main.ts` does this for
 the arena walls, wave composition, pickup positions). The
 `assets/worlds/arena_01.world.json` is kept as a reference for when
 the editor pipeline eventually works.
+
+## 5. `split()` + `parseFloat()` overread heap allocations (EN-020)
+
+**Symptom.** Access violation (c0000005) with empty stderr, no WER
+event on some paths — the game dies silently or freezes (last
+presented frame stays on screen, input looks dead). Faulting reads
+land just past the end of a heap page (`0x…FFF8`-style addresses).
+Layout-sensitive: a relink can hide or resurface it, which made it
+look "unreproducible" for a whole audit round.
+
+**Trigger.** Running a string through `split()` and `parseFloat()`
+every frame. Perry's runtime scanners read a word past the end of
+their own exact-sized slice allocations; with enough fresh
+allocations per second, one eventually lands flush against an
+unmapped page. The shooter hit it via `getProfilerOverlay()` /
+`getProfilerFrameHistory()` (F3 overlay): 6/6 crashes within 7–29 s
+of overlay time, in two different link layouts. One-shot parses
+(e.g. the engine's OBJ text loader) carry the same risk per call,
+just with lottery odds instead of per-frame odds.
+
+**Workaround.** Never parse packed text across the FFI on a hot
+path. The engine now exposes a numeric profiler ABI
+(`bloom_profiler_row_count/_label/_cpu_us/_gpu_us`, `_hist_*`) and
+`getProfilerOverlay`/`getProfilerFrameHistory` are rewritten on it —
+numbers cross as f64, label strings cross whole and are only drawn.
+Engine-allocated FFI strings are also tail-padded 16 zero bytes
+(defense for engine-side allocations only — padding cannot protect
+Perry-internal slices, which is why the ABI change was required).
+If you add an FFI that returns data for per-frame consumption:
+return numbers, not delimited text.
 
 ## Impact on the shooter's design
 
