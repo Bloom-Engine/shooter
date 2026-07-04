@@ -91,22 +91,48 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let albedo   = mix(tp.trunk.rgb, draw.model_tint.rgb, trunk_t);
 
   let sun_dir = normalize(view.sun_dir.xyz);
+  let v       = normalize(view.camera_pos.xyz - in.world_pos);
   let n_dot_l = max(dot(n, sun_dir), 0.0);
   let cloud   = cloud_shadow(in.world_pos.xz, frame.time);
   // Cascaded sun shadow — trees shade themselves and each other now.
-  // Leaves take it at HALF strength: a low-poly canopy's flat facets
+  // Leaves take it at reduced strength: a low-poly canopy's flat facets
   // terrace hard against their own blocky shadow-map silhouette (slat
   // stripes), and real foliage scatters enough light that full-depth
-  // self-shadow reads wrong anyway. The trunk keeps the full factor,
-  // and the ground below still receives the full canopy shadow from
-  // its own material.
+  // self-shadow reads wrong anyway. Round-2 (audit F3): the floor
+  // deepens with distance — the flat 0.5 kept far crowns uniformly
+  // half-lit, one third of why the backlit treeline measured +35%
+  // brighter than the hills behind it. Facet terracing is sub-pixel
+  // past ~15 m, so the deep floor is safe there.
   let sun_shadow_raw = sample_sun_shadow_n(in.world_pos, n);
-  let sun_shadow = mix(sun_shadow_raw, 0.5 + 0.5 * sun_shadow_raw, trunk_t);
-  let direct  = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
-  // Sky-fill: HDR irradiance by the surface normal — canopy tops read
-  // sky-lit, undersides shade toward ground bounce — plus a small floor.
-  let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
-  let lit     = albedo * (fill + direct);
+  let cam_dist   = length(view.camera_pos.xyz - in.world_pos);
+  let leaf_floor = mix(0.5, 0.15, smoothstep(15.0, 45.0, cam_dist));
+  let sun_shadow = mix(sun_shadow_raw,
+                       leaf_floor + (1.0 - leaf_floor) * sun_shadow_raw,
+                       trunk_t);
+  // sun_dir.w carries the sun intensity (1.1 in the shipped world);
+  // dropping it tilted the fill:direct ratio toward the pale sky fill.
+  let direct  = view.sun_color.rgb * view.sun_dir.w * n_dot_l * cloud * sun_shadow;
+  // Backlit transmission — RIM-gated. A first cut applied it to the
+  // whole camera-facing crown; on a backlit tree that is every visible
+  // pixel (-n·sun > 0 exactly where the camera looks), which brightened
+  // the very silhouettes the audit flagged. Real crowns glow at thin
+  // edges only, so gate by silhouette proximity.
+  let back       = max(dot(-n, sun_dir), 0.0);
+  let view_align = max(dot(v, -sun_dir), 0.0);
+  let rim        = pow(1.0 - abs(dot(n, v)), 2.0);
+  let trans      = pow(back, 2.0) * pow(view_align, 1.5) * 0.6 * rim * trunk_t;
+  let trans_col  = albedo * vec3<f32>(1.10, 1.20, 0.85);
+  // Sky-fill: HDR irradiance by the surface normal, with a crown
+  // self-occlusion proxy on the leaf band (audit F3): a solid canopy's
+  // sides see far less sky than its top, but env irradiance by normal
+  // alone gave every side facet ~half the sky dome — the core of why
+  // backlit crowns measured +35% over the hills behind them. Tops keep
+  // the full dome; sides drop to 35%.
+  let crown_ao = mix(1.0, 0.35 + 0.65 * max(n.y, 0.0), trunk_t);
+  let fill    = (sample_env_diffuse(n) + view.ambient.rgb * 0.20) * crown_ao;
+  let lit     = albedo * (fill + direct)
+              + trans_col * trans * view.sun_color.rgb * view.sun_dir.w
+                * cloud * sun_shadow_raw;
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);

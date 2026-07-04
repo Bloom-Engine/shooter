@@ -117,10 +117,17 @@ setAutoExposureKey(0.155);
 // clears within ~10 m above, so river dips and tree-base shadows
 // pool low fog while ridges stay clear — adds depth without
 // muddying the whole frame.
-setFog(0.78, 0.84, 0.90, 0.024, 0.0, 6.0);
-// Tier 1.7 — warm god-rays through the trees. Optional polish;
-// strength 0.4 keeps it subtle.
-setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
+// Round-2 (audit F2): heightRef sat exactly at water level (y≈0), so a
+// grazing look along the river integrated the densest fog slab for the
+// full valley length — the visible "milk band" hugged the waterline and
+// spilled over the banks. Drop the reference below ground and thin the
+// density: low pooling survives, the white sheet does not.
+setFog(0.78, 0.84, 0.90, 0.016, -0.6, 6.0);
+// Tier 1.7 — warm god-rays through the trees. Round-2 retune (audit F3):
+// at 0.4/0.96 the 32-tap shaft march added up to ~+0.14 HDR of warm veil
+// on every sunward silhouette — a big share of the "pale backlit
+// treeline". 0.18/0.90 keeps the god-ray read without the wash.
+setSunShafts(0.18, 0.90, 1.0, 0.95, 0.7);
 // EN-013 — global wind UBO. All foliage materials (grass, trees,
 // future ferns/clovers) read these values from PerFrame.wind so
 // one source of truth drives the whole scene's swing.
@@ -563,9 +570,12 @@ const WATER_WGSL =
 // zero), so we set the params explicitly.
 //   tint rgb       absorption_mix  foam  rim   sky_lod  pad
 const matWaterFromFile = compileMaterialFromFile('assets/materials/water.wgsl', 'refractive');
-const matWater = matWaterFromFile > 0
-  ? matWaterFromFile
-  : compileRefractiveMaterial(WATER_WGSL);
+// Round-2 audit (F2): the inline WATER_WGSL fallback above has drifted from
+// the on-disk shader — Tier-3-era lighting AND a 2-vec4 params layout that
+// silently misreads the 3-vec4 WATER_PARAMS, so engaging it ships wrong
+// water. Until SH-005 auto-generates the inline copies from the .wgsl
+// files, prefer NO water over wrong water in binary-only builds.
+const matWater = matWaterFromFile;
 // Tier 4 layout: absorption coefficient (red dies fastest, blue
 // slowest), deep-water colour (greenish-teal), then knobs:
 //   foam, rim, sky_lod, micro_normal_strength.
@@ -2098,14 +2108,14 @@ while (!windowShouldClose()) {
   // Title screen — the live world renders as the backdrop, menu.wav plays,
   // waves/firing/movement are gated off. Any input starts the run.
   if (gameState === 0) {
-    // measureText under-reports at these sizes (the WAVE HUD drifts right
-    // for the same reason), so centre with an explicit monospace estimate:
-    // glyph advance ≈ 0.58 × size.
+    // Round-2 audit: measureText is exact in the current engine (verified
+    // measure ≡ draw advance down to the binary) — the old 0.58 hand
+    // estimate was itself the source of the visible off-centering.
     const title = 'BLOOM SHOOTER';
-    const tw = title.length * 54 * 0.58;
+    const tw = measureText(title, 54);
     drawText(title, (sw - tw) / 2, 170, 54, { r: 236, g: 226, b: 178, a: 255 });
     const sub = 'press any key';
-    const subw = sub.length * 22 * 0.58;
+    const subw = measureText(sub, 22);
     const pulse = Math.floor(175 + Math.sin(getTime() * 3.0) * 70);
     drawText(sub, (sw - subw) / 2, 244, 22, { r: 225, g: 225, b: 225, a: pulse });
     if (isAnyInputPressed()) {
