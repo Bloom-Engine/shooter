@@ -581,11 +581,15 @@ if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
 // Drawn at origin with scale 1, so the mesh's native dimensions are the
 // visible river size. Subdivide finely enough that the longest
 // Gerstner wave (~5 m wavelength) shows smooth wave peaks.
-const WATER_W = 80;   // metres along X — spans the arena's boundary walls
-const WATER_D = 5;    // metres along Z — river width
-const WATER_CX = 0;   // world X centre
-const WATER_CZ = 12;  // world Z centre (matches arena_02's river band)
-const WATER_Y  = 0.05;
+// Round-2 audit (F11): these used to be hardcoded here while the world
+// file authored six overlapping zig-zag volumes the runtime ignored —
+// two sources of truth that had already drifted. The world file now
+// carries the one real river volume and the runtime reads it.
+const WATER_W  = W.WATER_COUNT > 0 ? W.WATER_SX[0] : 80;   // metres along X
+const WATER_D  = W.WATER_COUNT > 0 ? W.WATER_SZ[0] : 5;    // metres along Z
+const WATER_CX = W.WATER_COUNT > 0 ? W.WATER_CX[0] : 0;    // world X centre
+const WATER_CZ = W.WATER_COUNT > 0 ? W.WATER_CZ[0] : 12;   // world Z centre
+const WATER_Y  = W.WATER_COUNT > 0 ? W.WATER_CY[0] + 0.05 : 0.05;
 const WATER_COLS = 80;
 const WATER_ROWS = 10;
 const _wvc = (WATER_COLS + 1) * (WATER_ROWS + 1);
@@ -1123,7 +1127,12 @@ const WAVE_OFFS = W.WAVE_OFFS;
 const WAVE_KINDS = W.WAVE_KIND;
 const WAVE_SPAWN_DELAY = 1.2;
 const WAVE_BREAK_DELAY = 2.5;
-const MAX_CONCURRENT = 4;
+// Round-2 audit (F11): with one kind per wave and BODIES_PER_KIND=2 pool
+// slots, the shipped game never showed more than 2 enemies at once — the
+// arena felt empty and the measured pool-max load never occurred in play.
+// Waves now mix kinds (see arena_02.world.json), so the concurrency cap
+// is the real limit again.
+const MAX_CONCURRENT = 6;
 
 let waveIdx = 0;
 let waveSpawned = 0;
@@ -1455,11 +1464,16 @@ while (!windowShouldClose()) {
     // than TP_ORBIT_DIST, shorten the orbit so the camera zooms
     // in instead of clipping through geometry. Leave a small skin
     // so we don't kiss the wall exactly.
+    // Round-2 audit (F11): STATIC geometry only. Enemy bodies are in the
+    // MOVING layer; letting them shorten the orbit pulled the camera
+    // inside the mob whenever the player got surrounded — near-plane
+    // clipping filled the screen with polygon soup. Enemies briefly
+    // occluding the camera reads far better than being inside them.
     let orbitDist = TP_ORBIT_DIST;
     const hit = raycast(physics,
       vec3(fX, fY, fZ),
       vec3(dxRaw, dyRaw, dzRaw),
-      TP_ORBIT_DIST, ALL_LAYERS_MASK);
+      TP_ORBIT_DIST, 1 << Layer.NON_MOVING);
     if (hit !== null) {
       orbitDist = Math.max(0.8, hit.fraction * TP_ORBIT_DIST - 0.25);
     }
