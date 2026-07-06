@@ -1169,6 +1169,30 @@ let waveBreakTimer = WAVE_BREAK_DELAY;
 let spawnTimer = 0;
 let gameWon = false;
 
+// Bilinear terrain height at a world XZ, sampled from the same
+// heightfield grid the Jolt collider uses. Enemies are kinematic and
+// steered in XZ only — without this they kept their spawn height and
+// walked straight INTO hills (attacking the player "from inside the
+// ground"). Clamps to the grid edge outside the covered area.
+function terrainHeightAt(x: number, z: number): number {
+  const n = T.TERRAIN_SAMPLE_COUNT;
+  const fx = (x - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
+  const fz = (z - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
+  const cx = fx < 0 ? 0 : (fx > n - 1.001 ? n - 1.001 : fx);
+  const cz = fz < 0 ? 0 : (fz > n - 1.001 ? n - 1.001 : fz);
+  const x0 = Math.floor(cx);
+  const z0 = Math.floor(cz);
+  const tx = cx - x0;
+  const tz = cz - z0;
+  const h00 = T.TERRAIN_HEIGHTS[z0 * n + x0];
+  const h10 = T.TERRAIN_HEIGHTS[z0 * n + x0 + 1];
+  const h01 = T.TERRAIN_HEIGHTS[(z0 + 1) * n + x0];
+  const h11 = T.TERRAIN_HEIGHTS[(z0 + 1) * n + x0 + 1];
+  const h0 = h00 + (h10 - h00) * tx;
+  const h1 = h01 + (h11 - h01) * tx;
+  return T.TERRAIN_ORIGIN_Y + h0 + (h1 - h0) * tz;
+}
+
 function countAlive(): number {
   let c = 0;
   for (let i = 0; i < MAX_ENEMIES; i++) if (enAlive[i] > 0) c = c + 1;
@@ -1191,8 +1215,8 @@ function spawnEnemy(): void {
   if (slot < 0) return;   // all bodies of this kind busy; retry next tick
   const sp = waveSpawned % 4;
   enX[slot] = spawnerX[sp];
-  enY[slot] = 0;
   enZ[slot] = spawnerZ[sp];
+  enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
   enHP[slot] = KIND_HP[kind];
   enAlive[slot] = 1;
   enAttackCD[slot] = 0;
@@ -1785,6 +1809,9 @@ while (!windowShouldClose()) {
         const move = step < dist ? step : dist;
         enX[i] = enX[i] + (dx / dist) * move;
         enZ[i] = enZ[i] + (dz / dist) * move;
+        // Follow the terrain surface — enemies are steered in XZ, so
+        // their Y must track the heightfield or they walk into hills.
+        enY[i] = terrainHeightAt(enX[i], enZ[i]);
         setBodyPosition(enBody[i],
           vec3(enX[i], enY[i] + KIND_Y_OFF[k], enZ[i]), true);
       } else if (enAttackCD[i] <= 0) {
@@ -2163,14 +2190,15 @@ while (!windowShouldClose()) {
     const pp = playerPosition();
     const moving = input.moveX !== 0 || input.moveZ !== 0;
     const camYaw = CAM[0];
-    // Player_bsuit's rest pose faces +X in model space (Unvanquished
-    // convention, preserved through our X90 Z-up→Y-up root fix).
-    // Camera-yaw forward at yaw=0 is -Z, so rotate the model by
-    // -π/2 about Y to line the character's front with the camera
-    // direction. The bsuit's only "attack" animation is a melee
-    // swing — a ranged shooter shouldn't use it; keep the walk/idle
-    // pose and fake recoil + muzzle flash on the weapon itself.
-    const modelYaw = camYaw - Math.PI / 2;
+    // Yaw offset verified EMPIRICALLY (windowed screenshot at camYaw=0):
+    // with -π/2 the character faced +Z — straight into the camera — so
+    // it read as 180° off from the aim direction. +π/2 lines the
+    // bsuit's front up with camera forward. (The old comment reasoned
+    // from a rest pose "facing +X"; the converter's X90 root fix lands
+    // it facing -X instead.) The bsuit's only "attack" animation is a
+    // melee swing — a ranged shooter shouldn't use it; keep the
+    // walk/idle pose and fake recoil + muzzle flash on the weapon.
+    const modelYaw = camYaw + Math.PI / 2;
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
     updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
