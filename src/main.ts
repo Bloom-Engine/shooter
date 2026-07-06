@@ -22,6 +22,9 @@ import {
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setTaaEnabled, setRenderScale,
+  setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
+  setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
+  setManualExposure,
 } from 'bloom/core';
 import {
   addPointLight, enableShadows,
@@ -145,6 +148,12 @@ setWind(0.85, 0.50, 0.10, 1.6);
 // reconstruction softness.
 setTaaEnabled(true);
 setRenderScale(0.5);
+// 2026-07-06 fullscreen-lag investigation: the Lumen SW-GI camera-follow
+// bakes (SDF clipmap + WSRC) used to re-run as single full-volume
+// dispatches whenever the view moved — a 1-2.4 s GPU stall every ~5 s of
+// mouse-look on the 760M. The engine now amortizes both (binned + sliced
+// clipmap bake into a staging volume, one WSRC cascade per frame), so
+// SSGI stays enabled.
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -1389,9 +1398,151 @@ setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckl
 const SELFTEST = false;
 let testFrame = 0;
 
+// ---- PERFTEST harness (temporary diagnostic) --------------------------------
+// Bisects the fullscreen slowdown: measures wall-clock FPS over 120-frame
+// windows on the title screen (full world renders as the backdrop), toggling
+// one pipeline feature per stage. Stage 0 is the shipped config under Fifo
+// vsync; every later stage runs Mailbox (uncapped) so the vsync cap can't
+// mask differences. The final stage re-enables the shipped config with the
+// engine profiler on and dumps the per-pass CPU/GPU table. Prints PERF /
+// PERFPASS lines to stdout — run batch with output redirected. Flip to false
+// (or delete) when the investigation closes.
+const PERFTEST = false;
+// Mode 0 — staged feature bisect on the title screen (deterministic backdrop).
+// Mode 1 — gameplay timeline: injects a keypress to start the run, keeps the
+// player alive, and logs fps / worst-frame / alive-enemy count per 60-frame
+// window; the profiler turns on for the final third to get a combat per-pass
+// table.
+const PERF_MODE = 1;
+// false = stay on the title screen (stationary world backdrop — used for
+// external flicker captures); true = auto-start the run at frame 20.
+const PERF_START_GAME = false;
+const PERF_SETTLE = 30;    // frames to let a config change settle
+const PERF_MEASURE = 120;  // frames per measurement window
+const PERF_STAGES = 11;
+let perfStage = 0;
+let perfStageFrame = 0;
+let perfT0 = 0;
+let perfDone = false;
+let perfDtMax = 0;
+let perfWindows = 0;
+// Phase brackets for spike attribution (mode 1). A frame is split into:
+// begin (loop-around + beginDrawing), A (music/input/physics), B (game
+// logic up to the 3D pass), C (3D draws + anim updates), D (2D HUD),
+// E (endDrawing = submit/present). On a dt spike the previous frame's
+// phase times get dumped.
+let perfTTop = 0;
+let perfTA = 0;
+let perfTB = 0;
+let perfTC = 0;
+let perfTD = 0;
+let perfPrevEnd = 0;
+let perfMsBegin = 0;
+let perfMsA = 0;
+let perfMsB = 0;
+let perfMsC = 0;
+let perfMsD = 0;
+let perfMsE = 0;
+let perfPrevAlive = 0;
+
+// Scripted kill for mode 1 — mirrors the rifle-kill death path exactly so
+// death-triggered work (first die-anim playback, body teleport, sound) can
+// be correlated with frame spikes deterministically.
+function perfKillOne(): void {
+  for (let i = 0; i < MAX_ENEMIES; i++) {
+    if (enAlive[i] > 0) {
+      enAlive[i] = 0;
+      enDying[i] = 1;
+      enDeathT[i] = 0;
+      enDeathYaw[i] = 0;
+      setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
+      playSound(sfxAttack);
+      console.log('PERFKILL t=' + getTime().toFixed(2)
+        + ' slot=' + i + ' kind=' + enKind[i]);
+      return;
+    }
+  }
+}
+
+function perfDumpProfiler(): void {
+  const rows = getProfilerOverlay();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const gpuStr = r.gpuUs < 0 ? '-1' : r.gpuUs.toFixed(1);
+    console.log('PERFPASS ' + r.label
+      + ' cpu_us=' + r.cpuUs.toFixed(1) + ' gpu_us=' + gpuStr);
+  }
+  const hist = getProfilerFrameHistory();
+  let cpuSum = 0;
+  let gpuSum = 0;
+  let cpuMax = 0;
+  let gpuMax = 0;
+  for (let i = 0; i < hist.length; i++) {
+    cpuSum = cpuSum + hist[i].cpuUs;
+    gpuSum = gpuSum + hist[i].gpuUs;
+    if (hist[i].cpuUs > cpuMax) cpuMax = hist[i].cpuUs;
+    if (hist[i].gpuUs > gpuMax) gpuMax = hist[i].gpuUs;
+  }
+  if (hist.length > 0) {
+    console.log('PERFHIST frames=' + hist.length
+      + ' cpu_avg_us=' + (cpuSum / hist.length).toFixed(1)
+      + ' cpu_max_us=' + cpuMax.toFixed(1)
+      + ' gpu_avg_us=' + (gpuSum / hist.length).toFixed(1)
+      + ' gpu_max_us=' + gpuMax.toFixed(1));
+  }
+  console.log('PERF done');
+}
+
+function perfStageName(s: number): string {
+  if (s === 0) return 'baseline-fifo-rs0.5';
+  if (s === 1) return 'mailbox-rs0.5';
+  if (s === 2) return 'mailbox-no-ssgi';
+  if (s === 3) return 'mailbox-no-ssao';
+  if (s === 4) return 'mailbox-no-ssr';
+  if (s === 5) return 'mailbox-no-shadows';
+  if (s === 6) return 'mailbox-no-bloom';
+  if (s === 7) return 'mailbox-rs0.25';
+  if (s === 8) return 'mailbox-rs1.0';
+  if (s === 9) return 'mailbox-all-off';
+  return 'mailbox-profiler-on';
+}
+
+function perfStageApply(s: number): void {
+  // Restore the shipped config first so each stage isolates one change.
+  setSsgiEnabled(true);
+  setSsaoEnabled(true);
+  setSsrEnabled(true);
+  setShadowsEnabled(true);
+  setBloomEnabled(true);
+  setRenderScale(0.5);
+  setProfilerEnabled(false);
+  if (s === 0) { setPresentMode(0); return; }
+  setPresentMode(1);
+  if (s === 2) setSsgiEnabled(false);
+  if (s === 3) setSsaoEnabled(false);
+  if (s === 4) setSsrEnabled(false);
+  if (s === 5) setShadowsEnabled(false);
+  if (s === 6) setBloomEnabled(false);
+  if (s === 7) setRenderScale(0.25);
+  if (s === 8) setRenderScale(1.0);
+  if (s === 9) {
+    setSsgiEnabled(false);
+    setSsaoEnabled(false);
+    setSsrEnabled(false);
+    setShadowsEnabled(false);
+    setBloomEnabled(false);
+  }
+  if (s === 10) setProfilerEnabled(true);
+}
+
 
 while (!windowShouldClose()) {
   beginDrawing();
+  if (PERFTEST) {
+    const nowTop = getTime();
+    perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
+    perfTTop = nowTop;
+  }
   const dt = getDeltaTime();
   const sw = getScreenWidth();
   const sh = getScreenHeight();
@@ -1416,6 +1567,101 @@ while (!windowShouldClose()) {
 
   const input = readInput();
   testFrame = testFrame + 1;
+
+  // PERFTEST stage driver — see the harness block above the loop.
+  if (PERFTEST && !perfDone && PERF_MODE === 0) {
+    if (perfStageFrame === 0) perfStageApply(perfStage);
+    perfStageFrame = perfStageFrame + 1;
+    if (perfStageFrame === PERF_SETTLE) perfT0 = getTime();
+    if (perfStageFrame === PERF_SETTLE + PERF_MEASURE) {
+      const wall = getTime() - perfT0;
+      const fps = PERF_MEASURE / wall;
+      const msf = 1000 * wall / PERF_MEASURE;
+      console.log('PERF ' + perfStageName(perfStage)
+        + ' fps=' + fps.toFixed(1) + ' ms=' + msf.toFixed(2));
+      if (perfStage === PERF_STAGES - 1) {
+        perfDumpProfiler();
+        perfDone = true;
+      } else {
+        perfStage = perfStage + 1;
+        perfStageFrame = 0;
+      }
+    }
+  }
+  if (PERFTEST && !perfDone && PERF_MODE === 1) {
+    // Start the run once the mouse-settle guard has passed (mirrors the
+    // title-screen input handler), then hold the player immortal so the
+    // timeline never hits the game-over overlay.
+    if (PERF_START_GAME && testFrame === 20 && gameState === 0) {
+      gameState = 1;
+      stopMusic(musicMenu);
+      playMusic(musicAmbient);
+      waveBreakTimer = WAVE_BREAK_DELAY;
+    }
+    playerHP = PLAYER_HP_MAX;
+    gameOver = false;
+    // Spike attribution: dt covers the previous frame, so dump the phase
+    // brackets recorded during it (plus this frame's beginDrawing time).
+    if (dt > 0.1 && perfPrevEnd > 0) {
+      console.log('PERFSPIKE t=' + getTime().toFixed(2)
+        + ' dt_ms=' + (dt * 1000).toFixed(1)
+        + ' begin_ms=' + perfMsBegin.toFixed(1)
+        + ' A_ms=' + perfMsA.toFixed(1)
+        + ' B_ms=' + perfMsB.toFixed(1)
+        + ' C_ms=' + perfMsC.toFixed(1)
+        + ' D_ms=' + perfMsD.toFixed(1)
+        + ' E_ms=' + perfMsE.toFixed(1)
+        + ' alive=' + countAlive());
+    }
+    const perfAliveNow = countAlive();
+    if (perfAliveNow !== perfPrevAlive) {
+      console.log('PERFALIVE t=' + getTime().toFixed(2)
+        + ' alive=' + perfAliveNow + ' wave=' + waveIdx);
+      perfPrevAlive = perfAliveNow;
+    }
+    // Warm the death-thud sound early so later kill hitches can't be the
+    // audio path; then kill one enemy every 3 windows to march the waves
+    // forward and correlate deaths with spikes.
+    if (perfStageFrame === 30 && perfWindows === 8) playSound(sfxAttack);
+    if (perfStageFrame === 30 && perfWindows >= 12 && perfWindows % 3 === 0) {
+      perfKillOne();
+    }
+    // In-engine flicker arbitration: swapchain screenshots (now that
+    // takeScreenshot works on Windows) — 4 consecutive frames at 6
+    // sample points. Consecutive-frame diffs catch real frame-to-frame
+    // change; cross-window diffs catch slower state alternation. The
+    // desktop-capture path (DWM) is bypassed entirely.
+    if (perfWindows >= 6 && perfWindows <= 21 && perfWindows % 3 === 0
+        && perfStageFrame >= 10 && perfStageFrame < 14) {
+      takeScreenshot('tools/.testout/eng_w' + perfWindows
+        + '_f' + perfStageFrame + '.png');
+    }
+    if (perfStageFrame === 1) {
+      if (perfWindows === 23) {
+        console.log('PERF done');
+        perfDone = true;
+      }
+    }
+    if (perfWindows === 25 && perfStageFrame === 1) setProfilerEnabled(true);
+    perfStageFrame = perfStageFrame + 1;
+    if (perfStageFrame === 1) { perfT0 = getTime(); perfDtMax = 0; }
+    if (perfStageFrame > 1 && dt > perfDtMax) perfDtMax = dt;
+    if (perfStageFrame === 61) {
+      const wall = getTime() - perfT0;
+      console.log('PERFT t=' + getTime().toFixed(1)
+        + ' fps=' + (60 / wall).toFixed(1)
+        + ' avg_ms=' + (1000 * wall / 60).toFixed(2)
+        + ' max_ms=' + (perfDtMax * 1000).toFixed(1)
+        + ' alive=' + countAlive()
+        + ' wave=' + waveIdx);
+      perfStageFrame = 0;
+      perfWindows = perfWindows + 1;
+      if (perfWindows === 35) {
+        perfDumpProfiler();
+        perfDone = true;
+      }
+    }
+  }
   // Selftest: drive the player forward so screenshots can verify
   // walk direction. Runs before the player controller update so
   // the override actually reaches updatePlayerController.
@@ -1450,6 +1696,7 @@ while (!windowShouldClose()) {
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump);
   }
   stepPhysics(physics, dt);
+  if (PERFTEST) perfTA = getTime();
 
   // Phase 7 — footstep / water-entry splats. When the player is
   // inside the river band, submit an impulse at their XZ every
@@ -1760,6 +2007,7 @@ while (!windowShouldClose()) {
       b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
     W.ENV_SUN_I);
 
+  if (PERFTEST) perfTB = getTime();
   beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
     target:   vec3(CAM[5], CAM[6], CAM[7]),
@@ -2077,6 +2325,7 @@ while (!windowShouldClose()) {
     }
   }
   endMode3D();
+  if (PERFTEST) perfTC = getTime();
 
   // Crosshair — brighten while firing
   const crossA = muzzleFlashT > 0 ? 240 : 160;
@@ -2240,5 +2489,15 @@ while (!windowShouldClose()) {
   }
 
   if (isKeyPressed(Key.ESCAPE)) break;
+  if (PERFTEST) perfTD = getTime();
   endDrawing();
+  if (PERFTEST) {
+    perfPrevEnd = getTime();
+    perfMsA = (perfTA - perfTTop) * 1000;
+    perfMsB = (perfTB - perfTA) * 1000;
+    perfMsC = (perfTC - perfTB) * 1000;
+    perfMsD = (perfTD - perfTC) * 1000;
+    perfMsE = (perfPrevEnd - perfTD) * 1000;
+  }
+  if (PERFTEST && perfDone) break;
 }
