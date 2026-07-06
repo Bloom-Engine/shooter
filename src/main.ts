@@ -2131,10 +2131,16 @@ while (!windowShouldClose()) {
   // tint (0 generic / 1 building / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
+    // Buildings (category 1) are rendered through the baked matBuilding
+    // mesh below — skip them here to avoid a coplanar double-draw. This
+    // must cover BOTH the placeholder boxes AND real GLBs: the textured
+    // building_floor.glb used to slip through to the drawModel branch
+    // and z-fight with the material shell — its window-slat texture
+    // rows flickered through the plaster whenever the TAA jitter
+    // flipped the per-pixel depth winner (the long-hunted "gray lines"
+    // flicker on the building).
+    if (W.MESH_CATEGORY[i] === 1 && matBuilding > 0) continue;
     if (W.MODEL_IS_BOX[mi] === 1) {
-      // Buildings (category 1) are rendered through the baked
-      // matBuilding mesh below — skip here to avoid double-draw.
-      if (W.MESH_CATEGORY[i] === 1 && matBuilding > 0) continue;
       const c = W.MESH_CATEGORY[i];
       const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
       drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
