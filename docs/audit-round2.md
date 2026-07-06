@@ -26,6 +26,31 @@ target on this box (see Decision D1).
 
 ---
 
+## Status addendum (2026-07-06)
+
+The plan below was executed as PRs: engine **#75** (profiler stale
+averages + eviction), **#76** (2D gamma + sharpen), **#77** (transient
+depth leak — the F7 "translucent mystery", 16–26× improvement), **#78**
+(EN-021 SSR/IBL ownership), **#79** (EN-023 GI data path, partial),
+**#80** (present-mode FFI), **#81** (2D text at physical resolution),
+**#82** (EN-022 material motion vectors); shooter **#2** (water/tree/
+fog/title), **#3** (waves/camera/water bounds), **#4** (material
+velocity). All open against their mains; local `round2/integration`
+branches carry the merged set.
+
+**Finding F1 (the AV) is root-caused and fixed** — and the audit's
+toggle correlation was a red herring. The real trigger was per-frame
+profiler *string parsing*: Perry 0.5.x `split()`/`parseFloat()` read
+past their own slice allocations (EN-020). With the overlay as a rate
+amplifier it reproduced 6/6 in 7–29 s; the fix (numeric profiler ABI +
+padded engine strings + in-engine crash reporting) validated 3/3 × 90 s
+clean. Full story: engine `docs/tickets.md` § EN-020 and
+`docs/crash-triage-windows.md`; quirk write-up in
+`docs/perry-quirks.md` § 5.
+
+Decisions D1 (operating point), D2 (GI strategy on SW adapters), D3
+(content budget) remain open — they are the user's call.
+
 ## Headline results
 
 1. **The game AVs (access violation) under runtime feature toggling** —

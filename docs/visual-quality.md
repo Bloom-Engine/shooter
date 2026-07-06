@@ -1,5 +1,16 @@
 # Visual quality plan
 
+> **Status 2026-07-06:** Tiers 1–4 below are landed and merged
+> (round 1), plus the round-2 pass on top: water fresnel/foam
+> recalibration, tree crown self-occlusion + rim-gated transmission,
+> fog + sun-shaft retune, real motion vectors for all world materials
+> under TSR, and physical-resolution 2D text. The *numbers* in the
+> tier tables are the values as first landed — current values live in
+> `src/main.ts` and `assets/materials/*.wgsl`, and the measured
+> round-2 evidence lives in `docs/audit-round2.md`. The forward
+> roadmap ("Tier 6+" / UE5-tier) is ticketed as SH-009+ in
+> `docs/tickets.md`.
+
 This doc tracks the multi-phase work to take the shooter from
 "structurally correct but flat" to "looks like a real outdoor
 scene." Player + enemies are explicitly **out of scope** here —

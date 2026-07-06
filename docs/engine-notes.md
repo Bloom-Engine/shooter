@@ -1,8 +1,13 @@
 # Engine-side prerequisites
 
-This shooter needs three things on the Bloom engine side before it
-will build and run cleanly. Two of them were one-line edits applied
-locally during development; they are not upstreamed yet.
+**Status 2026-07-06: all three items below are landed in the engine
+repo** — `native/macos/Cargo.toml` ships
+`default = ["jolt", "models3d", "image-extras"]` and `package.json`
+carries `"libs": ["c++"]` for the macOS target (the Windows target
+has its equivalent libDirs/libs for Jolt). Nothing needs local
+patching anymore; this doc is kept as the record of why those lines
+exist. The "teach Perry a `features` field" improvement at the bottom
+of §2 is still open on the Perry side.
 
 ## 1. `fs_main_3d` debug-green hardcode
 

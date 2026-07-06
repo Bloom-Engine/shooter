@@ -144,29 +144,28 @@ return numbers, not delimited text.
 
 ## Impact on the shooter's design
 
-The combination of 1 and 3 means we can't use `bloom/world`'s
-`loadWorld` at all. For now the shooter keeps world structure in
-`src/main.ts`:
+The combination of 1, 3 and 4 means we can't use `bloom/world`'s
+`loadWorld` or runtime `JSON.parse` at all. The shipped answer is the
+**build-time world generator**: `assets/worlds/arena_02.world.json`
+is authored in the standard engine schema (the editor round-trips
+it), and every `npm run dev` / `npm run world` runs
+`tools/build-world.ts` under **bun** (real JS — Perry never parses
+the JSON), which emits Perry-safe parallel flat arrays at
+`src/generated/world.ts`. The runtime reads geometry, lighting,
+spawners, pickups, water and the wave plan exclusively from that
+generated module. Adding an entity kind = a bucket in
+`tools/build-world.ts` + consuming the arrays in `main.ts`.
 
-```ts
-const debugBoxes: DebugBox[] = [ /* floor + 4 walls */ ];
-const wavePlan     = [3, 6, 10];
-const WAVE_KINDS   = [ /* flat concat of per-wave kind sequences */ ];
-const spawnerX     = [-18, 18, -18, 18];
-const spawnerZ     = [-18, -18, 18, 18];
-const pickupX      = [-18, 18, -18, 18];
-const pickupZ      = [18, -18, -18, 18];
-const pickupKind   = [PICKUP_RIFLE, PICKUP_BLASTER, PICKUP_RIFLE, PICKUP_BLASTER];
-```
-
-Once Perry's JSON behaviour is fixed, the plan is to move this into
-`assets/worlds/arena_01.world.json` (same schema as Bloom Garden)
-and load it via a wrapper that reads the file + validates without
-throws.
+Quirk #5 shapes the FFI surface the same way: per-frame data crosses
+as numbers (see the engine's `bloom_profiler_row_*` ABI), never as
+delimited text.
 
 ## Verifying a Perry fix
 
-Flip `SELFTEST = true` in `src/main.ts`, force-spawn a test scenario,
-and screenshot. If `loadWorld` starts working, restoring the
-JSON-driven path is a ~30 LOC change in `main.ts` — the JSON file
-already exists.
+For quirks 1–4: point the generator pipeline at a runtime
+`JSON.parse` path in a scratch branch and see whether entities load
+with correct counts (`.length` populated) and no startup segfault
+with a reachable `throw` in scope. For quirk #5: return a
+`"1.23|4.56\n"`-style blob from any FFI and `split`+`parseFloat` it
+every frame — on a broken runtime this AVs within a minute (see
+engine `docs/tickets.md` § EN-020 for the validated repro numbers).
