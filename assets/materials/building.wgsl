@@ -75,10 +75,25 @@ fn fs_main(in: VsOut) -> OpaqueOut {
          + value_noise(sample_uv * bp.knobs.x * 2.5) * 0.3;
   let speckled = mix(bp.base.rgb, bp.base.rgb * 1.18, nz);
 
-  // Horizontal band lines every `band_period` metres. Use a
-  // sharp cosine pulse — the higher band.w, the thinner the line.
-  let band_phase = cos(in.world_pos.y * 6.28318 / bp.knobs.y);
-  let band_t     = pow(max(band_phase, 0.0), bp.band.w * 8.0);
+  // Horizontal mortar lines every `band_period` metres, analytically
+  // antialiased. The old form — pow(max(cos(y·f),0), band.w·8) — was a
+  // razor-sharp procedural pulse with no filtering. Re-evaluated each
+  // frame at TAA-jittered sample positions on the half-res buffer, its
+  // hard edges flipped pixels every frame: the reported gray-line
+  // flicker crawling across the wall (worst up close, where the bands
+  // are large). Here the line is a distance field antialiased over
+  // exactly one pixel via fwidth, and it fades toward the wall colour
+  // once a line packs below the pixel rate — so it stays rock-stable
+  // at every distance and grazing angle.
+  let band_coord = in.world_pos.y / bp.knobs.y;          // 1 unit per period
+  let band_dist  = abs(fract(band_coord + 0.5) - 0.5) * 2.0;  // 0 at a line, 1 between
+  let band_fw    = max(fwidth(band_coord), 1e-5);        // pixel footprint (periods)
+  // Line half-width as a fraction of the period, matched to the old
+  // pow(band.w·8) thickness.
+  let band_hw    = 0.5 / (bp.band.w * 8.0 + 1.0);
+  let band_edge  = 1.0 - smoothstep(band_hw - band_fw, band_hw + band_fw, band_dist);
+  let band_cov   = clamp(band_hw / band_fw, 0.0, 1.0);   // fade when sub-pixel
+  let band_t     = band_edge * band_cov;
   let albedo     = mix(speckled, bp.band.rgb, band_t * 0.6);
 
   // Lambert vs the engine sun + ambient, with the same cloud-shadow
