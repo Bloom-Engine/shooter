@@ -29,6 +29,7 @@ Controls:
 | 1 / 2            | Switch weapon (rifle / blaster)           |
 | R                | Reload / restart after death              |
 | Tab              | Toggle cursor capture                     |
+| F3               | Profiler overlay (per-pass CPU/GPU µs)    |
 | F12              | Screenshot to `shooter_<N>.png`           |
 | Esc              | Quit                                      |
 
@@ -40,10 +41,11 @@ tyrant. Ammo crates respawn at the four arena corners.
 - **Perry** `0.5.158+` on `$PATH`.
 - **Bloom engine** at `../engine/` relative to this repo, built at
   commit `0137335` (drop debug-green hardcode in `fs_main_3d`) or
-  later. The engine's `native/macos/Cargo.toml` needs `default =
-  ["jolt"]` and its `package.json` needs `"libs": ["c++"]` on the
-  macOS target so Jolt physics links cleanly (see
-  [docs/engine-notes.md](docs/engine-notes.md)).
+  later. The Jolt/`libc++` link requirements are committed in the
+  engine repo these days — [docs/engine-notes.md](docs/engine-notes.md)
+  records why they exist. On Windows, prefer
+  `perry compile src/main.ts -o main --debug-symbols` so crash
+  reports symbolize (see `CLAUDE.md`).
 - **Bun** for the asset converters and dev scripts.
 - **ffmpeg** and macOS's `sips` for audio + texture resizing during
   asset conversion.

@@ -292,9 +292,17 @@ function main() {
       for (const w of waves) {
         offs.push(kinds.length);
         plan.push(w.count);
-        const kid = ENEMY_KINDS.indexOf(w.enemy);
-        const safe = kid < 0 ? 0 : kid;
-        for (let i = 0; i < w.count; i++) kinds.push(safe);
+        // `enemy` may be a comma-separated cycle ("dretch,mantis") so a
+        // single wave can mix kinds — with one kind per wave and only
+        // BODIES_PER_KIND pool slots each, the shipped game never showed
+        // more than 2 enemies at once (round-2 audit F11). When the list
+        // length equals `count` it reads as an explicit spawn sequence.
+        const names = w.enemy.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        for (let i = 0; i < w.count; i++) {
+          const name = names.length > 0 ? names[i % names.length] : 'dretch';
+          const kid = ENEMY_KINDS.indexOf(name);
+          kinds.push(kid < 0 ? 0 : kid);
+        }
       }
     } catch (err) {
       console.warn('wave_config userData.waves is not valid JSON; skipping:', err);

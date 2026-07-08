@@ -1,8 +1,9 @@
-# Perry 0.5.158 codegen quirks
+# Perry 0.5.x codegen/runtime quirks
 
-Three reproducible bugs observed while building this shooter. All of
-them affect `bloom/world` in the engine and force us to hardcode
-world data in TypeScript until they're fixed.
+Reproducible bugs observed while building this shooter. Most affect
+`bloom/world` in the engine and force us to hardcode world data in
+TypeScript until they're fixed; #5 is a runtime memory-safety bug that
+crashed the shipped game.
 
 ## 1. Reachable `throw new Error` segfaults at startup
 
@@ -111,31 +112,60 @@ the arena walls, wave composition, pickup positions). The
 `assets/worlds/arena_01.world.json` is kept as a reference for when
 the editor pipeline eventually works.
 
+## 5. `split()` + `parseFloat()` overread heap allocations (EN-020)
+
+**Symptom.** Access violation (c0000005) with empty stderr, no WER
+event on some paths — the game dies silently or freezes (last
+presented frame stays on screen, input looks dead). Faulting reads
+land just past the end of a heap page (`0x…FFF8`-style addresses).
+Layout-sensitive: a relink can hide or resurface it, which made it
+look "unreproducible" for a whole audit round.
+
+**Trigger.** Running a string through `split()` and `parseFloat()`
+every frame. Perry's runtime scanners read a word past the end of
+their own exact-sized slice allocations; with enough fresh
+allocations per second, one eventually lands flush against an
+unmapped page. The shooter hit it via `getProfilerOverlay()` /
+`getProfilerFrameHistory()` (F3 overlay): 6/6 crashes within 7–29 s
+of overlay time, in two different link layouts. One-shot parses
+(e.g. the engine's OBJ text loader) carry the same risk per call,
+just with lottery odds instead of per-frame odds.
+
+**Workaround.** Never parse packed text across the FFI on a hot
+path. The engine now exposes a numeric profiler ABI
+(`bloom_profiler_row_count/_label/_cpu_us/_gpu_us`, `_hist_*`) and
+`getProfilerOverlay`/`getProfilerFrameHistory` are rewritten on it —
+numbers cross as f64, label strings cross whole and are only drawn.
+Engine-allocated FFI strings are also tail-padded 16 zero bytes
+(defense for engine-side allocations only — padding cannot protect
+Perry-internal slices, which is why the ABI change was required).
+If you add an FFI that returns data for per-frame consumption:
+return numbers, not delimited text.
+
 ## Impact on the shooter's design
 
-The combination of 1 and 3 means we can't use `bloom/world`'s
-`loadWorld` at all. For now the shooter keeps world structure in
-`src/main.ts`:
+The combination of 1, 3 and 4 means we can't use `bloom/world`'s
+`loadWorld` or runtime `JSON.parse` at all. The shipped answer is the
+**build-time world generator**: `assets/worlds/arena_02.world.json`
+is authored in the standard engine schema (the editor round-trips
+it), and every `npm run dev` / `npm run world` runs
+`tools/build-world.ts` under **bun** (real JS — Perry never parses
+the JSON), which emits Perry-safe parallel flat arrays at
+`src/generated/world.ts`. The runtime reads geometry, lighting,
+spawners, pickups, water and the wave plan exclusively from that
+generated module. Adding an entity kind = a bucket in
+`tools/build-world.ts` + consuming the arrays in `main.ts`.
 
-```ts
-const debugBoxes: DebugBox[] = [ /* floor + 4 walls */ ];
-const wavePlan     = [3, 6, 10];
-const WAVE_KINDS   = [ /* flat concat of per-wave kind sequences */ ];
-const spawnerX     = [-18, 18, -18, 18];
-const spawnerZ     = [-18, -18, 18, 18];
-const pickupX      = [-18, 18, -18, 18];
-const pickupZ      = [18, -18, -18, 18];
-const pickupKind   = [PICKUP_RIFLE, PICKUP_BLASTER, PICKUP_RIFLE, PICKUP_BLASTER];
-```
-
-Once Perry's JSON behaviour is fixed, the plan is to move this into
-`assets/worlds/arena_01.world.json` (same schema as Bloom Garden)
-and load it via a wrapper that reads the file + validates without
-throws.
+Quirk #5 shapes the FFI surface the same way: per-frame data crosses
+as numbers (see the engine's `bloom_profiler_row_*` ABI), never as
+delimited text.
 
 ## Verifying a Perry fix
 
-Flip `SELFTEST = true` in `src/main.ts`, force-spawn a test scenario,
-and screenshot. If `loadWorld` starts working, restoring the
-JSON-driven path is a ~30 LOC change in `main.ts` — the JSON file
-already exists.
+For quirks 1–4: point the generator pipeline at a runtime
+`JSON.parse` path in a scratch branch and see whether entities load
+with correct counts (`.length` populated) and no startup segfault
+with a reachable `throw` in scope. For quirk #5: return a
+`"1.23|4.56\n"`-style blob from any FFI and `split`+`parseFloat` it
+every frame — on a broken runtime this AVs within a minute (see
+engine `docs/tickets.md` § EN-020 for the validated repro numbers).

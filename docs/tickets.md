@@ -6,6 +6,15 @@ engine repo's `docs/tickets.md`.
 Status legend: 🟢 ready · 🟡 needs engine support · 🔴 needs an asset
 or a design decision
 
+> **Round-2 status (2026-07-04, see `docs/audit-round2.md`):** shooter
+> PRs #2 (water fresnel/foam recalibration, tree crown shading, fog +
+> sun shafts, exact title centering), #3 (mixed-kind wave plan via
+> comma-cycle world data, MAX_CONCURRENT 6, third-person camera ray,
+> water bounds from world data) and #4 (motion vectors in all four
+> world materials incl. the inline grass copy) are open against main.
+> The EN-020 crash root-cause work (2026-07-04/06) additionally
+> hardened the engine FFI — see `docs/perry-quirks.md` § 5.
+
 ---
 
 ## SH-001 — Wind-coupled ambient audio 🔴
@@ -284,7 +293,15 @@ work landed in the SH-021 instanced-grass material rewrite.
 
 ---
 
-## SH-012 — Two-sided foliage lighting in `tree.wgsl` 🟢  *(Phase A)*
+## SH-012 — Two-sided foliage lighting in `tree.wgsl` ✅ *(shipped in round-2 PR #2, evolved form)*
+
+> **Status 2026-07-04:** landed, in a better-tuned shape than sketched
+> below: crown self-occlusion on the sky-fill (`crown_ao`), rim-gated
+> transmission (`pow(back,2)·pow(view_align,1.5)·rim`, leaf-gated via
+> the trunk/leaf discriminator), and a distance-based leaf-shading
+> floor. Validated by region-luma: backlit canopies dropped from a
+> +35% flat wash to +26% concentrated on sun-struck tops. The
+> "proper ABI" version remains SH-023 (gated on EN-012).
 
 **Why:** `tree.wgsl` is plain Lambert with cloud noise. The
 canopy half facing away from the sun goes pure black on every
@@ -561,11 +578,20 @@ scatter is uniform.)
 which has no from-file/hot-reload path today, so the WGSL is also
 inlined in `main.ts` as `GRASS_INSTANCED_WGSL`. Source of truth is
 the `.wgsl` file; the inline copy must track edits to it. SH-005's
-auto-generation will close that gap.
+auto-generation will close that gap. *(This bit for real during
+EN-022: the motion-vector rewrite had to be applied to both copies
+by hand — the drift risk is not hypothetical.)*
 
 ---
 
-## SH-022 — Planar-reflective river 🟡  *(Phase B — gated on EN-011)*
+## SH-022 — Planar-reflective river ✅ *(shipped — planar-reflection water landed pre-round-2)*
+
+> **Status:** the water material samples a real reflection of the
+> scene (with env fallback at grazing angles) — trees/buildings on
+> the bank reflect. Round-2 PR #2 then recalibrated fresnel (clamped
+> 0.60), reflection-ray floor, and grazing-angle foam fade after the
+> mirror band regression (audit F: water measured 1.16–1.23× sky
+> luma, now 1.00×). Original sketch kept below for context.
 
 **Why:** today the water reflects only the static HDR sky panorama
 via `sample_env()`. Trees lining the bank don't show up in the

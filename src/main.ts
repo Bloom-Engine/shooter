@@ -22,6 +22,9 @@ import {
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setTaaEnabled, setRenderScale,
+  setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
+  setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
+  setManualExposure,
 } from 'bloom/core';
 import {
   addPointLight, enableShadows,
@@ -117,10 +120,17 @@ setAutoExposureKey(0.155);
 // clears within ~10 m above, so river dips and tree-base shadows
 // pool low fog while ridges stay clear — adds depth without
 // muddying the whole frame.
-setFog(0.78, 0.84, 0.90, 0.024, 0.0, 6.0);
-// Tier 1.7 — warm god-rays through the trees. Optional polish;
-// strength 0.4 keeps it subtle.
-setSunShafts(0.4, 0.96, 1.0, 0.95, 0.7);
+// Round-2 (audit F2): heightRef sat exactly at water level (y≈0), so a
+// grazing look along the river integrated the densest fog slab for the
+// full valley length — the visible "milk band" hugged the waterline and
+// spilled over the banks. Drop the reference below ground and thin the
+// density: low pooling survives, the white sheet does not.
+setFog(0.78, 0.84, 0.90, 0.016, -0.6, 6.0);
+// Tier 1.7 — warm god-rays through the trees. Round-2 retune (audit F3):
+// at 0.4/0.96 the 32-tap shaft march added up to ~+0.14 HDR of warm veil
+// on every sunward silhouette — a big share of the "pale backlit
+// treeline". 0.18/0.90 keeps the god-ray read without the wash.
+setSunShafts(0.18, 0.90, 1.0, 0.95, 0.7);
 // EN-013 — global wind UBO. All foliage materials (grass, trees,
 // future ferns/clovers) read these values from PerFrame.wind so
 // one source of truth drives the whole scene's swing.
@@ -138,6 +148,12 @@ setWind(0.85, 0.50, 0.10, 1.6);
 // reconstruction softness.
 setTaaEnabled(true);
 setRenderScale(0.5);
+// 2026-07-06 fullscreen-lag investigation: the Lumen SW-GI camera-follow
+// bakes (SDF clipmap + WSRC) used to re-run as single full-volume
+// dispatches whenever the view moved — a 1-2.4 s GPU stall every ~5 s of
+// mouse-look on the 760M. The engine now amortizes both (binned + sliced
+// clipmap bake into a staging volume, one WSRC cascade per frame), so
+// SSGI stays enabled.
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -563,9 +579,12 @@ const WATER_WGSL =
 // zero), so we set the params explicitly.
 //   tint rgb       absorption_mix  foam  rim   sky_lod  pad
 const matWaterFromFile = compileMaterialFromFile('assets/materials/water.wgsl', 'refractive');
-const matWater = matWaterFromFile > 0
-  ? matWaterFromFile
-  : compileRefractiveMaterial(WATER_WGSL);
+// Round-2 audit (F2): the inline WATER_WGSL fallback above has drifted from
+// the on-disk shader — Tier-3-era lighting AND a 2-vec4 params layout that
+// silently misreads the 3-vec4 WATER_PARAMS, so engaging it ships wrong
+// water. Until SH-005 auto-generates the inline copies from the .wgsl
+// files, prefer NO water over wrong water in binary-only builds.
+const matWater = matWaterFromFile;
 // Tier 4 layout: absorption coefficient (red dies fastest, blue
 // slowest), deep-water colour (greenish-teal), then knobs:
 //   foam, rim, sky_lod, micro_normal_strength.
@@ -581,11 +600,15 @@ if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
 // Drawn at origin with scale 1, so the mesh's native dimensions are the
 // visible river size. Subdivide finely enough that the longest
 // Gerstner wave (~5 m wavelength) shows smooth wave peaks.
-const WATER_W = 80;   // metres along X — spans the arena's boundary walls
-const WATER_D = 5;    // metres along Z — river width
-const WATER_CX = 0;   // world X centre
-const WATER_CZ = 12;  // world Z centre (matches arena_02's river band)
-const WATER_Y  = 0.05;
+// Round-2 audit (F11): these used to be hardcoded here while the world
+// file authored six overlapping zig-zag volumes the runtime ignored —
+// two sources of truth that had already drifted. The world file now
+// carries the one real river volume and the runtime reads it.
+const WATER_W  = W.WATER_COUNT > 0 ? W.WATER_SX[0] : 80;   // metres along X
+const WATER_D  = W.WATER_COUNT > 0 ? W.WATER_SZ[0] : 5;    // metres along Z
+const WATER_CX = W.WATER_COUNT > 0 ? W.WATER_CX[0] : 0;    // world X centre
+const WATER_CZ = W.WATER_COUNT > 0 ? W.WATER_CZ[0] : 12;   // world Z centre
+const WATER_Y  = W.WATER_COUNT > 0 ? W.WATER_CY[0] + 0.05 : 0.05;
 const WATER_COLS = 80;
 const WATER_ROWS = 10;
 const _wvc = (WATER_COLS + 1) * (WATER_ROWS + 1);
@@ -665,6 +688,8 @@ const GRASS_INSTANCED_WGSL =
   '  @location(1)       world_normal: vec3<f32>,\n' +
   '  @location(2)       blade_tint:   vec3<f32>,\n' +
   '  @location(3)       tip_weight:   f32,\n' +
+  '  @location(4)       curr_clip:    vec4<f32>,\n' +
+  '  @location(5)       prev_clip:    vec4<f32>,\n' +
   '};\n' +
   '\n' +
   '@vertex fn vs_main(in: InstancedVertexInput) -> VsOut {\n' +
@@ -684,6 +709,14 @@ const GRASS_INSTANCED_WGSL =
   '  out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);\n' +
   '  out.tip_weight   = tip;\n' +
   '  out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;\n' +
+  // EN-022 — previous-frame sway → real motion vectors (mirrors
+  // assets/materials/grass_instanced.wgsl; keep in sync).
+  '  let t_prev  = frame.time - frame.delta_time;\n' +
+  '  let phase_p = dot(in.instance_pos.xz, frame.wind.xy * 0.6) + t_prev * frame.wind.w;\n' +
+  '  let sway_p  = sin(phase_p) * frame.wind.z * tip;\n' +
+  '  let world_p = rotated + vec3<f32>(frame.wind.x, 0.0, frame.wind.y) * sway_p + in.instance_pos;\n' +
+  '  out.curr_clip = out.clip_pos;\n' +
+  '  out.prev_clip = view.prev_view_proj * vec4<f32>(world_p, 1.0);\n' +
   '  return out;\n' +
   '}\n' +
   '\n' +
@@ -726,7 +759,7 @@ const GRASS_INSTANCED_WGSL =
   '  var out: OpaqueOut;\n' +
   '  out.hdr      = vec4<f32>(lit, 1.0);\n' +
   '  out.material = vec2<f32>(0.0, 0.92);\n' +
-  '  out.velocity = vec2<f32>(0.0, 0.0);\n' +
+  '  out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);\n' +
   '  out.albedo   = vec4<f32>(albedo, 1.0);\n' +
   '  return out;\n' +
   '}\n';
@@ -1123,13 +1156,42 @@ const WAVE_OFFS = W.WAVE_OFFS;
 const WAVE_KINDS = W.WAVE_KIND;
 const WAVE_SPAWN_DELAY = 1.2;
 const WAVE_BREAK_DELAY = 2.5;
-const MAX_CONCURRENT = 4;
+// Round-2 audit (F11): with one kind per wave and BODIES_PER_KIND=2 pool
+// slots, the shipped game never showed more than 2 enemies at once — the
+// arena felt empty and the measured pool-max load never occurred in play.
+// Waves now mix kinds (see arena_02.world.json), so the concurrency cap
+// is the real limit again.
+const MAX_CONCURRENT = 6;
 
 let waveIdx = 0;
 let waveSpawned = 0;
 let waveBreakTimer = WAVE_BREAK_DELAY;
 let spawnTimer = 0;
 let gameWon = false;
+
+// Bilinear terrain height at a world XZ, sampled from the same
+// heightfield grid the Jolt collider uses. Enemies are kinematic and
+// steered in XZ only — without this they kept their spawn height and
+// walked straight INTO hills (attacking the player "from inside the
+// ground"). Clamps to the grid edge outside the covered area.
+function terrainHeightAt(x: number, z: number): number {
+  const n = T.TERRAIN_SAMPLE_COUNT;
+  const fx = (x - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
+  const fz = (z - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
+  const cx = fx < 0 ? 0 : (fx > n - 1.001 ? n - 1.001 : fx);
+  const cz = fz < 0 ? 0 : (fz > n - 1.001 ? n - 1.001 : fz);
+  const x0 = Math.floor(cx);
+  const z0 = Math.floor(cz);
+  const tx = cx - x0;
+  const tz = cz - z0;
+  const h00 = T.TERRAIN_HEIGHTS[z0 * n + x0];
+  const h10 = T.TERRAIN_HEIGHTS[z0 * n + x0 + 1];
+  const h01 = T.TERRAIN_HEIGHTS[(z0 + 1) * n + x0];
+  const h11 = T.TERRAIN_HEIGHTS[(z0 + 1) * n + x0 + 1];
+  const h0 = h00 + (h10 - h00) * tx;
+  const h1 = h01 + (h11 - h01) * tx;
+  return T.TERRAIN_ORIGIN_Y + h0 + (h1 - h0) * tz;
+}
 
 function countAlive(): number {
   let c = 0;
@@ -1153,8 +1215,8 @@ function spawnEnemy(): void {
   if (slot < 0) return;   // all bodies of this kind busy; retry next tick
   const sp = waveSpawned % 4;
   enX[slot] = spawnerX[sp];
-  enY[slot] = 0;
   enZ[slot] = spawnerZ[sp];
+  enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
   enHP[slot] = KIND_HP[kind];
   enAlive[slot] = 1;
   enAttackCD[slot] = 0;
@@ -1360,9 +1422,151 @@ setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckl
 const SELFTEST = false;
 let testFrame = 0;
 
+// ---- PERFTEST harness (temporary diagnostic) --------------------------------
+// Bisects the fullscreen slowdown: measures wall-clock FPS over 120-frame
+// windows on the title screen (full world renders as the backdrop), toggling
+// one pipeline feature per stage. Stage 0 is the shipped config under Fifo
+// vsync; every later stage runs Mailbox (uncapped) so the vsync cap can't
+// mask differences. The final stage re-enables the shipped config with the
+// engine profiler on and dumps the per-pass CPU/GPU table. Prints PERF /
+// PERFPASS lines to stdout — run batch with output redirected. Flip to false
+// (or delete) when the investigation closes.
+const PERFTEST = false;
+// Mode 0 — staged feature bisect on the title screen (deterministic backdrop).
+// Mode 1 — gameplay timeline: injects a keypress to start the run, keeps the
+// player alive, and logs fps / worst-frame / alive-enemy count per 60-frame
+// window; the profiler turns on for the final third to get a combat per-pass
+// table.
+const PERF_MODE = 1;
+// false = stay on the title screen (stationary world backdrop — used for
+// external flicker captures); true = auto-start the run at frame 20.
+const PERF_START_GAME = false;
+const PERF_SETTLE = 30;    // frames to let a config change settle
+const PERF_MEASURE = 120;  // frames per measurement window
+const PERF_STAGES = 11;
+let perfStage = 0;
+let perfStageFrame = 0;
+let perfT0 = 0;
+let perfDone = false;
+let perfDtMax = 0;
+let perfWindows = 0;
+// Phase brackets for spike attribution (mode 1). A frame is split into:
+// begin (loop-around + beginDrawing), A (music/input/physics), B (game
+// logic up to the 3D pass), C (3D draws + anim updates), D (2D HUD),
+// E (endDrawing = submit/present). On a dt spike the previous frame's
+// phase times get dumped.
+let perfTTop = 0;
+let perfTA = 0;
+let perfTB = 0;
+let perfTC = 0;
+let perfTD = 0;
+let perfPrevEnd = 0;
+let perfMsBegin = 0;
+let perfMsA = 0;
+let perfMsB = 0;
+let perfMsC = 0;
+let perfMsD = 0;
+let perfMsE = 0;
+let perfPrevAlive = 0;
+
+// Scripted kill for mode 1 — mirrors the rifle-kill death path exactly so
+// death-triggered work (first die-anim playback, body teleport, sound) can
+// be correlated with frame spikes deterministically.
+function perfKillOne(): void {
+  for (let i = 0; i < MAX_ENEMIES; i++) {
+    if (enAlive[i] > 0) {
+      enAlive[i] = 0;
+      enDying[i] = 1;
+      enDeathT[i] = 0;
+      enDeathYaw[i] = 0;
+      setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
+      playSound(sfxAttack);
+      console.log('PERFKILL t=' + getTime().toFixed(2)
+        + ' slot=' + i + ' kind=' + enKind[i]);
+      return;
+    }
+  }
+}
+
+function perfDumpProfiler(): void {
+  const rows = getProfilerOverlay();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const gpuStr = r.gpuUs < 0 ? '-1' : r.gpuUs.toFixed(1);
+    console.log('PERFPASS ' + r.label
+      + ' cpu_us=' + r.cpuUs.toFixed(1) + ' gpu_us=' + gpuStr);
+  }
+  const hist = getProfilerFrameHistory();
+  let cpuSum = 0;
+  let gpuSum = 0;
+  let cpuMax = 0;
+  let gpuMax = 0;
+  for (let i = 0; i < hist.length; i++) {
+    cpuSum = cpuSum + hist[i].cpuUs;
+    gpuSum = gpuSum + hist[i].gpuUs;
+    if (hist[i].cpuUs > cpuMax) cpuMax = hist[i].cpuUs;
+    if (hist[i].gpuUs > gpuMax) gpuMax = hist[i].gpuUs;
+  }
+  if (hist.length > 0) {
+    console.log('PERFHIST frames=' + hist.length
+      + ' cpu_avg_us=' + (cpuSum / hist.length).toFixed(1)
+      + ' cpu_max_us=' + cpuMax.toFixed(1)
+      + ' gpu_avg_us=' + (gpuSum / hist.length).toFixed(1)
+      + ' gpu_max_us=' + gpuMax.toFixed(1));
+  }
+  console.log('PERF done');
+}
+
+function perfStageName(s: number): string {
+  if (s === 0) return 'baseline-fifo-rs0.5';
+  if (s === 1) return 'mailbox-rs0.5';
+  if (s === 2) return 'mailbox-no-ssgi';
+  if (s === 3) return 'mailbox-no-ssao';
+  if (s === 4) return 'mailbox-no-ssr';
+  if (s === 5) return 'mailbox-no-shadows';
+  if (s === 6) return 'mailbox-no-bloom';
+  if (s === 7) return 'mailbox-rs0.25';
+  if (s === 8) return 'mailbox-rs1.0';
+  if (s === 9) return 'mailbox-all-off';
+  return 'mailbox-profiler-on';
+}
+
+function perfStageApply(s: number): void {
+  // Restore the shipped config first so each stage isolates one change.
+  setSsgiEnabled(true);
+  setSsaoEnabled(true);
+  setSsrEnabled(true);
+  setShadowsEnabled(true);
+  setBloomEnabled(true);
+  setRenderScale(0.5);
+  setProfilerEnabled(false);
+  if (s === 0) { setPresentMode(0); return; }
+  setPresentMode(1);
+  if (s === 2) setSsgiEnabled(false);
+  if (s === 3) setSsaoEnabled(false);
+  if (s === 4) setSsrEnabled(false);
+  if (s === 5) setShadowsEnabled(false);
+  if (s === 6) setBloomEnabled(false);
+  if (s === 7) setRenderScale(0.25);
+  if (s === 8) setRenderScale(1.0);
+  if (s === 9) {
+    setSsgiEnabled(false);
+    setSsaoEnabled(false);
+    setSsrEnabled(false);
+    setShadowsEnabled(false);
+    setBloomEnabled(false);
+  }
+  if (s === 10) setProfilerEnabled(true);
+}
+
 
 while (!windowShouldClose()) {
   beginDrawing();
+  if (PERFTEST) {
+    const nowTop = getTime();
+    perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
+    perfTTop = nowTop;
+  }
   const dt = getDeltaTime();
   const sw = getScreenWidth();
   const sh = getScreenHeight();
@@ -1387,6 +1591,101 @@ while (!windowShouldClose()) {
 
   const input = readInput();
   testFrame = testFrame + 1;
+
+  // PERFTEST stage driver — see the harness block above the loop.
+  if (PERFTEST && !perfDone && PERF_MODE === 0) {
+    if (perfStageFrame === 0) perfStageApply(perfStage);
+    perfStageFrame = perfStageFrame + 1;
+    if (perfStageFrame === PERF_SETTLE) perfT0 = getTime();
+    if (perfStageFrame === PERF_SETTLE + PERF_MEASURE) {
+      const wall = getTime() - perfT0;
+      const fps = PERF_MEASURE / wall;
+      const msf = 1000 * wall / PERF_MEASURE;
+      console.log('PERF ' + perfStageName(perfStage)
+        + ' fps=' + fps.toFixed(1) + ' ms=' + msf.toFixed(2));
+      if (perfStage === PERF_STAGES - 1) {
+        perfDumpProfiler();
+        perfDone = true;
+      } else {
+        perfStage = perfStage + 1;
+        perfStageFrame = 0;
+      }
+    }
+  }
+  if (PERFTEST && !perfDone && PERF_MODE === 1) {
+    // Start the run once the mouse-settle guard has passed (mirrors the
+    // title-screen input handler), then hold the player immortal so the
+    // timeline never hits the game-over overlay.
+    if (PERF_START_GAME && testFrame === 20 && gameState === 0) {
+      gameState = 1;
+      stopMusic(musicMenu);
+      playMusic(musicAmbient);
+      waveBreakTimer = WAVE_BREAK_DELAY;
+    }
+    playerHP = PLAYER_HP_MAX;
+    gameOver = false;
+    // Spike attribution: dt covers the previous frame, so dump the phase
+    // brackets recorded during it (plus this frame's beginDrawing time).
+    if (dt > 0.1 && perfPrevEnd > 0) {
+      console.log('PERFSPIKE t=' + getTime().toFixed(2)
+        + ' dt_ms=' + (dt * 1000).toFixed(1)
+        + ' begin_ms=' + perfMsBegin.toFixed(1)
+        + ' A_ms=' + perfMsA.toFixed(1)
+        + ' B_ms=' + perfMsB.toFixed(1)
+        + ' C_ms=' + perfMsC.toFixed(1)
+        + ' D_ms=' + perfMsD.toFixed(1)
+        + ' E_ms=' + perfMsE.toFixed(1)
+        + ' alive=' + countAlive());
+    }
+    const perfAliveNow = countAlive();
+    if (perfAliveNow !== perfPrevAlive) {
+      console.log('PERFALIVE t=' + getTime().toFixed(2)
+        + ' alive=' + perfAliveNow + ' wave=' + waveIdx);
+      perfPrevAlive = perfAliveNow;
+    }
+    // Warm the death-thud sound early so later kill hitches can't be the
+    // audio path; then kill one enemy every 3 windows to march the waves
+    // forward and correlate deaths with spikes.
+    if (perfStageFrame === 30 && perfWindows === 8) playSound(sfxAttack);
+    if (perfStageFrame === 30 && perfWindows >= 12 && perfWindows % 3 === 0) {
+      perfKillOne();
+    }
+    // In-engine flicker arbitration: swapchain screenshots (now that
+    // takeScreenshot works on Windows) — 4 consecutive frames at 6
+    // sample points. Consecutive-frame diffs catch real frame-to-frame
+    // change; cross-window diffs catch slower state alternation. The
+    // desktop-capture path (DWM) is bypassed entirely.
+    if (perfWindows >= 6 && perfWindows <= 21 && perfWindows % 3 === 0
+        && perfStageFrame >= 10 && perfStageFrame < 14) {
+      takeScreenshot('tools/.testout/eng_w' + perfWindows
+        + '_f' + perfStageFrame + '.png');
+    }
+    if (perfStageFrame === 1) {
+      if (perfWindows === 23) {
+        console.log('PERF done');
+        perfDone = true;
+      }
+    }
+    if (perfWindows === 25 && perfStageFrame === 1) setProfilerEnabled(true);
+    perfStageFrame = perfStageFrame + 1;
+    if (perfStageFrame === 1) { perfT0 = getTime(); perfDtMax = 0; }
+    if (perfStageFrame > 1 && dt > perfDtMax) perfDtMax = dt;
+    if (perfStageFrame === 61) {
+      const wall = getTime() - perfT0;
+      console.log('PERFT t=' + getTime().toFixed(1)
+        + ' fps=' + (60 / wall).toFixed(1)
+        + ' avg_ms=' + (1000 * wall / 60).toFixed(2)
+        + ' max_ms=' + (perfDtMax * 1000).toFixed(1)
+        + ' alive=' + countAlive()
+        + ' wave=' + waveIdx);
+      perfStageFrame = 0;
+      perfWindows = perfWindows + 1;
+      if (perfWindows === 35) {
+        perfDumpProfiler();
+        perfDone = true;
+      }
+    }
+  }
   // Selftest: drive the player forward so screenshots can verify
   // walk direction. Runs before the player controller update so
   // the override actually reaches updatePlayerController.
@@ -1421,6 +1720,7 @@ while (!windowShouldClose()) {
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump);
   }
   stepPhysics(physics, dt);
+  if (PERFTEST) perfTA = getTime();
 
   // Phase 7 — footstep / water-entry splats. When the player is
   // inside the river band, submit an impulse at their XZ every
@@ -1455,11 +1755,16 @@ while (!windowShouldClose()) {
     // than TP_ORBIT_DIST, shorten the orbit so the camera zooms
     // in instead of clipping through geometry. Leave a small skin
     // so we don't kiss the wall exactly.
+    // Round-2 audit (F11): STATIC geometry only. Enemy bodies are in the
+    // MOVING layer; letting them shorten the orbit pulled the camera
+    // inside the mob whenever the player got surrounded — near-plane
+    // clipping filled the screen with polygon soup. Enemies briefly
+    // occluding the camera reads far better than being inside them.
     let orbitDist = TP_ORBIT_DIST;
     const hit = raycast(physics,
       vec3(fX, fY, fZ),
       vec3(dxRaw, dyRaw, dzRaw),
-      TP_ORBIT_DIST, ALL_LAYERS_MASK);
+      TP_ORBIT_DIST, 1 << Layer.NON_MOVING);
     if (hit !== null) {
       orbitDist = Math.max(0.8, hit.fraction * TP_ORBIT_DIST - 0.25);
     }
@@ -1504,6 +1809,9 @@ while (!windowShouldClose()) {
         const move = step < dist ? step : dist;
         enX[i] = enX[i] + (dx / dist) * move;
         enZ[i] = enZ[i] + (dz / dist) * move;
+        // Follow the terrain surface — enemies are steered in XZ, so
+        // their Y must track the heightfield or they walk into hills.
+        enY[i] = terrainHeightAt(enX[i], enZ[i]);
         setBodyPosition(enBody[i],
           vec3(enX[i], enY[i] + KIND_Y_OFF[k], enZ[i]), true);
       } else if (enAttackCD[i] <= 0) {
@@ -1726,6 +2034,7 @@ while (!windowShouldClose()) {
       b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
     W.ENV_SUN_I);
 
+  if (PERFTEST) perfTB = getTime();
   beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
     target:   vec3(CAM[5], CAM[6], CAM[7]),
@@ -1822,10 +2131,16 @@ while (!windowShouldClose()) {
   // tint (0 generic / 1 building / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
+    // Buildings (category 1) are rendered through the baked matBuilding
+    // mesh below — skip them here to avoid a coplanar double-draw. This
+    // must cover BOTH the placeholder boxes AND real GLBs: the textured
+    // building_floor.glb used to slip through to the drawModel branch
+    // and z-fight with the material shell — its window-slat texture
+    // rows flickered through the plaster whenever the TAA jitter
+    // flipped the per-pixel depth winner (the long-hunted "gray lines"
+    // flicker on the building).
+    if (W.MESH_CATEGORY[i] === 1 && matBuilding > 0) continue;
     if (W.MODEL_IS_BOX[mi] === 1) {
-      // Buildings (category 1) are rendered through the baked
-      // matBuilding mesh below — skip here to avoid double-draw.
-      if (W.MESH_CATEGORY[i] === 1 && matBuilding > 0) continue;
       const c = W.MESH_CATEGORY[i];
       const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
       drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
@@ -1881,14 +2196,15 @@ while (!windowShouldClose()) {
     const pp = playerPosition();
     const moving = input.moveX !== 0 || input.moveZ !== 0;
     const camYaw = CAM[0];
-    // Player_bsuit's rest pose faces +X in model space (Unvanquished
-    // convention, preserved through our X90 Z-up→Y-up root fix).
-    // Camera-yaw forward at yaw=0 is -Z, so rotate the model by
-    // -π/2 about Y to line the character's front with the camera
-    // direction. The bsuit's only "attack" animation is a melee
-    // swing — a ranged shooter shouldn't use it; keep the walk/idle
-    // pose and fake recoil + muzzle flash on the weapon itself.
-    const modelYaw = camYaw - Math.PI / 2;
+    // Yaw offset verified EMPIRICALLY (windowed screenshot at camYaw=0):
+    // with -π/2 the character faced +Z — straight into the camera — so
+    // it read as 180° off from the aim direction. +π/2 lines the
+    // bsuit's front up with camera forward. (The old comment reasoned
+    // from a rest pose "facing +X"; the converter's X90 root fix lands
+    // it facing -X instead.) The bsuit's only "attack" animation is a
+    // melee swing — a ranged shooter shouldn't use it; keep the
+    // walk/idle pose and fake recoil + muzzle flash on the weapon.
+    const modelYaw = camYaw + Math.PI / 2;
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
     updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
@@ -2043,6 +2359,7 @@ while (!windowShouldClose()) {
     }
   }
   endMode3D();
+  if (PERFTEST) perfTC = getTime();
 
   // Crosshair — brighten while firing
   const crossA = muzzleFlashT > 0 ? 240 : 160;
@@ -2098,14 +2415,14 @@ while (!windowShouldClose()) {
   // Title screen — the live world renders as the backdrop, menu.wav plays,
   // waves/firing/movement are gated off. Any input starts the run.
   if (gameState === 0) {
-    // measureText under-reports at these sizes (the WAVE HUD drifts right
-    // for the same reason), so centre with an explicit monospace estimate:
-    // glyph advance ≈ 0.58 × size.
+    // Round-2 audit: measureText is exact in the current engine (verified
+    // measure ≡ draw advance down to the binary) — the old 0.58 hand
+    // estimate was itself the source of the visible off-centering.
     const title = 'BLOOM SHOOTER';
-    const tw = title.length * 54 * 0.58;
+    const tw = measureText(title, 54);
     drawText(title, (sw - tw) / 2, 170, 54, { r: 236, g: 226, b: 178, a: 255 });
     const sub = 'press any key';
-    const subw = sub.length * 22 * 0.58;
+    const subw = measureText(sub, 22);
     const pulse = Math.floor(175 + Math.sin(getTime() * 3.0) * 70);
     drawText(sub, (sw - subw) / 2, 244, 22, { r: 225, g: 225, b: 225, a: pulse });
     if (isAnyInputPressed()) {
@@ -2206,5 +2523,15 @@ while (!windowShouldClose()) {
   }
 
   if (isKeyPressed(Key.ESCAPE)) break;
+  if (PERFTEST) perfTD = getTime();
   endDrawing();
+  if (PERFTEST) {
+    perfPrevEnd = getTime();
+    perfMsA = (perfTA - perfTTop) * 1000;
+    perfMsB = (perfTB - perfTA) * 1000;
+    perfMsC = (perfTC - perfTB) * 1000;
+    perfMsD = (perfTD - perfTC) * 1000;
+    perfMsE = (perfPrevEnd - perfTD) * 1000;
+  }
+  if (PERFTEST && perfDone) break;
 }

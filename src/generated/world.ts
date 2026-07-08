@@ -72,18 +72,18 @@ export const TREE_HEIGHT = [];
 export const TREE_RADIUS = [];
 
 // Water volumes — flat animated quads at surfaceHeight
-export const WATER_COUNT = 6;
-export const WATER_CX        = [32.0, 20.0, 8.0, -4.0, -16.0, -30.0];
-export const WATER_CY        = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05];
-export const WATER_CZ        = [13.0, 11.0, 13.0, 11.0, 13.0, 11.0];
-export const WATER_SX        = [14.0, 12.0, 12.0, 12.0, 12.0, 12.0];
-export const WATER_SZ        = [3.0, 3.0, 3.0, 3.0, 3.0, 3.0];
-export const WATER_R         = [0.2, 0.2, 0.2, 0.2, 0.2, 0.2];
-export const WATER_G         = [0.42, 0.42, 0.42, 0.42, 0.42, 0.42];
-export const WATER_B         = [0.62, 0.62, 0.62, 0.62, 0.62, 0.62];
-export const WATER_A         = [0.75, 0.75, 0.75, 0.75, 0.75, 0.75];
-export const WATER_WAVE_AMP  = [0.05, 0.05, 0.05, 0.05, 0.05, 0.05];
-export const WATER_WAVE_SPD  = [1.4, 1.4, 1.4, 1.4, 1.4, 1.4];
+export const WATER_COUNT = 1;
+export const WATER_CX        = [0.0];
+export const WATER_CY        = [0.05];
+export const WATER_CZ        = [12.0];
+export const WATER_SX        = [80.0];
+export const WATER_SZ        = [5.0];
+export const WATER_R         = [0.2];
+export const WATER_G         = [0.42];
+export const WATER_B         = [0.62];
+export const WATER_A         = [0.75];
+export const WATER_WAVE_AMP  = [0.05];
+export const WATER_WAVE_SPD  = [1.4];
 
 // Scene point lights
 export const LIGHT_COUNT = 5;
@@ -111,7 +111,7 @@ export const PICKUP_KIND  = [0.0, 1.0, 0.0, 1.0];
 // Wave plan — parallel arrays: WAVE_COUNT[i] enemies of the kind sequence
 // starting at WAVE_OFFS[i] in WAVE_KIND[].
 export const WAVE_PLAN_COUNT = 3;
-export const WAVE_SIZE      = [3.0, 6.0, 10.0];
-export const WAVE_OFFS      = [0.0, 3.0, 9.0];
-export const WAVE_KIND      = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0];
+export const WAVE_SIZE      = [4.0, 7.0, 11.0];
+export const WAVE_OFFS      = [0.0, 4.0, 11.0];
+export const WAVE_KIND      = [0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 2.0, 1.0, 0.0, 2.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 0.0, 2.0, 1.0, 3.0, 2.0, 4.0];
 // Enemy kind id → string: 0=dretch 1=mantis 2=marauder 3=dragoon 4=tyrant

@@ -23,3 +23,8 @@ _compile.log
 _gamepid.txt
 _run_err.txt
 _run_out.txt
+
+# lld /DEBUG output from perry compile --debug-symbols
+main.pdb
+# perry/lld intermediate files left behind when a relink races a stale handle
+*.tmp0

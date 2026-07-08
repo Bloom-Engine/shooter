@@ -27,7 +27,6 @@ struct VsOut {
   @builtin(position) clip_pos: vec4<f32>,
   @location(0) world_pos:    vec3<f32>,
   @location(1) world_normal: vec3<f32>,
-  @location(2) screen_uv:    vec2<f32>,
 };
 
 fn gerstner(
@@ -71,7 +70,6 @@ fn vs_main(in: VertexInput) -> VsOut {
   out.world_pos    = world.xyz;
   out.world_normal = normalize((draw.model * vec4<f32>(normal, 0.0)).xyz);
   out.clip_pos     = view.view_proj * world;
-  out.screen_uv    = out.clip_pos.xy / out.clip_pos.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
   return out;
 }
 
@@ -97,12 +95,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let n        = normalize(mix(n_base, micro, water_params.knobs.w));
   let v        = normalize(view.camera_pos.xyz - in.world_pos);
 
+  // Round-2 fix: derive screen UV from the fragment position instead of
+  // a per-vertex perspective-divided varying — the varying interpolates
+  // linearly across the 1 m grid cells and lands on the wrong snapshot
+  // texel at grazing distances, exactly where the look was worst.
+  // @builtin(position) in the fragment stage is window pixels at the
+  // render extent, which is also the snapshot resolution.
+  let scr_dims  = vec2<f32>(textureDimensions(scene_color_tex));
+  let screen_uv = in.clip_pos.xy / scr_dims;
+
   // Phase 4c — shoreline fade. Compute depth + water column FIRST
   // so Tier 4's Beer-Lambert absorption can use it.
-  let depth_dims = textureDimensions(scene_depth_tex);
-  let depth_ix   = vec2<i32>(in.screen_uv * vec2<f32>(depth_dims));
+  let depth_ix   = vec2<i32>(in.clip_pos.xy);
   let scene_d    = textureLoad(scene_depth_tex, depth_ix, 0);
-  let ndc_xy     = vec2<f32>(in.screen_uv.x * 2.0 - 1.0, 1.0 - in.screen_uv.y * 2.0);
+  let ndc_xy     = vec2<f32>(screen_uv.x * 2.0 - 1.0, 1.0 - screen_uv.y * 2.0);
   let floor_v    = view.inv_proj * vec4<f32>(ndc_xy, scene_d, 1.0);
   let surf_v     = view.inv_proj * vec4<f32>(ndc_xy, in.clip_pos.z, 1.0);
   let floor_z    = floor_v.z / floor_v.w;
@@ -112,7 +118,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // Refraction — perturb screen UV by wave normal xz; the offset
   // scales with column so deep water bends light more.
   let refr_offset = clamp(column * 0.05, 0.0, 0.06);
-  let refract_uv  = clamp(in.screen_uv + n.xz * refr_offset, vec2<f32>(0.001), vec2<f32>(0.999));
+  let refract_uv  = clamp(screen_uv + n.xz * refr_offset, vec2<f32>(0.001), vec2<f32>(0.999));
   var refracted   = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;
 
   // Caustics — sun-rays focused on the river bed by the wavy water
@@ -137,18 +143,30 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let trans      = exp(-water_params.absorption.rgb * column);
   let absorbed   = refracted * trans + water_params.deep_tint.rgb * (1.0 - trans);
 
-  // Sky reflection from the engine env.
-  let r   = reflect(-v, n);
-  let sky = sample_env(r, water_params.knobs.z);
+  // Sky reflection from the engine env — with two round-2 grazing-angle
+  // fixes (audit F2: the river measured 16-23% BRIGHTER than the sky):
+  // (1) lift the reflected ray off the horizon before sampling; the
+  //     GGX-prefiltered mip around v≈0.5 is a flat pale wash that does
+  //     not exist in the actual sky above the horizon;
+  // (2) cap Schlick at 0.60 — re-lands the 2026-06-20 calibration lost
+  //     in the round-1 merge, so grazing water keeps body colour
+  //     instead of going over-unity mirror.
+  let r_raw = reflect(-v, n);
+  let r     = normalize(vec3<f32>(r_raw.x, max(r_raw.y, 0.08), r_raw.z));
+  let sky   = sample_env(r, water_params.knobs.z);
 
-  // Schlick Fresnel — F0 ≈ 0.02 for water.
+  // Schlick Fresnel — F0 ≈ 0.02 for water, capped (see above).
   let cos_theta = max(dot(n, v), 0.0);
-  let fresnel   = 0.02 + (1.0 - 0.02) * pow(1.0 - cos_theta, 5.0);
+  let fresnel   = min(0.02 + (1.0 - 0.02) * pow(1.0 - cos_theta, 5.0), 0.60);
   var water     = mix(absorbed, sky, fresnel);
 
-  // Foam on wave crests (slope proxy: low n.y).
+  // Foam on wave crests (slope proxy: low n.y), faded toward grazing
+  // views — without the fade the whole far half of the river picks up
+  // a uniform white film from wave flanks (measured ~5% of the audit's
+  // "milk stripe" luma).
   let crestness = clamp(1.0 - n.y, 0.0, 1.0);
-  let foam      = smoothstep(0.08, 0.25, crestness);
+  let foam      = smoothstep(0.08, 0.25, crestness)
+                * smoothstep(0.06, 0.35, cos_theta);
   water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * water_params.knobs.x);
 
   // Shoreline rim: bright where the water column is thin.
