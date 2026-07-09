@@ -28,3 +28,6 @@ _run_out.txt
 main.pdb
 # perry/lld intermediate files left behind when a relink races a stale handle
 *.tmp0
+
+# F12 native screenshots (debug captures)
+screenshot_*.png

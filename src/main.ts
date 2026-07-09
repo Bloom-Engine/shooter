@@ -1357,6 +1357,15 @@ function spawnSpark(p: Vec3): void {
 let cursorLocked = true;
 let screenshotSeq = 0;
 let perfOverlayOn = false;
+// ---- Render-pass debug toggles --------------------------------------------
+// Live F5-F8 toggles for the screen-space effects, with an always-on status
+// line top-left. Isolates any visual artifact to one pass in a single run
+// (this is how the 2026-07 shadow/SSAO bugs were tracked down — see
+// docs/shadow-cascade-and-ssao-fixes.md). Kept as a standing debug aid.
+let dbgSsgi = true;
+let dbgSsao = true;
+let dbgSsr = true;
+let dbgShadow = true;
 disableCursor();
 
 // ---- M8 polish: post-FX ---------------------------------------------------
@@ -1588,6 +1597,12 @@ while (!windowShouldClose()) {
     perfOverlayOn = !perfOverlayOn;
     setProfilerEnabled(perfOverlayOn);
   }
+  // Render-pass debug toggles. F5 SSGI, F6 SSAO, F7 SSR, F8 shadows — flip
+  // each off to see which pass owns a visual artifact. Status line in the HUD.
+  if (isKeyPressed(Key.F5)) { dbgSsgi = !dbgSsgi; setSsgiEnabled(dbgSsgi); }
+  if (isKeyPressed(Key.F6)) { dbgSsao = !dbgSsao; setSsaoEnabled(dbgSsao); }
+  if (isKeyPressed(Key.F7)) { dbgSsr = !dbgSsr; setSsrEnabled(dbgSsr); }
+  if (isKeyPressed(Key.F8)) { dbgShadow = !dbgShadow; setShadowsEnabled(dbgShadow); }
 
   const input = readInput();
   testFrame = testFrame + 1;
@@ -2385,6 +2400,14 @@ while (!windowShouldClose()) {
   drawRect(10, sh - 68, phpW, 18, { r: 30, g: 10, b: 10, a: 180 });
   drawRect(10, sh - 68, phpFill, 18, { r: 180, g: 60, b: 50, a: 230 });
   drawText('HP ' + playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
+
+  // Render-pass debug status line. Top-left, always on.
+  const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
+    + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
+    + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
+    + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off');
+  drawRect(6, 6, 620, 30, { r: 0, g: 0, b: 0, a: 170 });
+  drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
 
   // Weapon + ammo — bottom-right.
   const isRifleHud = currentWeapon === WEAPON_RIFLE;
