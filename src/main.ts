@@ -2211,15 +2211,24 @@ while (!windowShouldClose()) {
     const pp = playerPosition();
     const moving = input.moveX !== 0 || input.moveZ !== 0;
     const camYaw = CAM[0];
-    // Yaw offset verified EMPIRICALLY (windowed screenshot at camYaw=0):
-    // with -π/2 the character faced +Z — straight into the camera — so
-    // it read as 180° off from the aim direction. +π/2 lines the
-    // bsuit's front up with camera forward. (The old comment reasoned
-    // from a rest pose "facing +X"; the converter's X90 root fix lands
-    // it facing -X instead.) The bsuit's only "attack" animation is a
-    // melee swing — a ranged shooter shouldn't use it; keep the
-    // walk/idle pose and fake recoil + muzzle flash on the weapon.
-    const modelYaw = camYaw + Math.PI / 2;
+    // Face the camera's horizontal forward direction so the character
+    // always looks "away from the camera" (over-the-shoulder feel) and
+    // walks the way it looks. Camera forward at camYaw is
+    // (sin camYaw, -cos camYaw).
+    //
+    // SIGN QUIRK, pinned down via debug-pillar screenshots at three camera
+    // yaws: the skinned path (updateModelAnimation → set_joint_matrices_
+    // scaled) applies rotY INVERTED — rendered facing = -rotY + π/2 for
+    // this model (the π/2 is the bsuit's rest offset). Three builds
+    // confirmed it: +π/2 → correct at yaw 0 but counter-rotates when
+    // orbiting; 0 → 90° off; -π/2 → faces the camera. Solving
+    // -rotY + π/2 = camYaw gives rotY = π/2 - camYaw. If the engine's
+    // joint-matrix yaw sign ever gets fixed, flip this back to
+    // camYaw + π/2 (and re-check the enemies' faceYaw too — they go
+    // through the same path). The bsuit's only "attack" animation is a
+    // melee swing — a ranged shooter shouldn't use it; keep the walk/idle
+    // pose and fake recoil + muzzle flash on the weapon.
+    const modelYaw = Math.PI / 2 - camYaw;
     const panim = moving ? PLAYER_ANIM_WALK : PLAYER_ANIM_IDLE;
     updateModelAnimation(animPlayer, panim, playerAnimT, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
