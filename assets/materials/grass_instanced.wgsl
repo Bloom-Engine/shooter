@@ -5,16 +5,13 @@
 // UBO (EN-013); cascade sun shadows from sample_sun_shadow
 // (EN-016).
 //
-// Canonical mesh layout (model space):
-//   v0 (-w, 0, 0) normal=+Z color.r=0  // root left, plane 1
-//   v1 (+w, 0, 0) normal=+Z color.r=0  // root right, plane 1
-//   v2 ( 0, h, 0) normal=+Z color.r=1  // tip, plane 1
-//   v3 ( 0, 0,-w) normal=+X color.r=0  // root left, plane 2
-//   v4 ( 0, 0,+w) normal=+X color.r=0  // root right, plane 2
-//   v5 ( 0, h, 0) normal=+X color.r=1  // tip, plane 2
-// 12 indices = 4 triangles (front + back of each plane). The cross
-// shape covers any horizontal viewing angle even with backface
-// culling on (the Opaque bucket rule for instanced pipelines).
+// Canonical mesh layout (model space) — Round-4: two-segment tapered
+// blades with a bow (root pair → narrower mid pair → tip point, per
+// crossed plane; 10 verts, 36 indices). See GRASS_BLADE_VERTS in
+// main.ts for the authoritative table. color.r is the tip weight
+// (0 root → 0.55 mid → 1 tip). The cross shape covers any horizontal
+// viewing angle even with backface culling on (the Opaque bucket rule
+// for instanced pipelines).
 //
 // IMPORTANT: this file is the source of truth, but the engine's
 // `compileMaterialInstanced` takes a WGSL string (not a path), so
@@ -151,9 +148,14 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let shadow = sample_sun_shadow(in.world_pos);
   let direct = view.sun_color.rgb * direct_w * cloud * shadow;
 
-  // Tip blades catch more sun (real grass: tips bleached, roots
-  // shadowed).
-  let albedo = in.blade_tint * (0.7 + 0.3 * in.tip_weight);
+  // Round-4 — strong root→tip gradient (real grass: roots sit in
+  // shadowed olive-dark, tips are sun-bleached toward straw). The
+  // squared tip weight keeps the lower half dark and lets the top
+  // quarter bloom.
+  let tip2     = in.tip_weight * in.tip_weight;
+  let root_col = in.blade_tint * vec3<f32>(0.42, 0.50, 0.38);
+  let tip_col  = in.blade_tint * vec3<f32>(1.12, 1.08, 0.72);
+  let albedo   = mix(root_col, tip_col, tip2);
 
   // Transmission tint — slightly warmer than albedo for the
   // luminous-leaf look. Strength is grass.base.w.

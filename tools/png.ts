@@ -4,7 +4,7 @@
 // an external image library. Output is a valid PNG that Bloom's texture
 // loader (stb_image → wgpu) accepts.
 
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);
@@ -75,6 +75,97 @@ export function encodePng(width: number, height: number, rgba: Uint8Array): Uint
   out.set(idatChunk, p); p += idatChunk.length;
   out.set(iendChunk, p);
   return out;
+}
+
+// Round-5 — minimal PNG decoder, the read-side counterpart for external
+// scanned textures (ambientCG leaf sets etc.). Supports 8-bit depth,
+// colour types 0 (grey) / 2 (RGB) / 3 (indexed) / 4 (grey+alpha) /
+// 6 (RGBA), non-interlaced. Returns straight (non-premultiplied) RGBA.
+export function decodePng(bytes: Uint8Array): { width: number; height: number; rgba: Uint8Array } {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length < 24 || dv.getUint32(0, false) !== 0x89504e47 || dv.getUint32(4, false) !== 0x0d0a1a0a) {
+    throw new Error('decodePng: not a PNG');
+  }
+  let pos = 8;
+  let width = 0, height = 0, bitDepth = 0, colorType = 0, interlace = 0;
+  let palette: Uint8Array | null = null;
+  let trns: Uint8Array | null = null;
+  const idat: Uint8Array[] = [];
+  while (pos + 8 <= bytes.length) {
+    const len = dv.getUint32(pos, false);
+    const type = String.fromCharCode(bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]);
+    const data = bytes.subarray(pos + 8, pos + 8 + len);
+    if (type === 'IHDR') {
+      width = dv.getUint32(pos + 8, false);
+      height = dv.getUint32(pos + 12, false);
+      bitDepth = bytes[pos + 16];
+      colorType = bytes[pos + 17];
+      interlace = bytes[pos + 20];
+    } else if (type === 'PLTE') palette = data;
+    else if (type === 'tRNS') trns = data;
+    else if (type === 'IDAT') idat.push(data);
+    else if (type === 'IEND') break;
+    pos += 12 + len;
+  }
+  if (bitDepth !== 8) throw new Error('decodePng: only 8-bit depth supported (got ' + bitDepth + ')');
+  if (interlace !== 0) throw new Error('decodePng: interlaced PNGs unsupported');
+  const channels = colorType === 0 ? 1 : colorType === 2 ? 3 : colorType === 3 ? 1
+                 : colorType === 4 ? 2 : colorType === 6 ? 4 : 0;
+  if (channels === 0) throw new Error('decodePng: unsupported colour type ' + colorType);
+  const total = idat.reduce((n, c) => n + c.length, 0);
+  const comp = new Uint8Array(total);
+  { let o = 0; for (const c of idat) { comp.set(c, o); o += c.length; } }
+  const raw = new Uint8Array(inflateSync(comp));
+  const stride = width * channels;
+  const rgba = new Uint8Array(width * height * 4);
+  const prev = new Uint8Array(stride);
+  const cur = new Uint8Array(stride);
+  let rp = 0;
+  for (let y = 0; y < height; y++) {
+    const filter = raw[rp++];
+    cur.set(raw.subarray(rp, rp + stride));
+    rp += stride;
+    // Unfilter in place — cur[i - channels] is already reconstructed
+    // when we reach index i (ascending order).
+    for (let i = 0; i < stride; i++) {
+      const a = i >= channels ? cur[i - channels] : 0;
+      const b = prev[i];
+      const c = i >= channels ? prev[i - channels] : 0;
+      let x = cur[i];
+      if (filter === 1) x = (x + a) & 0xff;
+      else if (filter === 2) x = (x + b) & 0xff;
+      else if (filter === 3) x = (x + ((a + b) >> 1)) & 0xff;
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        x = (x + (pa <= pb && pa <= pc ? a : (pb <= pc ? b : c))) & 0xff;
+      }
+      cur[i] = x;
+    }
+    prev.set(cur);
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      const s = x * channels;
+      if (colorType === 0) {
+        const g = cur[s];
+        rgba[o] = g; rgba[o + 1] = g; rgba[o + 2] = g; rgba[o + 3] = 255;
+      } else if (colorType === 2) {
+        rgba[o] = cur[s]; rgba[o + 1] = cur[s + 1]; rgba[o + 2] = cur[s + 2]; rgba[o + 3] = 255;
+      } else if (colorType === 3) {
+        const idx = cur[s], pi = idx * 3;
+        rgba[o] = palette ? palette[pi] : 0;
+        rgba[o + 1] = palette ? palette[pi + 1] : 0;
+        rgba[o + 2] = palette ? palette[pi + 2] : 0;
+        rgba[o + 3] = trns && idx < trns.length ? trns[idx] : 255;
+      } else if (colorType === 4) {
+        const g = cur[s];
+        rgba[o] = g; rgba[o + 1] = g; rgba[o + 2] = g; rgba[o + 3] = cur[s + 1];
+      } else {
+        rgba[o] = cur[s]; rgba[o + 1] = cur[s + 1]; rgba[o + 2] = cur[s + 2]; rgba[o + 3] = cur[s + 3];
+      }
+    }
+  }
+  return { width, height, rgba };
 }
 
 // -----------------------------------------------------------------------------
@@ -262,14 +353,16 @@ export function leafTexture(size: number): Uint8Array {
   // "zero-centred ±0.3" comment worked around).
   return makeTexture(s, s, (x, y) => {
     const u = x / s, v = y / s;
-    const clump  = fbm(u * 4.5, v * 4.5, 4);   // [0,1] large foliage masses
-    const detail = fbm(u * 22, v * 22, 3);     // [0,1] leaf-scale nibbling
-    // Coverage field: ~60% of the card opaque, organic clumps with real sky
-    // gaps. Zero-centre the noise around the cutoff explicitly.
-    let mask = 0.62 + (clump - 0.5) * 2.4 + (detail - 0.5) * 1.2;
+    const clump  = fbm(u * 3.0, v * 3.0, 3);   // [0,1] large foliage masses
+    const detail = fbm(u * 16, v * 16, 3);     // [0,1] leaf-scale nibbling
+    // Coverage field ~55%, dominated by LOW-frequency clumps so the sky
+    // gaps are a few big contiguous holes per card. Small dithered gaps
+    // disappear once mip levels average the alpha (mean 0.6 > cutoff 0.5
+    // everywhere) — distant cards rendered as solid green sheets.
+    let mask = 0.55 + (clump - 0.5) * 3.2 + (detail - 0.5) * 0.9;
     // Fade the card border to transparent so quads don't show a hard square.
     const edge = Math.min(Math.min(u, 1 - u), Math.min(v, 1 - v));
-    mask *= fade(Math.min(1, edge / 0.12));
+    mask *= fade(Math.min(1, edge / 0.16));
     const a = mask > 0.5 ? 255 : 0;
     // Realistic foliage albedo: deep greens ~sRGB(58,93,31) with warm/cool
     // per-leaf variation, highlights capped well below sRGB 140 so sunlit
