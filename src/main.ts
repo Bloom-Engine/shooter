@@ -211,9 +211,23 @@ setRenderScale(0.5);
 // and keep the two that carry most of the look (sun shadows and bloom).
 //
 // Lumen SW-GI is the big one — it re-bakes an SDF clipmap as the view moves,
-// which is a GPU stall the phone has no headroom to absorb. SSR and GTAO go with
-// it. The arena is sunlit and high-contrast, so it survives losing them; the
-// grass, water and skinned aliens all still read correctly.
+// which is a GPU stall the phone has no headroom to absorb. SSR goes with it.
+//
+// GTAO stays ON. It was cut with the other two at first, but measured on an
+// iPhone 16 Pro it doesn't cost a frame-rate tier: mid-wave the frame sits at
+// 25.0 ms either way (the same ~40 fps), and the title screen holds 60. It buys
+// back the contact shadows that seat the grass, trees and aliens on the ground
+// instead of leaving them looking pasted over it — the cheapest of the three
+// screen-space passes by some margin, and the one with the best return.
+//
+// Read that "free" precisely, though: present mode is Fifo on a 120 Hz panel,
+// so every frame snaps to a multiple of 8.33 ms and GTAO is being absorbed by
+// slack inside a bucket rather than costing nothing. It eats margin. If a
+// heavier wave starts tipping frames from the 25 ms bucket into the 33 ms one,
+// this is the first thing to put back. (Per-pass GPU timings would settle it,
+// but the profiler reports -1 on iOS — the Metal backend doesn't get
+// TIMESTAMP_QUERY — so wall-clock at a fixed point in the wave is the honest
+// instrument here.)
 //
 // Render scale stays at 0.5 (TSR reconstructs to native in the TAA pass), which
 // on a 2622x1206 iPhone means a ~1311x603 internal buffer — the same
@@ -221,7 +235,7 @@ setRenderScale(0.5);
 if (MOBILE) {
   setSsgiEnabled(false);
   setSsrEnabled(false);
-  setSsaoEnabled(false);
+  setSsaoEnabled(true);
   setShadowsEnabled(true);
   setBloomEnabled(true);
   setTaaEnabled(true);
