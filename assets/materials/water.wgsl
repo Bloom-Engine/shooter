@@ -29,6 +29,28 @@ struct VsOut {
   @location(1) world_normal: vec3<f32>,
 };
 
+// Round-9 — shared value noise. Used by the vertex stage (wave-amplitude
+// patches) and the fragment stage (flow-advected micro detail).
+fn hash21(p: vec2<f32>) -> f32 {
+  return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453);
+}
+fn vnoise(p: vec2<f32>) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
+  let a = hash21(i);
+  let b = hash21(i + vec2<f32>(1.0, 0.0));
+  let c = hash21(i + vec2<f32>(0.0, 1.0));
+  let d = hash21(i + vec2<f32>(1.0, 1.0));
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+fn vnoise_grad(p: vec2<f32>) -> vec2<f32> {
+  let e = 0.30;
+  let n0 = vnoise(p);
+  return vec2<f32>(vnoise(p + vec2<f32>(e, 0.0)) - n0,
+                   vnoise(p + vec2<f32>(0.0, e)) - n0) / e;
+}
+
 fn gerstner(
   pos: vec2<f32>, dir: vec2<f32>, wavelength: f32,
   steepness: f32, time: f32,
@@ -59,12 +81,24 @@ fn vs_main(in: VertexInput) -> VsOut {
   var out: VsOut;
   var local = in.position;
   let world_xz = (draw.model * vec4<f32>(local, 1.0)).xz;
-  let t = frame.time;
+  // Round-9 — river-flow rework. The old three-wave set was open-ocean
+  // styled: mixed directions, full gravity-dispersion speed, perfectly
+  // periodic — on a 5 m river it read as a fast train of stripes marching
+  // on rails. Three changes:
+  //   (1) waves run mostly DOWNSTREAM (+X, the river axis) with small
+  //       cross components, like current-driven chop;
+  //   (2) the wave clock runs at 0.55× — river chop doesn't travel at
+  //       ocean-swell dispersion speed;
+  //   (3) a slow drifting value-noise field modulates amplitude, so
+  //       crests swell and die in patches instead of a fixed train.
+  let t = frame.time * 0.55;
+  let amp_field = 0.45 + 1.0 * vnoise(world_xz * vec2<f32>(0.10, 0.28)
+                                      + vec2<f32>(-t * 0.22, 0.0));
   var tangent  = vec3<f32>(1.0, 0.0, 0.0);
   var binormal = vec3<f32>(0.0, 0.0, 1.0);
-  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0,  0.3)), 5.0, 0.25, t, &tangent, &binormal);
-  local = local + gerstner(world_xz, normalize(vec2<f32>( 0.4,  1.0)), 3.5, 0.20, t, &tangent, &binormal);
-  local = local + gerstner(world_xz, normalize(vec2<f32>(-0.5,  0.8)), 2.2, 0.15, t, &tangent, &binormal);
+  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0,  0.18)), 6.0, 0.20 * amp_field, t, &tangent, &binormal);
+  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0, -0.42)), 3.2, 0.16 * amp_field, t, &tangent, &binormal);
+  local = local + gerstner(world_xz, normalize(vec2<f32>( 0.55, 0.85)), 1.9, 0.10 * amp_field, t, &tangent, &binormal);
   let normal = normalize(cross(binormal, tangent));
   let world  = draw.model * vec4<f32>(local, 1.0);
   out.world_pos    = world.xyz;
@@ -75,15 +109,29 @@ fn vs_main(in: VertexInput) -> VsOut {
 
 // Tier 4 — sub-metre normal perturbation in the FRAGMENT, not
 // the vertex. Lets the surface read as crinkled at close range
-// without needing dense tessellation. Three quick sin-noise lobes
-// at different scales + speeds combine into a normal jitter.
+// without needing dense tessellation.
+// Round-9 — the old version was three fixed sin lobes: a perfectly
+// periodic interference grid and the biggest "predictable" tell at
+// close range. Replaced with value-noise gradients advected DOWNSTREAM
+// with the current, sampled at two phases half a cycle apart and
+// cross-faded (flow-map trick) so the advection never visibly stretches
+// or snaps back. Anisotropic frequencies — lower along X than Z — make
+// the detail read as elongated current streaks, not isotropic dimples.
 fn micro_normal(world_xz: vec2<f32>, t: f32) -> vec3<f32> {
-  let p1 = world_xz * 1.7 + vec2<f32>( 0.4 * t,  0.2 * t);
-  let p2 = world_xz * 3.1 + vec2<f32>(-0.3 * t,  0.5 * t);
-  let p3 = world_xz * 6.2 + vec2<f32>( 0.6 * t, -0.4 * t);
-  let nx = sin(p1.x) * 0.5 + sin(p2.y) * 0.3 + sin(p3.x) * 0.15;
-  let nz = cos(p1.y) * 0.5 + cos(p2.x) * 0.3 + cos(p3.y) * 0.15;
-  return normalize(vec3<f32>(nx, 4.0, nz));  // bias toward +Y
+  let flow  = vec2<f32>(1.35, 0.10);   // surface current, m/s (+X downstream)
+  let cyc   = 2.6;                      // seconds per advection cycle
+  let ph_a  = fract(t / cyc);
+  let ph_b  = fract(t / cyc + 0.5);
+  let blend = abs(ph_a * 2.0 - 1.0);    // 1 exactly when phase A resets
+  let uv_a  = world_xz - flow * (ph_a * cyc);
+  let uv_b  = world_xz - flow * (ph_b * cyc) + vec2<f32>(19.7, 7.3);
+  let aniso = vec2<f32>(1.1, 3.0);      // stretch features along the flow
+  let g_a = vnoise_grad(uv_a * aniso) * 0.7
+          + vnoise_grad(uv_a * aniso * 2.6 + vec2<f32>(5.2, 1.3)) * 0.3;
+  let g_b = vnoise_grad(uv_b * aniso) * 0.7
+          + vnoise_grad(uv_b * aniso * 2.6 + vec2<f32>(5.2, 1.3)) * 0.3;
+  let g = mix(g_a, g_b, blend);
+  return normalize(vec3<f32>(-g.x, 3.0, -g.y));  // bias toward +Y
 }
 
 // Round-3 — bilinear sample of the impulse field. The field is a
@@ -167,10 +215,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // sharp bright lines instead of soft blobs. Modulated by column
   // so dry land never gets caustics, and faded at extreme depth
   // where in real water diffraction would scatter them.
-  let cp = in.world_pos.xz;
-  let s1 = sin((cp.x + cp.y) * 3.7 + frame.time * 1.2);
-  let s2 = sin((cp.x - cp.y) * 5.1 + frame.time * 0.9);
-  let s3 = sin( cp.x          * 4.3 + frame.time * 1.5);
+  // Round-9: the pattern drifts downstream with the current and its
+  // internal clock runs slower — matches the calmer wave system.
+  let cp = in.world_pos.xz - vec2<f32>(frame.time * 0.9, 0.0);
+  let ct = frame.time * 0.6;
+  let s1 = sin((cp.x + cp.y) * 3.7 + ct * 1.2);
+  let s2 = sin((cp.x - cp.y) * 5.1 + ct * 0.9);
+  let s3 = sin( cp.x          * 4.3 + ct * 1.5);
   let caustic   = max(s1, max(s2, s3)) * 0.5 + 0.5;       // 0..1
   let caustic_t = smoothstep(0.0, 0.05, column) * (1.0 - smoothstep(0.6, 1.5, column));
   // Round-3: gain 1.4 → 0.5 — at 1.4 the caustics brightened the bed up

@@ -54,14 +54,24 @@ struct VsOut {
   // EN-022 — clip positions for motion vectors.
   @location(4)       curr_clip:    vec4<f32>,
   @location(5)       prev_clip:    vec4<f32>,
+  @location(6)       dist_fade:    f32,
 };
 
 @vertex
 fn vs_main(in: InstancedVertexInput) -> VsOut {
   var out: VsOut;
 
+  // Round-9 anti-grit: sub-pixel-thin distant blades scintillate through
+  // the 0.5 render-scale TSR and read as grit. Widen blades with camera
+  // distance so they stay >= ~1 internal pixel; dist_fade lets the
+  // fragment stage flatten per-blade contrast at range too.
+  let d_cam = length(view.camera_pos.xz - in.instance_pos.xz);
+  let fade  = smoothstep(9.0, 42.0, d_cam);
+  let wide  = 1.0 + fade * 1.6;
+
   // Scale + Y-axis rotate the canonical local position.
-  let scaled = in.position * in.instance_scale;
+  let scaled = vec3<f32>(in.position.x * wide, in.position.y, in.position.z * wide)
+             * in.instance_scale;
   let cy = cos(in.instance_rot_y);
   let sy = sin(in.instance_rot_y);
   let rotated = vec3<f32>(
@@ -93,6 +103,7 @@ fn vs_main(in: InstancedVertexInput) -> VsOut {
   out.world_normal = normalize(n_rot);
   out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);
   out.tip_weight   = tip;
+  out.dist_fade    = fade;
   out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;
 
   // EN-022 — previous-frame position: same sway one frame back
@@ -152,10 +163,16 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // shadowed olive-dark, tips are sun-bleached toward straw). The
   // squared tip weight keeps the lower half dark and lets the top
   // quarter bloom.
-  let tip2     = in.tip_weight * in.tip_weight;
+  // Round-9 anti-grit: at range that gradient plus per-blade tint jitter
+  // alias into speckle. Flatten the gradient and converge on one meadow
+  // tone as dist_fade rises — near grass keeps the full contrast, the
+  // far field reads as a soft carpet.
+  let tip_soft = mix(in.tip_weight * in.tip_weight, 0.42, in.dist_fade * 0.85);
   let root_col = in.blade_tint * vec3<f32>(0.42, 0.50, 0.38);
   let tip_col  = in.blade_tint * vec3<f32>(1.12, 1.08, 0.72);
-  let albedo   = mix(root_col, tip_col, tip2);
+  var albedo   = mix(root_col, tip_col, tip_soft);
+  let meadow   = grass.base.rgb * vec3<f32>(0.78, 0.90, 0.55);
+  albedo       = mix(albedo, meadow, in.dist_fade * 0.55);
 
   // Transmission tint — slightly warmer than albedo for the
   // luminous-leaf look. Strength is grass.base.w.

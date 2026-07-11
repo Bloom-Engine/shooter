@@ -328,11 +328,53 @@ let FOREST_COUNT = 0;
     FOREST_COUNT++;
   }
 }
+// Round-9 — trunk colliders for the scatter forest. The world-authored
+// prop_tree entities carry box colliders from the world file, but these
+// 88 trees never got physics bodies — the player walked straight through
+// them. One slim static box per trunk; the canopy stays shoot-through on
+// purpose. Bullets now ricochet off trunks via the existing ALL_LAYERS
+// raycast, and the orbit camera's NON_MOVING ray already handles trunks.
+for (let i = 0; i < FOREST_COUNT; i++) {
+  const tr = 0.26 * FOREST_SCALE[i];   // half-extent ≈ bark radius at the base
+  const th = 1.6 * FOREST_SCALE[i];    // half-height — trunk only, not canopy
+  const trunkShape = boxShape(vec3(tr, th, tr));
+  createBody(physics, trunkShape, {
+    motionType: MotionType.STATIC,
+    position: vec3(FOREST_X[i], FOREST_Y[i] + th, FOREST_Z[i]),
+    objectLayer: Layer.NON_MOVING,
+    friction: 0.9,
+  });
+}
+
 let treePropIdx = -1;
 let terrainPropIdx = -1;
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   if (W.UNIQUE_MODELS[i] === 'assets/models/prop_tree.glb')     { treePropIdx    = i; }
   if (W.UNIQUE_MODELS[i] === 'assets/models/terrain_hills.glb') { terrainPropIdx = i; }
+}
+
+// Round-9 — flat obstacle-circle list for enemy steering. Enemies are
+// KINEMATIC (steered in XZ, setBodyPosition) so Jolt never resolves their
+// contacts — they need code-side avoidance. Circles cover every tree
+// trunk: the scatter forest plus world-authored prop_tree entities.
+const OBST_MAX = FOREST_COUNT_MAX + 24;
+const OBST_X = new Array<number>(OBST_MAX);
+const OBST_Z = new Array<number>(OBST_MAX);
+const OBST_R = new Array<number>(OBST_MAX);
+let OBST_COUNT = 0;
+for (let i = 0; i < FOREST_COUNT; i++) {
+  OBST_X[OBST_COUNT] = FOREST_X[i];
+  OBST_Z[OBST_COUNT] = FOREST_Z[i];
+  OBST_R[OBST_COUNT] = 0.30 * FOREST_SCALE[i];
+  OBST_COUNT = OBST_COUNT + 1;
+}
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  if (W.MESH_MODEL_IDX[i] === treePropIdx && OBST_COUNT < OBST_MAX) {
+    OBST_X[OBST_COUNT] = W.MESH_X[i];
+    OBST_Z[OBST_COUNT] = W.MESH_Z[i];
+    OBST_R[OBST_COUNT] = 0.30 * W.MESH_SCALE[i];
+    OBST_COUNT = OBST_COUNT + 1;
+  }
 }
 
 // Tier 2a — terrain colour material. Compile via the file-based
@@ -636,10 +678,13 @@ const matWater = matWaterFromFile;
 // exaggerate it (games do) so a shallow column still shifts teal.
 // Rim 0.25 → 0.10 and sky_lod 2.0 → 0.6 both fight the milky wash:
 // less white shoreline paint, sharper sky/cloud reflection.
+// Round-9: micro_strength 0.18 → 0.26 — the shader's micro detail is now
+// flow-advected noise streaks (see water.wgsl) and carries most of the
+// "moving river" read, so it gets a little more normal weight.
 const WATER_PARAMS = [
   2.20, 0.90, 0.60,   0.0,    // absorption per metre
   0.05, 0.18, 0.28,   0.0,    // deep_tint
-  0.50, 0.10,         0.6,   0.18,    // foam / rim / sky_lod / micro_strength
+  0.50, 0.10,         0.6,   0.26,    // foam / rim / sky_lod / micro_strength
 ];
 if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
 
@@ -746,11 +791,19 @@ const GRASS_INSTANCED_WGSL =
   '  @location(3)       tip_weight:   f32,\n' +
   '  @location(4)       curr_clip:    vec4<f32>,\n' +
   '  @location(5)       prev_clip:    vec4<f32>,\n' +
+  '  @location(6)       dist_fade:    f32,\n' +
   '};\n' +
   '\n' +
   '@vertex fn vs_main(in: InstancedVertexInput) -> VsOut {\n' +
   '  var out: VsOut;\n' +
-  '  let scaled = in.position * in.instance_scale;\n' +
+  // Round-9 anti-grit: sub-pixel-thin distant blades scintillate through
+  // the 0.5 render-scale TSR and read as grit. Widen blades with camera
+  // distance so they stay >= ~1 internal pixel; dist_fade lets the
+  // fragment stage flatten per-blade contrast at range too.
+  '  let d_cam = length(view.camera_pos.xz - in.instance_pos.xz);\n' +
+  '  let fade  = smoothstep(9.0, 42.0, d_cam);\n' +
+  '  let wide  = 1.0 + fade * 1.6;\n' +
+  '  let scaled = vec3<f32>(in.position.x * wide, in.position.y, in.position.z * wide) * in.instance_scale;\n' +
   '  let cy = cos(in.instance_rot_y);\n' +
   '  let sy = sin(in.instance_rot_y);\n' +
   '  let rotated = vec3<f32>(cy * scaled.x + sy * scaled.z, scaled.y, -sy * scaled.x + cy * scaled.z);\n' +
@@ -764,6 +817,7 @@ const GRASS_INSTANCED_WGSL =
   '  out.world_normal = normalize(n_rot);\n' +
   '  out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);\n' +
   '  out.tip_weight   = tip;\n' +
+  '  out.dist_fade    = fade;\n' +
   '  out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;\n' +
   // EN-022 — previous-frame sway → real motion vectors (mirrors
   // assets/materials/grass_instanced.wgsl; keep in sync).
@@ -804,10 +858,16 @@ const GRASS_INSTANCED_WGSL =
   '  let cloud  = cloud_shadow(in.world_pos.xz, frame.time);\n' +
   '  let shadow = sample_sun_shadow(in.world_pos);\n' +
   '  let direct = view.sun_color.rgb * direct_w * cloud * shadow;\n' +
-  '  let tip2     = in.tip_weight * in.tip_weight;\n' +
+  // Round-9 anti-grit: at range the strong root→tip gradient plus
+  // per-blade tint jitter alias into speckle. Flatten the gradient and
+  // converge on one meadow tone as dist_fade rises — near grass keeps
+  // the full contrast, the far field reads as a soft carpet.
+  '  let tip_soft = mix(in.tip_weight * in.tip_weight, 0.42, in.dist_fade * 0.85);\n' +
   '  let root_col = in.blade_tint * vec3<f32>(0.42, 0.50, 0.38);\n' +
   '  let tip_col  = in.blade_tint * vec3<f32>(1.12, 1.08, 0.72);\n' +
-  '  let albedo   = mix(root_col, tip_col, tip2);\n' +
+  '  var albedo   = mix(root_col, tip_col, tip_soft);\n' +
+  '  let meadow   = grass.base.rgb * vec3<f32>(0.78, 0.90, 0.55);\n' +
+  '  albedo       = mix(albedo, meadow, in.dist_fade * 0.55);\n' +
   '  let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;\n' +
   // Sky-fill: HDR irradiance sampled straight up (thin blades respond to
   // the sky dome; a fixed direction avoids per-blade ambient flicker from
@@ -838,12 +898,15 @@ if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
 // back of 3 quads/tips per plane). color.r is the tip weight (0 at
 // root → 1 at tip) which the vertex shader uses for wind sway and
 // the fragment shader for the root→tip colour gradient.
-const GB_W0 = 0.045;   // root half-width
-const GB_W1 = 0.026;   // mid half-width
+// Round-9 anti-grit: wider blades (0.045/0.026 → 0.062/0.038) — the old
+// needle-thin cards fell below a pixel a few metres out and the field
+// read as gritty speckle rather than foliage.
+const GB_W0 = 0.062;   // root half-width
+const GB_W1 = 0.038;   // mid half-width
 const GB_H1 = 0.26;    // mid height
-const GB_H2 = 0.50;    // tip height
-const GB_B1 = 0.025;   // bow at mid
-const GB_B2 = 0.075;   // bow at tip
+const GB_H2 = 0.55;    // tip height
+const GB_B1 = 0.028;   // bow at mid
+const GB_B2 = 0.090;   // bow at tip
 const GRASS_BLADE_VERTS: number[] = [
   // Plane 1 (XY plane, normal +Z, bows toward +Z)
   -GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   0,   0,
@@ -898,6 +961,10 @@ let GRASS_INSTANCE_COUNT = 0;
 {
   // Building rect to reject (matches gen-building.ts).
   const BX0 = -30, BX1 = -12, BZ0 = -19, BZ1 = -7;
+  // Round-9b — the clump lattice is rotated 37° off the world axes so
+  // tuft rows can't line up with the view/river/arena edges.
+  const CLUMP_C = Math.cos(0.65);
+  const CLUMP_S = Math.sin(0.65);
   let seed = 0x12345 | 0;
   let wi = 0;
   for (let attempt = 0; attempt < GRASS_INSTANCE_COUNT_MAX * 3 && GRASS_INSTANCE_COUNT < GRASS_INSTANCE_COUNT_MAX; attempt++) {
@@ -911,16 +978,29 @@ let GRASS_INSTANCE_COUNT = 0;
     const r4 = seed / 0x7fffffff;
     seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
     const r5 = seed / 0x7fffffff;
+    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+    const r6 = seed / 0x7fffffff;
     let px = -38 + r1 * 76;
     let pz = -38 + r2 * 76;
-    // Round-4 — clumping: pull each blade 60% toward a per-1.7 m-cell
-    // anchor so the field reads as natural tufts instead of an even
-    // lawn. Pull FIRST, then reject on the pulled position.
-    const cellX = Math.floor(px / 1.7), cellZ = Math.floor(pz / 1.7);
-    const ax = (cellX + 0.2 + hashCell(cellX, cellZ) * 0.6) * 1.7;
-    const az = (cellZ + 0.2 + hashCell(cellZ, cellX) * 0.6) * 1.7;
-    px = px + (ax - px) * 0.6;
-    pz = pz + (az - pz) * 0.6;
+    // Round-4 — clumping: pull each blade toward a per-1.7 m-cell anchor
+    // so the field reads as natural tufts instead of an even lawn. Pull
+    // FIRST, then reject on the pulled position.
+    // Round-9b — de-grid the tufts. The anchors were one per AXIS-ALIGNED
+    // cell, jittered across only the middle 60% of it — at grazing angles
+    // the tufts read as straight rows of stumps. Now the cell lookup runs
+    // in the rotated frame, anchors jitter across the FULL cell (with two
+    // decorrelated hashes), and ~22% of blades stay loose between tufts
+    // so the lattice never shows through.
+    const qx = px * CLUMP_C - pz * CLUMP_S;
+    const qz = px * CLUMP_S + pz * CLUMP_C;
+    const cellX = Math.floor(qx / 1.7), cellZ = Math.floor(qz / 1.7);
+    const aqx = (cellX + hashCell(cellX, cellZ)) * 1.7;
+    const aqz = (cellZ + hashCell(cellX + 137, cellZ - 91)) * 1.7;
+    const ax =  aqx * CLUMP_C + aqz * CLUMP_S;
+    const az = -aqx * CLUMP_S + aqz * CLUMP_C;
+    const pull = r6 < 0.22 ? 0.12 : 0.65;
+    px = px + (ax - px) * pull;
+    pz = pz + (az - pz) * pull;
     if (px > BX0 && px < BX1 && pz > BZ0 && pz < BZ1) continue;
     if (Math.abs(pz - 12) < 3.5 && Math.abs(px) < 40) continue;
     // Bilinear heightmap sample.
@@ -942,7 +1022,10 @@ let GRASS_INSTANCE_COUNT = 0;
     // green and tall. Plus per-blade jitter on top.
     const moist = moistureNoise(px * 0.085, pz * 0.085);
     const dry   = Math.max(0, Math.min(1, (0.55 - moist) * 3.0));
-    const jit   = (r5 - 0.5) * 0.16;
+    // Round-9: jitter 0.16 → 0.10 — per-blade hue speckle was a big part
+    // of the gritty read; the moisture patches carry the large-scale
+    // variation on their own.
+    const jit   = (r5 - 0.5) * 0.10;
     GRASS_INSTANCES[wi++] = px;
     GRASS_INSTANCES[wi++] = py;
     GRASS_INSTANCES[wi++] = pz;
@@ -1235,6 +1318,21 @@ const enPhase = new Array<number>(MAX_ENEMIES);        // walk-cycle phase accum
 const enDying    = new Array<number>(MAX_ENEMIES);     // 1 = death anim in progress
 const enDeathT   = new Array<number>(MAX_ENEMIES);     // seconds since the kill
 const enDeathYaw = new Array<number>(MAX_ENEMIES);     // facing frozen at death
+// Round-9 AI overhaul — per-enemy steering state (flat arrays, Perry
+// convention). Each kind runs its own little state machine in the AI
+// block; these carry it between frames.
+const AI_APPROACH = 0;   // close on the player (kind-specific flavour)
+const AI_ORBIT    = 1;   // mantis: circle-strafe at ring distance
+const AI_WINDUP   = 2;   // dragoon: rooted pounce telegraph
+const AI_CHARGE   = 3;   // mantis dart / dragoon pounce — locked direction
+const AI_RECOVER  = 4;   // post-attack back-off / cooldown creep
+const enAIState  = new Array<number>(MAX_ENEMIES);
+const enStateT   = new Array<number>(MAX_ENEMIES);   // seconds left in state
+const enOrbitDir = new Array<number>(MAX_ENEMIES);   // ±1 — circle/flank side
+const enChargeX  = new Array<number>(MAX_ENEMIES);   // locked charge direction
+const enChargeZ  = new Array<number>(MAX_ENEMIES);
+const enHeading  = new Array<number>(MAX_ENEMIES);   // smoothed facing yaw
+const enSpeedMul = new Array<number>(MAX_ENEMIES);   // tyrant momentum
 const enBody: BodyHandle[] = new Array<BodyHandle>(MAX_ENEMIES);
 for (let k = 0; k < KIND_COUNT; k++) {
   const shape = boxShape(vec3(KIND_HX[k], KIND_HY[k], KIND_HZ[k]));
@@ -1249,6 +1347,13 @@ for (let k = 0; k < KIND_COUNT; k++) {
     enDying[i] = 0;
     enDeathT[i] = 0;
     enDeathYaw[i] = 0;
+    enAIState[i] = AI_APPROACH;
+    enStateT[i] = 0;
+    enOrbitDir[i] = (i & 1) === 0 ? 1 : -1;
+    enChargeX[i] = 0;
+    enChargeZ[i] = 1;
+    enHeading[i] = 0;
+    enSpeedMul[i] = 1;
     enBody[i] = createBody(physics, shape, {
       motionType: MotionType.KINEMATIC,
       position: vec3(0, -100, 0),
@@ -1303,6 +1408,18 @@ function terrainHeightAt(x: number, z: number): number {
   return T.TERRAIN_ORIGIN_Y + h0 + (h1 - h0) * tz;
 }
 
+// Shortest-arc turn toward a target yaw, clamped to maxStep radians.
+// Keeps enemy headings continuous so models wheel around instead of
+// snapping 180°.
+function turnToward(cur: number, target: number, maxStep: number): number {
+  let d = target - cur;
+  while (d > Math.PI)  d = d - Math.PI * 2;
+  while (d < -Math.PI) d = d + Math.PI * 2;
+  if (d >  maxStep) d =  maxStep;
+  if (d < -maxStep) d = -maxStep;
+  return cur + d;
+}
+
 function countAlive(): number {
   let c = 0;
   for (let i = 0; i < MAX_ENEMIES; i++) if (enAlive[i] > 0) c = c + 1;
@@ -1332,6 +1449,14 @@ function spawnEnemy(): void {
   enAttackCD[slot] = 0;
   enFlashT[slot] = 0;
   enPhase[slot] = Math.random() * Math.PI * 2;
+  enAIState[slot] = AI_APPROACH;
+  enStateT[slot] = 0.5 + Math.random();          // stagger first specials
+  enOrbitDir[slot] = Math.random() < 0.5 ? -1 : 1;
+  enChargeX[slot] = 0;
+  enChargeZ[slot] = 1;
+  enSpeedMul[slot] = 1;
+  // Spawners sit at the arena corners — start facing the middle.
+  enHeading[slot] = Math.atan2(-enX[slot], enZ[slot]);
   setBodyPosition(enBody[slot],
     vec3(enX[slot], enY[slot] + KIND_Y_OFF[kind], enZ[slot]), true);
   waveSpawned = waveSpawned + 1;
@@ -1561,6 +1686,15 @@ const WATERTEST = false;
 // includes several seconds of asset loading, so timings are relative to
 // the moment the harness starts the run.
 let waterTestT0 = -1;
+
+// ---- AITEST harness (temporary diagnostic) ----------------------------------
+// Round-9 AI verification: auto-starts the run, keeps the player alive and
+// stationary, and logs each live enemy's kind / AI state / distance once a
+// second so an external batch run can confirm the per-kind state machines
+// (dretch weave, mantis orbit→dart→recover, dragoon windup→charge) actually
+// cycle. Same dormancy contract as SELFTEST/WATERTEST/PERFTEST: MUST be
+// false in shipped builds.
+const AITEST = false;
 
 // ---- PERFTEST harness (temporary diagnostic) --------------------------------
 // Bisects the fullscreen slowdown: measures wall-clock FPS over 120-frame
@@ -1882,6 +2016,32 @@ while (!windowShouldClose()) {
       if ((testFrame % 120) === 0) console.log('WATERTEST fps=' + getFPS());
     }
   }
+  // AITEST — see the harness block above WATERTEST.
+  if (AITEST) {
+    if (testFrame === 20 && gameState === 0) {
+      gameState = 1;
+      stopMusic(musicMenu);
+      playMusic(musicAmbient);
+    }
+    playerHP = PLAYER_HP_MAX;   // immortal observer
+    gameOver = false;
+    CAM[0] = 0;
+    CAM[1] = 0.55;              // high-ish pitch — survey the field
+    input.moveX = 0;
+    input.moveZ = 0;
+    if (gameState === 1 && (testFrame % 60) === 0) {
+      const ppT = playerPosition();
+      let line = 'AITEST f=' + testFrame;
+      for (let i = 0; i < MAX_ENEMIES; i++) {
+        if (enAlive[i] === 0) continue;
+        const dT = Math.hypot(ppT.x - enX[i], ppT.z - enZ[i]);
+        line = line + ' [' + i + ':k' + enKind[i] + ' st' + enAIState[i]
+             + ' d' + dT.toFixed(1)
+             + ' x' + enX[i].toFixed(1) + ' z' + enZ[i].toFixed(1) + ']';
+      }
+      console.log(line);
+    }
+  }
   // Only apply mouse look when cursor is captured — avoids jumpy yaw/pitch
   // when the user is moving the mouse outside the window. The first ~10
   // frames after window creation often report giant mouse deltas (system
@@ -1994,32 +2154,219 @@ while (!windowShouldClose()) {
   }
   playerAnimT = playerAnimT + dt;
 
-  // ---- Enemy AI + wave director (M5 / M6) -------------------------------
+  // ---- Enemy AI + wave director (M5 / M6, Round-9 rework) ---------------
+  // Old behaviour was a straight beeline + melee — every kind identical.
+  // Now each kind runs its own steering flavour + state machine:
+  //   dretch   — skittering swarm: full speed but weaving hard around the
+  //              direct line, so packs wash around the player.
+  //   mantis   — circler: orbits at ~7 m, darts in for one hit, backs off.
+  //   marauder — flanker: approaches on a wide curve toward your side.
+  //   dragoon  — pouncer: rooted 0.65 s telegraph (roar), then a locked-
+  //              direction 3.4× charge you can sidestep.
+  //   tyrant   — bulldozer: momentum builds in a straight line but the
+  //              turn rate is capped, so dodging works and it has to
+  //              wheel around after an overrun.
+  // Shared: pairwise separation (no model-pile), trunk-circle avoidance
+  // (enemies are kinematic — Jolt won't resolve their contacts), terrain
+  // following, and a turn-rate-limited heading the draw code renders.
   if (gameState === 1 && !gameOver && !gameWon) {
     const pp = playerPosition();
+    const tAI = getTime();
     for (let i = 0; i < MAX_ENEMIES; i++) {
       if (enAlive[i] === 0) continue;
       const k = enKind[i];
       const dx = pp.x - enX[i];
       const dz = pp.z - enZ[i];
       const dist = Math.sqrt(dx * dx + dz * dz);
-      if (dist > KIND_MELEE[k]) {
-        const step = KIND_SPEED[k] * dt;
-        const move = step < dist ? step : dist;
-        enX[i] = enX[i] + (dx / dist) * move;
-        enZ[i] = enZ[i] + (dz / dist) * move;
-        // Follow the terrain surface — enemies are steered in XZ, so
-        // their Y must track the heightfield or they walk into hills.
-        enY[i] = terrainHeightAt(enX[i], enZ[i]);
-        setBodyPosition(enBody[i],
-          vec3(enX[i], enY[i] + KIND_Y_OFF[k], enZ[i]), true);
-      } else if (enAttackCD[i] <= 0) {
+      const invD = dist > 0.001 ? 1 / dist : 0;
+      const toPX = dx * invD;                    // unit vector to the player
+      const toPZ = dz * invD;
+      if (enStateT[i] > 0) enStateT[i] = enStateT[i] - dt;
+
+      // Steering output: desired velocity (m/s) + what to face.
+      let vx = 0;
+      let vz = 0;
+      let faceX = toPX;
+      let faceZ = toPZ;
+
+      if (k === 0) {
+        // DRETCH — weave amplitude fades out inside 6 m so the final
+        // lunge still connects; i*2.399 desyncs pack members.
+        const weave = Math.sin(tAI * 3.0 + i * 2.399) * 0.85
+                    * Math.min(1, Math.max(0, (dist - 2.5) / 4));
+        const cw = Math.cos(weave), sw = Math.sin(weave);
+        if (dist > KIND_MELEE[k] * 0.85) {
+          vx = (toPX * cw - toPZ * sw) * KIND_SPEED[k] * 1.15;
+          vz = (toPX * sw + toPZ * cw) * KIND_SPEED[k] * 1.15;
+        }
+      } else if (k === 1) {
+        // MANTIS — approach → orbit → dart → back off.
+        if (enAIState[i] === AI_APPROACH) {
+          if (dist < 9) {
+            enAIState[i] = AI_ORBIT;
+            enStateT[i] = 1.2 + Math.random() * 1.4;
+          } else {
+            vx = toPX * KIND_SPEED[k];
+            vz = toPZ * KIND_SPEED[k];
+          }
+        } else if (enAIState[i] === AI_ORBIT) {
+          // Tangential motion + gentle spring toward the 7 m ring.
+          const inward = Math.max(-1, Math.min(1, (dist - 7) * 0.3));
+          vx = (-toPZ * enOrbitDir[i] + toPX * inward) * KIND_SPEED[k] * 0.9;
+          vz = ( toPX * enOrbitDir[i] + toPZ * inward) * KIND_SPEED[k] * 0.9;
+          if (dist > 14) enAIState[i] = AI_APPROACH;
+          else if (enStateT[i] <= 0) {
+            enAIState[i] = AI_CHARGE;              // dart in
+            enStateT[i] = 1.1;
+            enChargeX[i] = toPX;
+            enChargeZ[i] = toPZ;
+          }
+        } else if (enAIState[i] === AI_CHARGE) {
+          // Mostly locked, slight homing so it isn't trivially cheesed.
+          const hx = enChargeX[i] * 0.8 + toPX * 0.2;
+          const hz = enChargeZ[i] * 0.8 + toPZ * 0.2;
+          const hl = Math.sqrt(hx * hx + hz * hz);
+          enChargeX[i] = hx / hl;
+          enChargeZ[i] = hz / hl;
+          vx = enChargeX[i] * KIND_SPEED[k] * 1.85;
+          vz = enChargeZ[i] * KIND_SPEED[k] * 1.85;
+          faceX = enChargeX[i]; faceZ = enChargeZ[i];
+          if (enStateT[i] <= 0) { enAIState[i] = AI_RECOVER; enStateT[i] = 0.8; }
+        } else {
+          // AI_RECOVER — back away facing the player, then re-approach.
+          vx = (-toPX + -toPZ * enOrbitDir[i] * 0.5) * KIND_SPEED[k] * 0.8;
+          vz = (-toPZ +  toPX * enOrbitDir[i] * 0.5) * KIND_SPEED[k] * 0.8;
+          if (enStateT[i] <= 0) enAIState[i] = AI_APPROACH;
+        }
+      } else if (k === 2) {
+        // MARAUDER — flank: aim beside the player, the offset shrinking
+        // as it closes, so it comes in on a curve toward your side.
+        const m = Math.min(6, Math.max(0, dist - 3) * 0.5);
+        const aimX = pp.x - toPZ * enOrbitDir[i] * m - enX[i];
+        const aimZ = pp.z + toPX * enOrbitDir[i] * m - enZ[i];
+        const al = Math.sqrt(aimX * aimX + aimZ * aimZ);
+        if (dist > KIND_MELEE[k] * 0.85 && al > 0.001) {
+          vx = (aimX / al) * KIND_SPEED[k];
+          vz = (aimZ / al) * KIND_SPEED[k];
+        }
+      } else if (k === 3) {
+        // DRAGOON — pounce with a rooted, audible telegraph.
+        if (enAIState[i] === AI_APPROACH) {
+          if (dist > KIND_MELEE[k] * 0.9) {
+            vx = toPX * KIND_SPEED[k];
+            vz = toPZ * KIND_SPEED[k];
+          }
+          if (dist < 12 && dist > 4.5 && enStateT[i] <= 0) {
+            enAIState[i] = AI_WINDUP;
+            enStateT[i] = 0.65;
+            playSound3D(sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);  // roar
+          }
+        } else if (enAIState[i] === AI_WINDUP) {
+          // Rooted — the player's dodge window.
+          if (enStateT[i] <= 0) {
+            enAIState[i] = AI_CHARGE;
+            enStateT[i] = 1.2;
+            enChargeX[i] = toPX;
+            enChargeZ[i] = toPZ;
+          }
+        } else if (enAIState[i] === AI_CHARGE) {
+          vx = enChargeX[i] * KIND_SPEED[k] * 3.4;   // fully locked — dodgeable
+          vz = enChargeZ[i] * KIND_SPEED[k] * 3.4;
+          faceX = enChargeX[i]; faceZ = enChargeZ[i];
+          if (dist <= KIND_MELEE[k] || enStateT[i] <= 0) {
+            enAIState[i] = AI_RECOVER;
+            enStateT[i] = 1.4;
+          }
+        } else {
+          // AI_RECOVER — winded: creep, then re-arm the pounce.
+          if (dist > KIND_MELEE[k] * 0.9) {
+            vx = toPX * KIND_SPEED[k] * 0.6;
+            vz = toPZ * KIND_SPEED[k] * 0.6;
+          }
+          if (enStateT[i] <= 0) {
+            enAIState[i] = AI_APPROACH;
+            enStateT[i] = 1.5 + Math.random();       // pounce cooldown
+          }
+        }
+      } else {
+        // TYRANT — heading-locked momentum. Speed builds only while the
+        // player sits near its nose; hard turns bleed it off, so a
+        // sidestep leaves 3+ tons wheeling around for another pass.
+        const tgtYaw = Math.atan2(toPX, -toPZ);
+        enHeading[i] = turnToward(enHeading[i], tgtYaw, 1.5 * dt);
+        let err = tgtYaw - enHeading[i];
+        while (err > Math.PI)  err = err - Math.PI * 2;
+        while (err < -Math.PI) err = err + Math.PI * 2;
+        const aligned = Math.cos(err);
+        const accel = aligned > 0.8 ? 0.55 : -1.4;
+        enSpeedMul[i] = Math.max(0.7, Math.min(2.6, enSpeedMul[i] + accel * dt));
+        const hdX = Math.sin(enHeading[i]);
+        const hdZ = -Math.cos(enHeading[i]);
+        if (dist > KIND_MELEE[k] * 0.8 || aligned < 0.5) {
+          vx = hdX * KIND_SPEED[k] * enSpeedMul[i];
+          vz = hdZ * KIND_SPEED[k] * enSpeedMul[i];
+        }
+        faceX = hdX; faceZ = hdZ;
+      }
+
+      // Separation — pack members shoulder each other apart instead of
+      // stacking into one model pile.
+      for (let j = 0; j < MAX_ENEMIES; j++) {
+        if (j === i || enAlive[j] === 0) continue;
+        const sx = enX[i] - enX[j];
+        const sz = enZ[i] - enZ[j];
+        const sd2 = sx * sx + sz * sz;
+        const minS = (KIND_HX[k] + KIND_HX[enKind[j]]) * 0.7;
+        if (sd2 < minS * minS && sd2 > 0.0001) {
+          const sd = Math.sqrt(sd2);
+          const push = ((minS - sd) / minS) * 3.0;
+          vx = vx + (sx / sd) * push;
+          vz = vz + (sz / sd) * push;
+        }
+      }
+
+      // Integrate, then slide the tentative position out of any trunk
+      // circle — projection keeps the tangential component, so enemies
+      // skim around trees instead of head-butting them.
+      let nx = enX[i] + vx * dt;
+      let nz = enZ[i] + vz * dt;
+      const bodyR = KIND_HX[k] * 0.55;
+      for (let o = 0; o < OBST_COUNT; o++) {
+        const odx = nx - OBST_X[o];
+        const odz = nz - OBST_Z[o];
+        const minD = OBST_R[o] + bodyR;
+        const od2 = odx * odx + odz * odz;
+        if (od2 < minD * minD && od2 > 0.000001) {
+          const od = Math.sqrt(od2);
+          nx = OBST_X[o] + (odx / od) * minD;
+          nz = OBST_Z[o] + (odz / od) * minD;
+        }
+      }
+      enX[i] = nx;
+      enZ[i] = nz;
+      // Follow the terrain surface — enemies are steered in XZ, so
+      // their Y must track the heightfield or they walk into hills.
+      enY[i] = terrainHeightAt(nx, nz);
+      setBodyPosition(enBody[i],
+        vec3(nx, enY[i] + KIND_Y_OFF[k], nz), true);
+
+      // Turn-rate-limited facing (tyrant already steered its own).
+      if (k !== 4) {
+        const wantYaw = Math.atan2(faceX, -faceZ);
+        enHeading[i] = turnToward(enHeading[i], wantYaw, 7.0 * dt);
+      }
+
+      // Melee — hit-and-run kinds break off after connecting.
+      if (dist <= KIND_MELEE[k] && enAttackCD[i] <= 0 &&
+          enAIState[i] !== AI_WINDUP) {
         playerHP = playerHP - KIND_DMG[k];
         damageFlashT = 0.5;
         enAttackCD[i] = KIND_CD[k];
         // Per-kind bite/claw at the attacker's position + an armored
         // pain grunt (alternating variants; heavy one when it kills).
         playSound3D(sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
+        if (k === 1) { enAIState[i] = AI_RECOVER; enStateT[i] = 1.3; }
+        if (k === 3) { enAIState[i] = AI_RECOVER; enStateT[i] = 1.4; }
         if (playerHP <= 0) {
           playerHP = 0;
           if (!gameOver) playSound(sfxPlayerDie[i & 1]);
@@ -2156,8 +2503,10 @@ while (!windowShouldClose()) {
               enAlive[i] = 0;
               enDying[i] = 1;
               enDeathT[i] = 0;
-              const pk = playerPosition();
-              enDeathYaw[i] = Math.atan2(pk.x - enX[i], -(pk.z - enZ[i]));
+              // Round-9: freeze the AI heading — a dragoon killed
+              // mid-charge collapses along its charge line, not
+              // snapped around toward the player.
+              enDeathYaw[i] = enHeading[i];
               setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
               // Per-kind death screech, positional, variant by slot.
               playSound3D(sfxAlienDie[enKind[i] * 3 + (i % 3)],
@@ -2215,8 +2564,8 @@ while (!windowShouldClose()) {
             enAlive[j] = 0;
             enDying[j] = 1;
             enDeathT[j] = 0;
-            const pk2 = playerPosition();
-            enDeathYaw[j] = Math.atan2(pk2.x - enX[j], -(pk2.z - enZ[j]));
+            // Round-9: freeze the AI heading (see the rifle kill path).
+            enDeathYaw[j] = enHeading[j];
             setBodyPosition(enBody[j], vec3(enX[j], -100, enZ[j]), false);
             playSound3D(sfxAlienDie[enKind[j] * 3 + (j % 3)],
                         enX[j], enY[j] + 1, enZ[j]);
@@ -2498,15 +2847,18 @@ while (!windowShouldClose()) {
     const k = enKind[i];
     const dxA = ppAim.x - enX[i];
     const dzA = ppAim.z - enZ[i];
-    // Yaw such that forward = (sin, -cos) points toward the player.
-    const faceYaw = Math.atan2(dxA, -dzA);
-    const attacking = Math.hypot(dxA, dzA) <= KIND_MELEE[k];
+    // Round-9: render the AI's turn-rate-limited heading instead of
+    // hard-facing the player — circling mantises and charging dragoons
+    // now face where they're actually going. Windup counts as attacking
+    // so the dragoon's pounce telegraph reads on the model.
+    const attacking = Math.hypot(dxA, dzA) <= KIND_MELEE[k] ||
+                      enAIState[i] === AI_WINDUP;
     const animIdx = attacking ? ANIM_ATTACK_IDX[k] : ANIM_WALK_IDX[k];
     // Same engine quirk as the player model (see modelYaw above): the
     // skinned path applies rotY INVERTED, so pass π/2 − yaw or the
     // aliens strafe sideways-on toward the player.
     updateModelAnimation(animAliens[k], animIdx, enPhase[i], KIND_SCALE[k],
-      enX[i], enY[i], enZ[i], Math.PI / 2 - faceYaw);
+      enX[i], enY[i], enZ[i], Math.PI / 2 - enHeading[i]);
     const f = enFlashT[i] > 0 ? enFlashT[i] / DRETCH_HIT_FLASH : 0;
     const tint = f > 0
       ? { r: 255,
