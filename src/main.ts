@@ -17,7 +17,7 @@ import {
   setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
-  createPlanarReflection, setMaterialReflectionProbe,
+  createPlanarReflection, setMaterialReflectionProbe, setMaterialProbeVisible,
 } from 'bloom';
 import {
   setVignette, setFilmGrain,
@@ -888,6 +888,9 @@ const GRASS_PARAMS = [
   0.30, 0.42, 0.20,  0.40,
 ];
 if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
+// Blades are sub-pixel in the 512² water probe but cost the full 20k-
+// instance vertex + raster pass there — skip grass in reflections.
+if (matGrass > 0) setMaterialProbeVisible(matGrass, false);
 
 // Canonical blade mesh — Round-4: two-segment tapered blades with a
 // bow, instead of the old single hard triangle (which read as plastic
