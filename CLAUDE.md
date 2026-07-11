@@ -122,18 +122,51 @@ the view moves, and the phone has no headroom to absorb the stall.
 
 ## World pipeline
 
-`assets/worlds/<name>.world.json` is authored by hand (later: by the
-bloom editor). Every `npm run dev` re-runs `tools/build-world.ts`,
-which buckets entities by `userData.kind` and emits a Perry-safe
-TypeScript module of parallel flat arrays at `src/generated/world.ts`.
-Perry can't parse JSON at runtime (arrays from `JSON.parse` have no
-`.length`), so the generator is a hard requirement — never import the
-JSON directly. Supported kinds today: `player_spawn`, `collider_box`,
-`static_mesh` (with optional box collider + tag-driven paint
-category), `prop_tree`, `point_light`, `enemy_spawner`,
-`weapon_pickup`, `wave_config`. Water volumes and environment settings
-come from the top-level fields. Adding a new kind = add a bucket in
-`tools/build-world.ts` + consume the generated arrays in `main.ts`.
+**The world is loaded at runtime.** `src/world-runtime.ts` reads
+`assets/worlds/arena_02.world.json` at startup via the engine's
+`loadWorld`, and exposes it as the flat number arrays the game loop
+consumes. There is no `src/generated/` any more, and no bake step:
+edit a level in the Bloom editor, relaunch, and it is there.
+
+(The old `tools/build-world.ts` baker existed because Perry 0.4.x
+returned arrays from `JSON.parse` whose `.length` read as undefined.
+That is fixed — verified on 0.5.1208 — so the workaround is gone. The
+two Perry rules that still bind: build arrays with `new Array(n)` +
+index assignment, never `.push()`; and parse strings at load, never on
+a per-frame path.)
+
+What lives in the world file:
+
+- **Engine concepts, first-class**: `environment` (sky/sun/ambient/fog),
+  `lights` (schema v2 — point lights are engine-universal, so they are
+  not `userData`), `water`, `rivers`, `terrain` (the authored
+  heightmap: physics, enemy ground-following, and the scatters all read
+  it directly).
+- **Game concepts, in `userData.kind`**: `player_spawn`, `collider_box`,
+  `static_mesh` (optional box collider + tag-driven paint category),
+  `prop_tree` (the forest — 88 real entities, each movable), 
+  `enemy_spawner`, `weapon_pickup`, `wave_config`. A spawner means
+  nothing without this game, so it stays game-defined; the editor
+  round-trips it as opaque key/values.
+
+Adding a new kind = bucket it in `src/world-runtime.ts` and consume the
+array in `main.ts`. Nothing to regenerate.
+
+### What is still derived rather than authored
+
+- **The terrain's visual mesh** (`assets/models/terrain_hills.glb`) is
+  built from `world.terrain` by `bun tools/build-terrain.ts`, which also
+  adds the horizon "skirt" outside the arena. Sculpt in the editor →
+  save → re-run that one command → the visuals follow. Physics and
+  height queries need no rebuild; they read the world file.
+- **The grass** (20k instances) is scattered at startup. Its keep-out
+  shapes — water, building footprint — are *derived from the world data*
+  (`W.keepOut`), not hardcoded rectangles as before: move the river in
+  the editor and the grass moves with it.
+- **Seeding tools**, run once, not part of the build:
+  `bake-terrain-to-world.ts` (heightmap from the procedural recipe in
+  `terrain-shape.ts`) and `bake-forest-to-world.ts` (the 88 trees).
+  Re-running either OVERWRITES editor work on that data.
 
 ## Conventions
 

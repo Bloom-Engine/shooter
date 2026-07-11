@@ -214,5 +214,5 @@ if (printOnly) {
   console.log(`Wrote ${WORLD_PATH}`);
   console.log(`  removed ${before - (reparsed.entities.length - out.length)} previous h_* entities`);
   console.log(`  added   ${out.length} new (count=${reparsed.entities.length})`);
-  console.log(`  re-run \`npm run world\` to regenerate src/generated/world.ts`);
+  console.log(`  the game reads the world file directly — just relaunch`);
 }

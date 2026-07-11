@@ -1,117 +1,90 @@
-// Procedural terrain GLB generator.
+// Terrain mesh generator — builds assets/models/terrain_hills.glb.
 //
-// Builds assets/models/terrain_hills.glb — a heightmap-driven triangle mesh
-// covering 80 × 80 m with procedural hills. Single PBR material (grassy
-// green). The generated mesh has per-vertex flat-ish normals computed from
-// neighbour heights. The shooter uses this as the world ground; collisions
-// are approximated with box colliders per hill (still declared in the world
-// file) because Jolt heightfield shapes aren't wired to the FFI yet.
+//   bun tools/build-terrain.ts [assets/worlds/arena_02.world.json]
 //
-// Run with:  bun tools/build-terrain.ts    (from the shooter repo root)
+// The arena's heights are NOT invented here any more: they are read from
+// `world.terrain` in the world file, which is what the game loads for physics
+// and what the editor sculpts. This tool turns those heights into the textured
+// visual mesh, and extends them outward with a procedural "skirt" of hills that
+// hides the horizon (nothing walks out there, and the physics heightfield does
+// not cover it, so the skirt is derived rather than authored).
+//
+// So: sculpt in the editor → save → re-run this → the visuals follow. Physics
+// and terrain-height queries need no rebuild at all; they read the world file
+// directly at startup.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { encodePng, grassTexture, heightToNormal } from './png';
+import { skirtHeightAt, ARENA_HALF, EXTENT_HALF } from './terrain-shape';
 
 const OUT_GLB = 'assets/models/terrain_hills.glb';
-const OUT_TS  = 'src/generated/terrain.ts';
+const WORLD_PATH = process.argv[2] || 'assets/worlds/arena_02.world.json';
 
-// Grid parameters. The gameplay arena spans ±ARENA_HALF (colliders, physics
-// heightfield, spawn logic all assume 80 × 80 m — unchanged). The VISUAL mesh
-// extends to ±EXTENT_HALF with a "skirt" of rolling hills that rise with
-// distance, so from gameplay eye height the horizon line (and the dark
-// below-horizon procedural sky) is always hidden behind terrain instead of
-// the world ending on a hard edge over a void. 256 × 256 cells ≈ 1.1 m
-// spacing = 65 k verts / 130 k tris — still one draw call.
+// Visual mesh: 256 × 256 over ±EXTENT_HALF ≈ 1.1 m spacing = 65 k verts /
+// 130 k tris, still one draw call. Finer than the authored heightmap on
+// purpose — the extra vertices carry the skirt and keep the silhouette smooth.
 const WIDTH = 256;
 const DEPTH = 256;
-const ARENA_HALF  = 40;    // gameplay arena half-extent (must stay 40)
-const EXTENT_HALF = 140;   // visual mesh half-extent incl. skirt
 const CELL = (EXTENT_HALF * 2) / (WIDTH - 1);
 const ORIGIN_X = -EXTENT_HALF;
 const ORIGIN_Z = -EXTENT_HALF;
 
-const PHYS_WIDTH = 64;                                       // 64 × 64 = 4096 samples
-const PHYS_CELL  = (ARENA_HALF * 2) / (PHYS_WIDTH - 1);      // ≈ 1.27 m per cell
-const PHYS_ORIGIN = -ARENA_HALF;                             // physics grid covers the arena only
+// ---- authored heights from the world file ------------------------------------
 
-// Two axis-aligned "hill" centres plus a long ridge. The plaza itself (a
-// ring around the origin with radius 15 m) stays flat so gameplay colliders
-// line up with the world file. Values are hand-tuned for something
-// believable without going over 3 m tall.
+interface TerrainData {
+  width: number;
+  depth: number;
+  cellSize: number;
+  origin: [number, number, number];
+  heights: number[];
+}
+
+const world = JSON.parse(readFileSync(WORLD_PATH, 'utf8'));
+const terrain: TerrainData | null = world.terrain || null;
+if (!terrain) {
+  console.error(
+    `${WORLD_PATH} has no terrain. Seed it first:
+` +
+    `  bun tools/bake-terrain-to-world.ts ${WORLD_PATH}`,
+  );
+  process.exit(1);
+}
+console.log(
+  `terrain from ${WORLD_PATH}: ${terrain.width}×${terrain.depth} @ ` +
+  `${terrain.cellSize.toFixed(4)} m`,
+);
+
+// Bilinear sample of the authored grid, clamped at the edges so the skirt has a
+// continuous base to rise from.
+function sampleWorldHeight(x: number, z: number): number {
+  const t = terrain as TerrainData;
+  const fx = (x - t.origin[0]) / t.cellSize;
+  const fz = (z - t.origin[2]) / t.cellSize;
+
+  const cx = Math.min(Math.max(fx, 0), t.width - 1.001);
+  const cz = Math.min(Math.max(fz, 0), t.depth - 1.001);
+
+  const x0 = Math.floor(cx);
+  const z0 = Math.floor(cz);
+  const tx = cx - x0;
+  const tz = cz - z0;
+
+  const h00 = t.heights[z0 * t.width + x0];
+  const h10 = t.heights[z0 * t.width + x0 + 1];
+  const h01 = t.heights[(z0 + 1) * t.width + x0];
+  const h11 = t.heights[(z0 + 1) * t.width + x0 + 1];
+
+  const h0 = h00 + (h10 - h00) * tx;
+  const h1 = h01 + (h11 - h01) * tx;
+  return t.origin[1] + h0 + (h1 - h0) * tz;
+}
+
+// Inside the arena: exactly what the game loads. Outside: the same heights,
+// clamped at the boundary, plus the skirt — so a hill sculpted at the arena's
+// edge continues into the surrounding landscape instead of ending in a cliff.
 function heightAt(x: number, z: number): number {
-  // Distance to origin — suppress height near spawn.
-  const r = Math.sqrt(x * x + z * z);
-  const plazaBlend = r < 16 ? 0 : Math.min(1, (r - 16) / 8);
-
-  // Two gentle gaussian hills.
-  const hill = (cx: number, cz: number, sigma: number, h: number) => {
-    const dx = x - cx, dz = z - cz;
-    const d = dx * dx + dz * dz;
-    return h * Math.exp(-d / (2 * sigma * sigma));
-  };
-  let h = 0;
-  h += hill( 26, -24, 10, 3.2);
-  h += hill(-24,  26,  9, 2.6);
-  h += hill( 30,  28,  7, 1.8);
-  // Long rolling ridge to the west.
-  h += 1.1 * Math.exp(-Math.pow(x + 28, 2) / 140) *
-       0.6 * (1 + Math.sin(z * 0.12));
-  // Low-frequency waviness everywhere so the flat plate doesn't look dead.
-  h += 0.25 * Math.sin(x * 0.08) * Math.cos(z * 0.10);
-  h += 0.18 * Math.sin(x * 0.17 + z * 0.11);
-  let y = h * plazaBlend;
-
-  // Visual-only skirt — rolling hills that rise with distance outside the
-  // gameplay arena. Gated on Chebyshev distance so heights inside ±ARENA_HALF
-  // (and therefore the physics heightfield, which only samples the arena) are
-  // bit-identical to before. The smooth ease-in from zero at the boundary
-  // keeps the mesh crease-free where skirt meets arena. Amplitude reaches
-  // ~12-20 m at the far edge: enough that from any gameplay eye height the
-  // horizon line (dark below-horizon sky) stays hidden behind terrain.
-  const dEdge = Math.max(Math.abs(x), Math.abs(z));
-  if (dEdge > ARENA_HALF) {
-    const t = Math.min(1, (dEdge - ARENA_HALF) / (EXTENT_HALF - ARENA_HALF));
-    const ss = t * t * (3 - 2 * t);
-    // Angular lobes break the square-ring symmetry; xz rolls add local relief.
-    const ang = Math.atan2(z, x);
-    const lobes = 1 + 0.35 * Math.sin(ang * 3 + 1.7) + 0.2 * Math.sin(ang * 7 + 0.6);
-    const roll = Math.sin(x * 0.045 + 1.3) * Math.cos(z * 0.05 + 0.4) * 3.2
-               + Math.sin(x * 0.11 + z * 0.07) * 1.6;
-    // Floor the skirt profile: where lobes + roll both dip, sightlines from
-    // gameplay eye height cleared the ring and the dark below-horizon sky
-    // peeked through between the hills. 6.5 m at the far edge ≈ +2.7° above
-    // the ground plane from anywhere in the arena — always above eye level.
-    y += Math.max(ss * (12.0 * lobes + roll), ss * 6.5);
-  }
-
-  // River channel — carve the terrain BELOW the water plane (water sits at
-  // y≈0.05) along the river path (segments run z≈11–13 across x≈-37..39).
-  // Without this the riverbed terrain — up to ~2.3 m under some segments —
-  // pokes through the flat water surface. The bed is forced to BED at the
-  // centre and smoothly ramps back to the natural terrain over BANK metres,
-  // so the river reads as a proper carved channel with grassy banks. Drives
-  // both the visual GLB and the Jolt heightfield (one source of truth).
-  // Beyond the arena the carve fades out over ~14 m so the channel reads as
-  // a gully closing into the skirt hills instead of dead-ending on a wall.
-  const RIVER_Z = 12.0, BED = -0.55, HALF = 2.6, BANK = 2.4;
-  {
-    const dzr = Math.abs(z - RIVER_Z);
-    if (dzr < HALF + BANK) {
-      let carve = 1.0;
-      if (dzr > HALF) {
-        const tt = 1 - (dzr - HALF) / BANK;        // 1 at bed edge → 0 at bank top
-        carve = tt * tt * (3 - 2 * tt);            // smoothstep
-      }
-      let endFade = 1.0;
-      if (x >= 40) endFade = Math.max(0, 1 - (x - 40) / 14);
-      else if (x <= -38) endFade = Math.max(0, 1 - (-38 - x) / 14);
-      endFade = endFade * endFade * (3 - 2 * endFade);
-      carve *= endFade;
-      if (carve > 0) y = y * (1 - carve) + BED * carve;
-    }
-  }
-  return y;
+  return sampleWorldHeight(x, z) + skirtHeightAt(x, z);
 }
 
 // Build the mesh.
@@ -290,51 +263,7 @@ writeFileSync(OUT_GLB, out);
 console.log('wrote', OUT_GLB, '(' + out.length, 'bytes,', vertCount, 'verts,', triCount, 'tris)');
 console.log('  y range:', minY.toFixed(2), '...', maxY.toFixed(2));
 
-// --- Physics heightfield -----------------------------------------------------
-// Sample heightAt() on a coarser grid and emit as a literal-init TS array.
-// Perry's JSON.parse bug doesn't apply to module-load-time literal arrays,
-// so this is the safe way to ship 4 k samples to the runtime. The engine's
-// heightfieldShape() consumes them directly (see engine/src/physics/index.ts).
-const physSamples = new Array<number>(PHYS_WIDTH * PHYS_WIDTH);
-for (let z = 0; z < PHYS_WIDTH; z++) {
-  for (let x = 0; x < PHYS_WIDTH; x++) {
-    const wx = PHYS_ORIGIN + x * PHYS_CELL;
-    const wz = PHYS_ORIGIN + z * PHYS_CELL;
-    physSamples[z * PHYS_WIDTH + x] = heightAt(wx, wz);
-  }
-}
-
-const tsLines: string[] = [];
-tsLines.push('// GENERATED — do not edit by hand. Regenerate with: bun tools/build-terrain.ts');
-tsLines.push('//');
-tsLines.push(`// Heightfield samples for the Jolt heightfieldShape collider in main.ts.`);
-tsLines.push(`// Grid is ${PHYS_WIDTH} × ${PHYS_WIDTH}, row-major (z * width + x). Cell size`);
-tsLines.push(`// ${PHYS_CELL.toFixed(4)} m. Origin (world position of sample [0, 0]) is`);
-tsLines.push(`// (${PHYS_ORIGIN}, 0, ${PHYS_ORIGIN}). Covers the gameplay arena only — the`);
-tsLines.push(`// visual mesh extends further (skirt hills) but has no collision.`);
-tsLines.push('');
-tsLines.push(`export const TERRAIN_SAMPLE_COUNT = ${PHYS_WIDTH};`);
-tsLines.push(`export const TERRAIN_CELL_SIZE   = ${PHYS_CELL};`);
-tsLines.push(`export const TERRAIN_ORIGIN_X    = ${PHYS_ORIGIN};`);
-tsLines.push(`export const TERRAIN_ORIGIN_Y    = 0;`);
-tsLines.push(`export const TERRAIN_ORIGIN_Z    = ${PHYS_ORIGIN};`);
-tsLines.push('');
-tsLines.push('// Row-major height samples. One number per cell, ~4 KB total.');
-tsLines.push('export const TERRAIN_HEIGHTS: number[] = [');
-// Emit 16 samples per line for readability + to keep lines shorter than most
-// compile-time literal-size limits.
-for (let i = 0; i < physSamples.length; i += 16) {
-  const chunk = physSamples.slice(i, i + 16).map(n => n.toFixed(4)).join(', ');
-  tsLines.push('  ' + chunk + (i + 16 < physSamples.length ? ',' : ''));
-}
-tsLines.push('];');
-
-mkdirSync(dirname(OUT_TS), { recursive: true });
-writeFileSync(OUT_TS, tsLines.join('\n') + '\n');
-console.log('wrote', OUT_TS, `(${physSamples.length} samples)`);
-let pmin = physSamples[0], pmax = physSamples[0];
-for (let i = 1; i < physSamples.length; i++) {
-  if (physSamples[i] < pmin) pmin = physSamples[i];
-  if (physSamples[i] > pmax) pmax = physSamples[i];
-}
-console.log(`  physics y range: ${pmin.toFixed(2)} ... ${pmax.toFixed(2)}`);
+// The physics heightfield is NOT emitted here any more. The game reads
+// `world.terrain` at startup and feeds it straight to Jolt, so collision and the
+// terrain-height queries follow an edited world with no rebuild — only the
+// visual mesh above needs this tool.

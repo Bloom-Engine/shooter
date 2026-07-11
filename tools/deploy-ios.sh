@@ -14,7 +14,6 @@ APP="build/BloomShooter.app"
 IDENTITY="Apple Development: Ralph Kuepper (372EYFG3C5)"
 
 echo "==> world"
-bun tools/build-world.ts assets/worlds/arena_02.world.json src/generated/world.ts >/dev/null
 
 echo "==> compile (ios, game-loop)"
 perry compile src/main.ts -o build/BloomShooter --target ios --features ios-game-loop 2>&1 \
