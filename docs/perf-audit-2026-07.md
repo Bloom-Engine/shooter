@@ -225,14 +225,21 @@ heavy wave-1 combat ~28-29 → ~33-34 fps. Visual verification: desktop
 captures confirm correct player/tree shadows (stable over time) and
 intact water reflections.
 
-**Still open** (approved, not yet implemented): skinned VB/IB caching
-(finding 6 — kills the per-frame CPU re-transform + ~13 MB upload and
-gives per-enemy cascade culling; biggest remaining combat-CPU item) and
-grass tile culling (finding 8 — spatial tiles + per-view range culling).
-Remaining big GPU items after those: main_hdr ~5.6 ms (cutout overdraw +
-pancake-kept casters), TSR+composite ~5.5 ms (4K output tax),
-material pass ~2.2 ms (130k-tri terrain + 240k-tri grass). Wave-spawn
-frame spikes (50-68 ms) remain — likely SDF clipmap prep (finding 9).
+**Round 2 (same day):** grass tile culling landed (engine aeb3228 —
+instance buffers tile + reorder at creation, dispatch culls merged
+visible-tile ranges per view; material_pass GPU 2.23 → 1.36 ms, title
+47.3 → 50.7 fps, no visual change) and skinned VB/IB caching landed
+(engine 684a06f — skinned models are cached draws with GPU skinning
+via a per-draw joint offset; shadow-dynamic with rigorous joint-union
+bounds; heavy combat 33-34 → 35-36 fps, combat worst-frames
+37-43 → ~31 ms; enemy pose/tint/position verified visually).
+
+**Final round totals:** title screen 31.7 → 50.7 fps (31.6 → 19.7 ms;
+GPU 22.5 → 14.1 ms), wave-0 gameplay ~32 → ~39-40 fps, heavy combat
+~28-29 → 35-36 fps. Still open for a future round: wave-spawn frame
+spikes (50-68 ms, likely SDF clipmap prep — finding 9), the 4K
+TSR+composite tail (~5.4 ms, price of 4K output), main_hdr cutout
+overdraw (~5.6 ms), and content work (130k-tri terrain, tree LODs).
 
 ## Reproducing the measurements
 
