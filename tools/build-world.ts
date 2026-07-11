@@ -115,10 +115,16 @@ function main() {
   }
 
   const out: string[] = [];
-  const header = path.relative(path.dirname(outputPath), inputPath);
+  // Normalise to forward slashes. path.relative() hands back the host's
+  // separator, so regenerating on Windows and on macOS produced headers that
+  // differed only in `\` vs `/` — the generated file showed up dirty in git
+  // after every build, on whichever machine hadn't produced it last.
+  const posix = (p: string) => p.split(path.sep).join('/');
+  const header = posix(path.relative(path.dirname(outputPath), inputPath));
+  const outRel = posix(path.relative(process.cwd(), outputPath));
   out.push('// GENERATED — do not edit by hand.');
   out.push(`// Source: ${header}`);
-  out.push(`// Regenerate with: bun tools/build-world.ts ${header} ${path.relative(process.cwd(), outputPath)}`);
+  out.push(`// Regenerate with: bun tools/build-world.ts ${header} ${outRel}`);
   out.push('');
   out.push(`export const WORLD_NAME = ${JSON.stringify(world.name)};`);
   out.push(`export const WORLD_ID = ${JSON.stringify(world.id)};`);
