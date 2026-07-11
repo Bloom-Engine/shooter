@@ -8,6 +8,7 @@ import {
   vec3,
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp, isAnyInputPressed,
   disableCursor, enableCursor, takeScreenshot,
+  endMode2D,
   loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
   createMesh, createMeshExplicit, genMeshCube,
   compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
@@ -20,6 +21,10 @@ import {
   createPlanarReflection, setMaterialReflectionProbe, setMaterialProbeVisible,
 } from 'bloom';
 import {
+  // Raw-primitive variant of beginMode2D: the object-taking one isn't worth the
+  // risk on a per-frame FFI path (perry-quirks #2), and only this one is
+  // exported from bloom/core anyway.
+  beginMode2DRaw,
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setTaaEnabled, setRenderScale,
@@ -38,7 +43,7 @@ import {
   setLayerCollides, raycast, ALL_LAYERS_MASK, BodyHandle,
   setBodyPosition,
 } from 'bloom/physics';
-import { initInput, readInput } from './input';
+import { initInput, readInput, drawTouchControls, MOBILE } from './input';
 import { createPlayer, updatePlayerController, playerPosition } from './player';
 import * as W from './generated/world';
 import * as T from './generated/terrain';
@@ -198,6 +203,33 @@ setRenderScale(0.5);
 // mouse-look on the 760M. The engine now amortizes both (binned + sliced
 // clipmap bake into a staging volume, one WSRC cascade per frame), so
 // SSGI stays enabled.
+
+// ---- Mobile render budget --------------------------------------------------
+// Everything above is tuned for a discrete desktop GPU. A phone is a tile-based
+// deferred GPU on a battery: the screen-space passes are the expensive part, and
+// they're the ones that scale worst. Cut the three that cost the most per pixel
+// and keep the two that carry most of the look (sun shadows and bloom).
+//
+// Lumen SW-GI is the big one — it re-bakes an SDF clipmap as the view moves,
+// which is a GPU stall the phone has no headroom to absorb. SSR and GTAO go with
+// it. The arena is sunlit and high-contrast, so it survives losing them; the
+// grass, water and skinned aliens all still read correctly.
+//
+// Render scale stays at 0.5 (TSR reconstructs to native in the TAA pass), which
+// on a 2622x1206 iPhone means a ~1311x603 internal buffer — the same
+// pixel-bound cost as a 720p desktop frame.
+if (MOBILE) {
+  setSsgiEnabled(false);
+  setSsrEnabled(false);
+  setSsaoEnabled(false);
+  setShadowsEnabled(true);
+  setBloomEnabled(true);
+  setTaaEnabled(true);
+  setRenderScale(0.5);
+  // Sun shafts are a full-screen radial blur — pure cost for a pass the player
+  // only sees when looking near the sun. Strength 0 is off.
+  setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
+}
 
 // Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -1845,8 +1877,18 @@ while (!windowShouldClose()) {
     perfTTop = nowTop;
   }
   const dt = getDeltaTime();
-  const sw = getScreenWidth();
-  const sh = getScreenHeight();
+  // iOS reports the screen in *pixels*, where macOS reports points (engine
+  // EN-024). On a 3x iPhone that makes every hardcoded HUD offset below come
+  // out a third of its intended size — an unreadable 13px status line on a
+  // 2622px-wide screen. Rather than rescale forty draw calls, lay the HUD out
+  // in a fixed ~1000-unit-wide logical space and let the 2D camera scale the
+  // whole pass (see the beginMode2DRaw below). sw/sh are that logical space;
+  // swPx/shPx stay the real pixels, which is what touch coordinates arrive in.
+  const swPx = getScreenWidth();
+  const shPx = getScreenHeight();
+  const uiScale = MOBILE ? swPx / 1000 : 1;
+  const sw = swPx / uiScale;
+  const sh = shPx / uiScale;
   updateMusicStream(gameState === 0 ? musicMenu : musicAmbient);
 
   // Tab toggles cursor capture so you can free the mouse to screenshot etc.
@@ -2057,15 +2099,20 @@ while (!windowShouldClose()) {
   }
 
   // Restart on R when the run has ended (died or won); otherwise R reloads
-  // the currently-equipped weapon.
-  if (isKeyPressed(Key.R)) {
+  // the currently-equipped weapon. The touch R button feeds the same verb.
+  if (isKeyPressed(Key.R) || input.reloadPressed) {
     if (gameOver || gameWon) resetRun();
     else if (currentWeapon === WEAPON_RIFLE) rifleAmmo = RIFLE_MAG;
     else blasterAmmo = BLASTER_MAG;
   }
-  // Weapon switching with 1/2.
+  // Weapon switching with 1/2. Touch has one GUN button, so it toggles rather
+  // than selecting — there are only two weapons.
   if (isKeyPressed(Key.ONE))  { currentWeapon = WEAPON_RIFLE;   fireCD = 0; }
   if (isKeyPressed(Key.TWO))  { currentWeapon = WEAPON_BLASTER; fireCD = 0; }
+  if (input.swapWeapon) {
+    currentWeapon = currentWeapon === WEAPON_RIFLE ? WEAPON_BLASTER : WEAPON_RIFLE;
+    fireCD = 0;
+  }
 
   // Freeze player movement while dead or after victory; physics still steps.
   if (gameState === 1 && !gameOver && !gameWon) {
@@ -2937,6 +2984,10 @@ while (!windowShouldClose()) {
   endMode3D();
   if (PERFTEST) perfTC = getTime();
 
+  // Everything from here to endMode2D() is laid out in the logical HUD space
+  // established above. On desktop uiScale is 1 and this is a no-op.
+  if (MOBILE) beginMode2DRaw(0, 0, 0, 0, 0, uiScale);
+
   // Crosshair — brighten while firing
   const crossA = muzzleFlashT > 0 ? 240 : 160;
   drawCircle(sw / 2, sh / 2, 3, { r: 255, g: 255, b: 255, a: crossA });
@@ -2962,22 +3013,28 @@ while (!windowShouldClose()) {
   drawRect(10, sh - 68, phpFill, 18, { r: 180, g: 60, b: 50, a: 230 });
   drawText('HP ' + playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
 
-  // Render-pass debug status line. Top-left, always on.
-  const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
-    + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
-    + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
-    + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off');
-  drawRect(6, 6, 620, 30, { r: 0, g: 0, b: 0, a: 170 });
-  drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
+  // Render-pass debug status line. Top-left, always on — but there are no
+  // function keys on a phone, so it's just clutter over the play area there.
+  if (!MOBILE) {
+    const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
+      + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
+      + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
+      + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off');
+    drawRect(6, 6, 620, 30, { r: 0, g: 0, b: 0, a: 170 });
+    drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
+  }
 
   // Weapon + ammo — bottom-right.
   const isRifleHud = currentWeapon === WEAPON_RIFLE;
   const curAmmo = isRifleHud ? rifleAmmo : blasterAmmo;
   const curMag  = isRifleHud ? RIFLE_MAG : BLASTER_MAG;
   const wtxt = WEAPON_NAMES[currentWeapon] + '  ' + curAmmo + ' / ' + curMag;
-  drawRect(sw - 260, sh - 68, 250, 18, { r: 0, g: 0, b: 0, a: 150 });
-  drawText(wtxt + '   [1/2 switch  R reload]',
-           sw - 252, sh - 65, 13, { r: 240, g: 230, b: 180, a: 255 });
+  // On touch the ammo readout sits above the fire button rather than in the
+  // corner, where the thumb would cover it.
+  const wy = MOBILE ? sh - 210 : sh - 68;
+  drawRect(sw - 260, wy, 250, 18, { r: 0, g: 0, b: 0, a: 150 });
+  drawText(MOBILE ? wtxt : wtxt + '   [1/2 switch  R reload]',
+           sw - 252, wy + 3, 13, { r: 240, g: 230, b: 180, a: 255 });
 
   // Wave HUD — top-center. Shows "WAVE X — enemies K/N" while spawning,
   // or a "NEXT WAVE IN ..." countdown between waves.
@@ -3005,7 +3062,7 @@ while (!windowShouldClose()) {
     const title = 'BLOOM SHOOTER';
     const tw = measureText(title, 54);
     drawText(title, (sw - tw) / 2, 170, 54, { r: 236, g: 226, b: 178, a: 255 });
-    const sub = 'press any key';
+    const sub = MOBILE ? 'tap to start' : 'press any key';
     const subw = measureText(sub, 22);
     const pulse = Math.floor(175 + Math.sin(getTime() * 3.0) * 70);
     drawText(sub, (sw - subw) / 2, 244, 22, { r: 225, g: 225, b: 225, a: pulse });
@@ -3024,7 +3081,8 @@ while (!windowShouldClose()) {
     const msg = 'YOU DIED';
     const mw = measureText(msg, 56);
     drawText(msg, (sw - mw) / 2, sh * 0.35, 56, { r: 220, g: 60, b: 50, a: 255 });
-    const sub = 'Reached wave ' + (waveIdx + 1) + ' — press R to restart';
+    const sub = 'Reached wave ' + (waveIdx + 1)
+      + (MOBILE ? ' — tap R to restart' : ' — press R to restart');
     const sww = measureText(sub, 22);
     drawText(sub, (sw - sww) / 2, sh * 0.35 + 72, 22, { r: 220, g: 220, b: 220, a: 230 });
   }
@@ -3035,12 +3093,20 @@ while (!windowShouldClose()) {
     const msg = 'ARENA CLEARED';
     const mw = measureText(msg, 52);
     drawText(msg, (sw - mw) / 2, sh * 0.33, 52, { r: 180, g: 230, b: 180, a: 255 });
-    const sub = 'Survived all ' + wavePlan.length + ' waves — press R to play again';
+    const sub = 'Survived all ' + wavePlan.length + ' waves'
+      + (MOBILE ? ' — tap R to play again' : ' — press R to play again');
     const sww = measureText(sub, 22);
     drawText(sub, (sw - sww) / 2, sh * 0.33 + 70, 22, { r: 220, g: 220, b: 220, a: 230 });
   }
 
-  // Diagnostic HUD — helps verify input is reaching the game
+  // Diagnostic HUD — helps verify input is reaching the game. The desktop
+  // version is a full-width bar along the bottom, which on a phone lands
+  // directly under the thumbs; show just the frame rate up in the corner
+  // instead, which is what's actually worth watching on device.
+  if (MOBILE) {
+    drawText('FPS ' + Math.floor(getFPS()), 14, 12, 20,
+             { r: 200, g: 210, b: 230, a: 200 });
+  }
   const pp = playerPosition();
   const diag1 = 'FPS ' + Math.floor(getFPS())
     + '  world: ' + worldStatus
@@ -3053,9 +3119,11 @@ while (!windowShouldClose()) {
     + '  cam ' + CAM[2].toFixed(1) + ',' + CAM[3].toFixed(1) + ',' + CAM[4].toFixed(1)
     + '  shots ' + shotsHit + '/' + shotsFired;
 
-  drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
-  drawText(diag1, 10, sh - 40, 13, { r: 200, g: 210, b: 230, a: 220 });
-  drawText(diag2, 10, sh - 20, 13, { r: 180, g: 200, b: 220, a: 220 });
+  if (!MOBILE) {
+    drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
+    drawText(diag1, 10, sh - 40, 13, { r: 200, g: 210, b: 230, a: 220 });
+    drawText(diag2, 10, sh - 20, 13, { r: 180, g: 200, b: 220, a: 220 });
+  }
 
   // Phase 8 — profiler overlay (F3). Lists every engine pass with
   // CPU and GPU (µs) averaged over the profiler's 120-frame rolling
@@ -3105,6 +3173,13 @@ while (!windowShouldClose()) {
                { r: 200, g: 210, b: 230, a: 230 });
     }
   }
+
+  if (MOBILE) endMode2D();
+
+  // The touch controls are drawn *outside* the scaled camera, in raw pixels —
+  // they have to land on exactly the coordinates input.ts hit-tests, and it
+  // reads touches in the pixel space the platform delivers them in.
+  drawTouchControls();
 
   if (isKeyPressed(Key.ESCAPE)) break;
   if (PERFTEST) perfTD = getTime();
