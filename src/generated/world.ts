@@ -1,6 +1,6 @@
 // GENERATED — do not edit by hand.
-// Source: ..\..\assets\worlds\arena_02.world.json
-// Regenerate with: bun tools/build-world.ts ..\..\assets\worlds\arena_02.world.json src\generated\world.ts
+// Source: ../../assets/worlds/arena_02.world.json
+// Regenerate with: bun tools/build-world.ts ../../assets/worlds/arena_02.world.json src/generated/world.ts
 
 export const WORLD_NAME = "Arena 02 — Outdoor plaza";
 export const WORLD_ID = "arena_02";
