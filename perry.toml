@@ -6,3 +6,29 @@ out_dir = "dist"
 entry = "src/main.ts"
 name = "bloom-shooter"
 bundle_id = "com.bloomengine.shooter"
+display_name = "Bloom Shooter"
+version = "0.1.0"
+build_number = 1
+# `ios-game-loop` is mandatory for any Bloom game on iOS. UIKit needs
+# UIApplicationMain() to own the main thread forever, but the engine's
+# `while (!windowShouldClose())` loop also wants it. The feature makes Perry
+# emit `_perry_user_main` (run on a spawned game thread) instead of `main`,
+# and hands the main thread to UIApplicationMain. Without it the app links
+# fine and then never shows a window.
+features = ["ios-game-loop"]
+
+# On-device development build. The profile is minted by
+# `perry setup ios --development` (registers the connected device's UDID with
+# the App Store Connect API). Signing identity must be the dev cert belonging
+# to team K6UW5YV9F7 — the other "Apple Development: Ralph Kuepper" cert in the
+# keychain is a different team and will not match this profile.
+[ios]
+bundle_id = "com.bloomengine.shooter"
+signing_identity = "Apple Development: Ralph Kuepper (372EYFG3C5)"
+provisioning_profile = "/Users/amlug/.perry/com_bloomengine_shooter_dev.mobileprovision"
+encryption_exempt = true
+# The engine already locks the root view controller to landscape at runtime
+# (native/ios sets its orientation mask from initWindow's width > height), but
+# without this the plist still advertises portrait and the app can come up
+# rotated for a frame before snapping over.
+orientations = ["landscape"]
