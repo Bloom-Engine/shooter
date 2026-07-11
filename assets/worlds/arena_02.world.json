@@ -1,456 +1,2711 @@
 {
-  "schemaVersion": 1,
-  "name": "Arena 02 — Outdoor plaza",
+  "schemaVersion": 2,
+  "name": "Arena 02 \u2014 Outdoor plaza",
   "id": "arena_02",
-  "bounds": { "min": [-50, -5, -50], "max": [50, 30, 50] },
+  "bounds": {
+    "min": [
+      -50,
+      -5,
+      -50
+    ],
+    "max": [
+      50,
+      30,
+      50
+    ]
+  },
   "environment": {
-    "skyColor": [0.55, 0.62, 0.78],
-    "ambientColor": [0.75, 0.78, 0.85],
+    "skyColor": [
+      0.55,
+      0.62,
+      0.78
+    ],
+    "ambientColor": [
+      0.75,
+      0.78,
+      0.85
+    ],
     "ambientIntensity": 0.55,
-    "sunDirection": [0.45, 0.72, 0.52],
-    "sunColor": [1.0, 0.95, 0.82],
+    "sunDirection": [
+      0.45,
+      0.72,
+      0.52
+    ],
+    "sunColor": [
+      1.0,
+      0.95,
+      0.82
+    ],
     "sunIntensity": 1.1,
     "fogStart": 45,
     "fogEnd": 140,
-    "fogColor": [0.62, 0.68, 0.78],
+    "fogColor": [
+      0.62,
+      0.68,
+      0.78
+    ],
     "shadowsEnabled": true
   },
   "terrain": null,
   "entities": [
-    { "id": "spawn_1", "name": "player_spawn",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [0, 1, 20], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "player_spawn", "primary": "1", "yaw": "0" } },
-
-    { "id": "wall_boundary_n", "name": "wall_boundary_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [0, 3, -40], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["static"],
-      "userData": { "kind": "collider_box", "halfExtents": "40, 4, 0.5", "static": "1" } },
-    { "id": "wall_boundary_s", "name": "wall_boundary_s",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [0, 3, 40], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["static"],
-      "userData": { "kind": "collider_box", "halfExtents": "40, 4, 0.5", "static": "1" } },
-    { "id": "wall_boundary_e", "name": "wall_boundary_e",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [40, 3, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["static"],
-      "userData": { "kind": "collider_box", "halfExtents": "0.5, 4, 40", "static": "1" } },
-    { "id": "wall_boundary_w", "name": "wall_boundary_w",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-40, 3, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["static"],
-      "userData": { "kind": "collider_box", "halfExtents": "0.5, 4, 40", "static": "1" } },
-
-    { "id": "terrain_ground", "name": "terrain_ground",
-      "modelRef": "assets/models/terrain_hills.glb", "prefabRef": null,
-      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["terrain"],
-      "userData": { "kind": "static_mesh" } },
-
-    { "id": "bldg_floor_ground", "name": "bldg_floor_ground",
-      "modelRef": "assets/models/building_floor.glb", "prefabRef": null,
-      "transform": { "position": [-21, 0.01, -14], "rotation": [0, 0, 0], "scale": [1.75, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh" } },
-
-    { "id": "furniture_table", "name": "furniture_table",
-      "modelRef": "assets/models/prop_table.glb", "prefabRef": null,
-      "transform": { "position": [-24, 0, -14], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.8, 0.4, 0.5" } },
-    { "id": "furniture_chair_1", "name": "furniture_chair_1",
-      "modelRef": "assets/models/prop_chair.glb", "prefabRef": null,
-      "transform": { "position": [-22.5, 0, -14], "rotation": [0, -1.57, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.25, 0.5, 0.25" } },
-    { "id": "furniture_chair_2", "name": "furniture_chair_2",
-      "modelRef": "assets/models/prop_chair.glb", "prefabRef": null,
-      "transform": { "position": [-25.5, 0, -14], "rotation": [0, 1.57, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.25, 0.5, 0.25" } },
-    { "id": "furniture_bed_g", "name": "furniture_bed_g",
-      "modelRef": "assets/models/prop_bed.glb", "prefabRef": null,
-      "transform": { "position": [-19, 0, -15], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "1.0, 0.3, 0.5" } },
-    { "id": "furniture_crate_g_1", "name": "furniture_crate_g_1",
-      "modelRef": "assets/models/prop_crate.glb", "prefabRef": null,
-      "transform": { "position": [-17.5, 0, -17], "rotation": [0, 0.5, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.5, 0.5, 0.5" } },
-    { "id": "furniture_bed_up", "name": "furniture_bed_up",
-      "modelRef": "assets/models/prop_bed.glb", "prefabRef": null,
-      "transform": { "position": [-23, 3.11, -15], "rotation": [0, 1.57, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.5, 0.3, 1.0" } },
-    { "id": "furniture_table_up", "name": "furniture_table_up",
-      "modelRef": "assets/models/prop_table.glb", "prefabRef": null,
-      "transform": { "position": [-26, 3.11, -13], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.8, 0.4, 0.5" } },
-    { "id": "furniture_chair_up", "name": "furniture_chair_up",
-      "modelRef": "assets/models/prop_chair.glb", "prefabRef": null,
-      "transform": { "position": [-24.5, 3.11, -13], "rotation": [0, -1.57, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.25, 0.5, 0.25" } },
-    { "id": "furniture_crate_up_1", "name": "furniture_crate_up_1",
-      "modelRef": "assets/models/prop_crate.glb", "prefabRef": null,
-      "transform": { "position": [-20, 3.11, -17], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.5, 0.5, 0.5" } },
-    { "id": "furniture_crate_up_2", "name": "furniture_crate_up_2",
-      "modelRef": "assets/models/prop_crate.glb", "prefabRef": null,
-      "transform": { "position": [-20, 4.11, -17], "rotation": [0, 0.4, 0], "scale": [0.8, 0.8, 0.8] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.4, 0.4, 0.4" } },
-    { "id": "furniture_barrel_1", "name": "furniture_barrel_1",
-      "modelRef": "assets/models/prop_barrel.glb", "prefabRef": null,
-      "transform": { "position": [-14, 0, -1], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.4, 0.55, 0.4" } },
-    { "id": "furniture_barrel_2", "name": "furniture_barrel_2",
-      "modelRef": "assets/models/prop_barrel.glb", "prefabRef": null,
-      "transform": { "position": [-13, 0, -2.2], "rotation": [0, 0.7, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.4, 0.55, 0.4" } },
-    { "id": "furniture_crate_outdoor", "name": "furniture_crate_outdoor",
-      "modelRef": "assets/models/prop_crate.glb", "prefabRef": null,
-      "transform": { "position": [12, 0, -6], "rotation": [0, 0.25, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.5, 0.5, 0.5" } },
-
-    { "id": "tree_1",  "name": "tree_1",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [ 12, 0,   5], "rotation": [0, 0, 0], "scale": [1.0, 1.0, 1.0] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-    { "id": "tree_2",  "name": "tree_2",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [ 18, 0,   0], "rotation": [0, 1.2, 0], "scale": [1.2, 1.2, 1.2] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-    { "id": "tree_3",  "name": "tree_3",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [  5, 0,  -8], "rotation": [0, 2.0, 0], "scale": [0.9, 0.9, 0.9] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-    { "id": "tree_4",  "name": "tree_4",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [-10, 0,  25], "rotation": [0, 0.4, 0], "scale": [1.1, 1.1, 1.1] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-    { "id": "tree_5",  "name": "tree_5",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [ -8, 0,  28], "rotation": [0, 1.8, 0], "scale": [1.3, 1.3, 1.3] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-    { "id": "tree_6",  "name": "tree_6",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [-18, 0,  25], "rotation": [0, 2.3, 0], "scale": [1.0, 1.0, 1.0] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-    { "id": "tree_7",  "name": "tree_7",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [ 30, 0,  -6], "rotation": [0, 0.9, 0], "scale": [1.0, 1.0, 1.0] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-    { "id": "tree_8",  "name": "tree_8",  "modelRef": "assets/models/prop_tree.glb", "prefabRef": null,
-      "transform": { "position": [ 22, 0,  22], "rotation": [0, 3.0, 0], "scale": [0.9, 0.9, 0.9] },
-      "tint": null, "tags": ["prop"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.18, 1.0, 0.18" } },
-
-    { "id": "light_plaza_n", "name": "light_plaza_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [0, 5, -20], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["light"],
-      "userData": { "kind": "point_light", "range": "22", "color": "1.0, 0.85, 0.55", "intensity": "1.0" } },
-    { "id": "light_plaza_s", "name": "light_plaza_s",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [0, 5, 20], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["light"],
-      "userData": { "kind": "point_light", "range": "22", "color": "1.0, 0.85, 0.55", "intensity": "1.0" } },
-    { "id": "light_house_g", "name": "light_house_g",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21, 2.6, -14], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["light"],
-      "userData": { "kind": "point_light", "range": "12", "color": "0.95, 0.85, 0.65", "intensity": "1.1" } },
-    { "id": "light_house_up", "name": "light_house_up",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21, 5.6, -14], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["light"],
-      "userData": { "kind": "point_light", "range": "12", "color": "0.85, 0.9, 1.0", "intensity": "0.9" } },
-    { "id": "light_hill_ne", "name": "light_hill_ne",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [26, 5, -24], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["light"],
-      "userData": { "kind": "point_light", "range": "18", "color": "0.95, 0.75, 0.45", "intensity": "0.8" } },
-
-    { "id": "spawner_ne", "name": "spawner_ne",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [ 30, 2.5, -30], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "enemy_spawner" } },
-    { "id": "spawner_nw", "name": "spawner_nw",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-30, 1.5, -30], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "enemy_spawner" } },
-    { "id": "spawner_se", "name": "spawner_se",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [ 30, 0.8,  30], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "enemy_spawner" } },
-    { "id": "spawner_sw", "name": "spawner_sw",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-30, 1.5,  30], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "enemy_spawner" } },
-
-    { "id": "pickup_rifle_n", "name": "pickup_rifle_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [ 0, 0.8, -15], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "weapon_pickup", "weapon": "rifle" } },
-    { "id": "pickup_blaster_up", "name": "pickup_blaster_up",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-25, 3.9, -17], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "weapon_pickup", "weapon": "blaster" } },
-    { "id": "pickup_rifle_hill", "name": "pickup_rifle_hill",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [26, 3.5, -24], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "weapon_pickup", "weapon": "rifle" } },
-    { "id": "pickup_blaster_hill", "name": "pickup_blaster_hill",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-24, 3.0, 26], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "weapon_pickup", "weapon": "blaster" } },
-
-    { "id": "waves", "name": "waves",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["logic"],
-      "userData": { "kind": "wave_config", "waves": "[{\"count\":4,\"enemy\":\"dretch,dretch,mantis,dretch\"},{\"count\":7,\"enemy\":\"mantis,dretch,marauder,mantis,dretch,marauder,mantis\"},{\"count\":11,\"enemy\":\"marauder,dragoon,mantis,marauder,dragoon,dretch,marauder,mantis,dragoon,marauder,tyrant\"}]" } },
-    { "id": "h_f0_wall_n", "name": "h_f0_wall_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 1.500, -19.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 1.500, 0.200" } },
-    { "id": "h_f0_wall_e", "name": "h_f0_wall_e",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-12.000, 1.500, -13.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.200, 1.500, 6.000" } },
-    { "id": "h_f0_wall_w", "name": "h_f0_wall_w",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-30.000, 1.500, -13.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.200, 1.500, 6.000" } },
-    { "id": "h_f0_wall_s_left", "name": "h_f0_wall_s_left",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-26.000, 1.500, -7.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "4.000, 1.500, 0.200" } },
-    { "id": "h_f0_wall_s_right", "name": "h_f0_wall_s_right",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-16.000, 1.500, -7.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "4.000, 1.500, 0.200" } },
-    { "id": "h_f0_wall_s_top", "name": "h_f0_wall_s_top",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 2.700, -7.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "1.000, 0.300, 0.200" } },
-    { "id": "h_f1_wall_n", "name": "h_f1_wall_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 4.500, -19.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 1.500, 0.200" } },
-    { "id": "h_f1_wall_e", "name": "h_f1_wall_e",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-12.000, 4.500, -13.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.200, 1.500, 6.000" } },
-    { "id": "h_f1_wall_w", "name": "h_f1_wall_w",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-30.000, 4.500, -13.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.200, 1.500, 6.000" } },
-    { "id": "h_f1_wall_s", "name": "h_f1_wall_s",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 4.500, -7.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 1.500, 0.200" } },
-    { "id": "h_f2_wall_n", "name": "h_f2_wall_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 7.500, -19.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 1.500, 0.200" } },
-    { "id": "h_f2_wall_e", "name": "h_f2_wall_e",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-12.000, 7.500, -13.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.200, 1.500, 6.000" } },
-    { "id": "h_f2_wall_w", "name": "h_f2_wall_w",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-30.000, 7.500, -13.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.200, 1.500, 6.000" } },
-    { "id": "h_f2_wall_s", "name": "h_f2_wall_s",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 7.500, -7.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 1.500, 0.200" } },
-    { "id": "h_slab_f1_n", "name": "h_slab_f1_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 2.900, -7.750], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 0.100, 0.750" } },
-    { "id": "h_slab_f1_s", "name": "h_slab_f1_s",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 2.900, -15.250], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 0.100, 3.750" } },
-    { "id": "h_slab_f1_w", "name": "h_slab_f1_w",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-23.000, 2.900, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "7.000, 0.100, 1.500" } },
-    { "id": "h_slab_f1_e", "name": "h_slab_f1_e",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-13.000, 2.900, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "1.000, 0.100, 1.500" } },
-    { "id": "h_slab_f2_n", "name": "h_slab_f2_n",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 5.900, -7.750], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 0.100, 0.750" } },
-    { "id": "h_slab_f2_s", "name": "h_slab_f2_s",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 5.900, -15.250], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 0.100, 3.750" } },
-    { "id": "h_slab_f2_w", "name": "h_slab_f2_w",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-23.000, 5.900, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "7.000, 0.100, 1.500" } },
-    { "id": "h_slab_f2_e", "name": "h_slab_f2_e",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-13.000, 5.900, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "1.000, 0.100, 1.500" } },
-    { "id": "h_roof", "name": "h_roof",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-21.000, 9.000, -13.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "9.000, 0.100, 6.000" } },
-    { "id": "h_step_f0_0", "name": "h_step_f0_0",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-15.850, 0.150, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.150, 1.500" } },
-    { "id": "h_step_f0_1", "name": "h_step_f0_1",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-15.550, 0.300, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.300, 1.500" } },
-    { "id": "h_step_f0_2", "name": "h_step_f0_2",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-15.250, 0.450, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.450, 1.500" } },
-    { "id": "h_step_f0_3", "name": "h_step_f0_3",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-14.950, 0.600, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.600, 1.500" } },
-    { "id": "h_step_f0_4", "name": "h_step_f0_4",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-14.650, 0.750, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.750, 1.500" } },
-    { "id": "h_step_f0_5", "name": "h_step_f0_5",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-14.350, 0.900, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.900, 1.500" } },
-    { "id": "h_step_f0_6", "name": "h_step_f0_6",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-14.050, 1.050, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.050, 1.500" } },
-    { "id": "h_step_f0_7", "name": "h_step_f0_7",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-13.750, 1.200, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.200, 1.500" } },
-    { "id": "h_step_f0_8", "name": "h_step_f0_8",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-13.450, 1.350, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.350, 1.500" } },
-    { "id": "h_step_f0_9", "name": "h_step_f0_9",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-13.150, 1.500, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.500, 1.500" } },
-    { "id": "h_step_f1_0", "name": "h_step_f1_0",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-14.150, 3.150, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.150, 1.500" } },
-    { "id": "h_step_f1_1", "name": "h_step_f1_1",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-14.450, 3.300, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.300, 1.500" } },
-    { "id": "h_step_f1_2", "name": "h_step_f1_2",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-14.750, 3.450, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.450, 1.500" } },
-    { "id": "h_step_f1_3", "name": "h_step_f1_3",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-15.050, 3.600, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.600, 1.500" } },
-    { "id": "h_step_f1_4", "name": "h_step_f1_4",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-15.350, 3.750, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.750, 1.500" } },
-    { "id": "h_step_f1_5", "name": "h_step_f1_5",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-15.650, 3.900, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 0.900, 1.500" } },
-    { "id": "h_step_f1_6", "name": "h_step_f1_6",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-15.950, 4.050, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.050, 1.500" } },
-    { "id": "h_step_f1_7", "name": "h_step_f1_7",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-16.250, 4.200, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.200, 1.500" } },
-    { "id": "h_step_f1_8", "name": "h_step_f1_8",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-16.550, 4.350, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.350, 1.500" } },
-    { "id": "h_step_f1_9", "name": "h_step_f1_9",
-      "modelRef": "assets/models/_gizmo_box.glb", "prefabRef": null,
-      "transform": { "position": [-16.850, 4.500, -10.000], "rotation": [0, 0, 0], "scale": [1, 1, 1] },
-      "tint": null, "tags": ["building"],
-      "userData": { "kind": "static_mesh", "collider": "box", "halfExtents": "0.150, 1.500, 1.500" } }
+    {
+      "id": "spawn_1",
+      "name": "player_spawn",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          0,
+          1,
+          20
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "player_spawn",
+        "primary": "1",
+        "yaw": "0"
+      }
+    },
+    {
+      "id": "wall_boundary_n",
+      "name": "wall_boundary_n",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          0,
+          3,
+          -40
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "static"
+      ],
+      "userData": {
+        "kind": "collider_box",
+        "halfExtents": "40, 4, 0.5",
+        "static": "1"
+      }
+    },
+    {
+      "id": "wall_boundary_s",
+      "name": "wall_boundary_s",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          0,
+          3,
+          40
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "static"
+      ],
+      "userData": {
+        "kind": "collider_box",
+        "halfExtents": "40, 4, 0.5",
+        "static": "1"
+      }
+    },
+    {
+      "id": "wall_boundary_e",
+      "name": "wall_boundary_e",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          40,
+          3,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "static"
+      ],
+      "userData": {
+        "kind": "collider_box",
+        "halfExtents": "0.5, 4, 40",
+        "static": "1"
+      }
+    },
+    {
+      "id": "wall_boundary_w",
+      "name": "wall_boundary_w",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -40,
+          3,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "static"
+      ],
+      "userData": {
+        "kind": "collider_box",
+        "halfExtents": "0.5, 4, 40",
+        "static": "1"
+      }
+    },
+    {
+      "id": "terrain_ground",
+      "name": "terrain_ground",
+      "modelRef": "assets/models/terrain_hills.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "terrain"
+      ],
+      "userData": {
+        "kind": "static_mesh"
+      }
+    },
+    {
+      "id": "bldg_floor_ground",
+      "name": "bldg_floor_ground",
+      "modelRef": "assets/models/building_floor.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21,
+          0.01,
+          -14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.75,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh"
+      }
+    },
+    {
+      "id": "furniture_table",
+      "name": "furniture_table",
+      "modelRef": "assets/models/prop_table.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -24,
+          0,
+          -14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.8, 0.4, 0.5"
+      }
+    },
+    {
+      "id": "furniture_chair_1",
+      "name": "furniture_chair_1",
+      "modelRef": "assets/models/prop_chair.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -22.5,
+          0,
+          -14
+        ],
+        "rotation": [
+          0,
+          -1.57,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.25, 0.5, 0.25"
+      }
+    },
+    {
+      "id": "furniture_chair_2",
+      "name": "furniture_chair_2",
+      "modelRef": "assets/models/prop_chair.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -25.5,
+          0,
+          -14
+        ],
+        "rotation": [
+          0,
+          1.57,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.25, 0.5, 0.25"
+      }
+    },
+    {
+      "id": "furniture_bed_g",
+      "name": "furniture_bed_g",
+      "modelRef": "assets/models/prop_bed.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19,
+          0,
+          -15
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "1.0, 0.3, 0.5"
+      }
+    },
+    {
+      "id": "furniture_crate_g_1",
+      "name": "furniture_crate_g_1",
+      "modelRef": "assets/models/prop_crate.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -17.5,
+          0,
+          -17
+        ],
+        "rotation": [
+          0,
+          0.5,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.5, 0.5, 0.5"
+      }
+    },
+    {
+      "id": "furniture_bed_up",
+      "name": "furniture_bed_up",
+      "modelRef": "assets/models/prop_bed.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -23,
+          3.11,
+          -15
+        ],
+        "rotation": [
+          0,
+          1.57,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.5, 0.3, 1.0"
+      }
+    },
+    {
+      "id": "furniture_table_up",
+      "name": "furniture_table_up",
+      "modelRef": "assets/models/prop_table.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -26,
+          3.11,
+          -13
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.8, 0.4, 0.5"
+      }
+    },
+    {
+      "id": "furniture_chair_up",
+      "name": "furniture_chair_up",
+      "modelRef": "assets/models/prop_chair.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -24.5,
+          3.11,
+          -13
+        ],
+        "rotation": [
+          0,
+          -1.57,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.25, 0.5, 0.25"
+      }
+    },
+    {
+      "id": "furniture_crate_up_1",
+      "name": "furniture_crate_up_1",
+      "modelRef": "assets/models/prop_crate.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -20,
+          3.11,
+          -17
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.5, 0.5, 0.5"
+      }
+    },
+    {
+      "id": "furniture_crate_up_2",
+      "name": "furniture_crate_up_2",
+      "modelRef": "assets/models/prop_crate.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -20,
+          4.11,
+          -17
+        ],
+        "rotation": [
+          0,
+          0.4,
+          0
+        ],
+        "scale": [
+          0.8,
+          0.8,
+          0.8
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.4, 0.4, 0.4"
+      }
+    },
+    {
+      "id": "furniture_barrel_1",
+      "name": "furniture_barrel_1",
+      "modelRef": "assets/models/prop_barrel.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14,
+          0,
+          -1
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.4, 0.55, 0.4"
+      }
+    },
+    {
+      "id": "furniture_barrel_2",
+      "name": "furniture_barrel_2",
+      "modelRef": "assets/models/prop_barrel.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13,
+          0,
+          -2.2
+        ],
+        "rotation": [
+          0,
+          0.7,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.4, 0.55, 0.4"
+      }
+    },
+    {
+      "id": "furniture_crate_outdoor",
+      "name": "furniture_crate_outdoor",
+      "modelRef": "assets/models/prop_crate.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          12,
+          0,
+          -6
+        ],
+        "rotation": [
+          0,
+          0.25,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.5, 0.5, 0.5"
+      }
+    },
+    {
+      "id": "tree_1",
+      "name": "tree_1",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          12,
+          0,
+          5
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "tree_2",
+      "name": "tree_2",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          18,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          1.2,
+          0
+        ],
+        "scale": [
+          1.2,
+          1.2,
+          1.2
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "tree_3",
+      "name": "tree_3",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          5,
+          0,
+          -8
+        ],
+        "rotation": [
+          0,
+          2.0,
+          0
+        ],
+        "scale": [
+          0.9,
+          0.9,
+          0.9
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "tree_4",
+      "name": "tree_4",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10,
+          0,
+          25
+        ],
+        "rotation": [
+          0,
+          0.4,
+          0
+        ],
+        "scale": [
+          1.1,
+          1.1,
+          1.1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "tree_5",
+      "name": "tree_5",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8,
+          0,
+          28
+        ],
+        "rotation": [
+          0,
+          1.8,
+          0
+        ],
+        "scale": [
+          1.3,
+          1.3,
+          1.3
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "tree_6",
+      "name": "tree_6",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -18,
+          0,
+          25
+        ],
+        "rotation": [
+          0,
+          2.3,
+          0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "tree_7",
+      "name": "tree_7",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          30,
+          0,
+          -6
+        ],
+        "rotation": [
+          0,
+          0.9,
+          0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "tree_8",
+      "name": "tree_8",
+      "modelRef": "assets/models/prop_tree.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          22,
+          0,
+          22
+        ],
+        "rotation": [
+          0,
+          3.0,
+          0
+        ],
+        "scale": [
+          0.9,
+          0.9,
+          0.9
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "prop"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.18, 1.0, 0.18"
+      }
+    },
+    {
+      "id": "spawner_ne",
+      "name": "spawner_ne",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          30,
+          2.5,
+          -30
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "spawner_nw",
+      "name": "spawner_nw",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -30,
+          1.5,
+          -30
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "spawner_se",
+      "name": "spawner_se",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          30,
+          0.8,
+          30
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "spawner_sw",
+      "name": "spawner_sw",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -30,
+          1.5,
+          30
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "pickup_rifle_n",
+      "name": "pickup_rifle_n",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          0,
+          0.8,
+          -15
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "weapon_pickup",
+        "weapon": "rifle"
+      }
+    },
+    {
+      "id": "pickup_blaster_up",
+      "name": "pickup_blaster_up",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -25,
+          3.9,
+          -17
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "weapon_pickup",
+        "weapon": "blaster"
+      }
+    },
+    {
+      "id": "pickup_rifle_hill",
+      "name": "pickup_rifle_hill",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          26,
+          3.5,
+          -24
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "weapon_pickup",
+        "weapon": "rifle"
+      }
+    },
+    {
+      "id": "pickup_blaster_hill",
+      "name": "pickup_blaster_hill",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -24,
+          3.0,
+          26
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "weapon_pickup",
+        "weapon": "blaster"
+      }
+    },
+    {
+      "id": "waves",
+      "name": "waves",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "wave_config",
+        "waves": "[{\"count\":4,\"enemy\":\"dretch,dretch,mantis,dretch\"},{\"count\":7,\"enemy\":\"mantis,dretch,marauder,mantis,dretch,marauder,mantis\"},{\"count\":11,\"enemy\":\"marauder,dragoon,mantis,marauder,dragoon,dretch,marauder,mantis,dragoon,marauder,tyrant\"}]"
+      }
+    },
+    {
+      "id": "h_f0_wall_n",
+      "name": "h_f0_wall_n",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          1.5,
+          -19.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 1.500, 0.200"
+      }
+    },
+    {
+      "id": "h_f0_wall_e",
+      "name": "h_f0_wall_e",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.0,
+          1.5,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.200, 1.500, 6.000"
+      }
+    },
+    {
+      "id": "h_f0_wall_w",
+      "name": "h_f0_wall_w",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -30.0,
+          1.5,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.200, 1.500, 6.000"
+      }
+    },
+    {
+      "id": "h_f0_wall_s_left",
+      "name": "h_f0_wall_s_left",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -26.0,
+          1.5,
+          -7.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "4.000, 1.500, 0.200"
+      }
+    },
+    {
+      "id": "h_f0_wall_s_right",
+      "name": "h_f0_wall_s_right",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -16.0,
+          1.5,
+          -7.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "4.000, 1.500, 0.200"
+      }
+    },
+    {
+      "id": "h_f0_wall_s_top",
+      "name": "h_f0_wall_s_top",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          2.7,
+          -7.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "1.000, 0.300, 0.200"
+      }
+    },
+    {
+      "id": "h_f1_wall_n",
+      "name": "h_f1_wall_n",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          4.5,
+          -19.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 1.500, 0.200"
+      }
+    },
+    {
+      "id": "h_f1_wall_e",
+      "name": "h_f1_wall_e",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.0,
+          4.5,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.200, 1.500, 6.000"
+      }
+    },
+    {
+      "id": "h_f1_wall_w",
+      "name": "h_f1_wall_w",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -30.0,
+          4.5,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.200, 1.500, 6.000"
+      }
+    },
+    {
+      "id": "h_f1_wall_s",
+      "name": "h_f1_wall_s",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          4.5,
+          -7.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 1.500, 0.200"
+      }
+    },
+    {
+      "id": "h_f2_wall_n",
+      "name": "h_f2_wall_n",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          7.5,
+          -19.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 1.500, 0.200"
+      }
+    },
+    {
+      "id": "h_f2_wall_e",
+      "name": "h_f2_wall_e",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.0,
+          7.5,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.200, 1.500, 6.000"
+      }
+    },
+    {
+      "id": "h_f2_wall_w",
+      "name": "h_f2_wall_w",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -30.0,
+          7.5,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.200, 1.500, 6.000"
+      }
+    },
+    {
+      "id": "h_f2_wall_s",
+      "name": "h_f2_wall_s",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          7.5,
+          -7.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 1.500, 0.200"
+      }
+    },
+    {
+      "id": "h_slab_f1_n",
+      "name": "h_slab_f1_n",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          2.9,
+          -7.75
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 0.100, 0.750"
+      }
+    },
+    {
+      "id": "h_slab_f1_s",
+      "name": "h_slab_f1_s",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          2.9,
+          -15.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 0.100, 3.750"
+      }
+    },
+    {
+      "id": "h_slab_f1_w",
+      "name": "h_slab_f1_w",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -23.0,
+          2.9,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "7.000, 0.100, 1.500"
+      }
+    },
+    {
+      "id": "h_slab_f1_e",
+      "name": "h_slab_f1_e",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.0,
+          2.9,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "1.000, 0.100, 1.500"
+      }
+    },
+    {
+      "id": "h_slab_f2_n",
+      "name": "h_slab_f2_n",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.9,
+          -7.75
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 0.100, 0.750"
+      }
+    },
+    {
+      "id": "h_slab_f2_s",
+      "name": "h_slab_f2_s",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.9,
+          -15.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 0.100, 3.750"
+      }
+    },
+    {
+      "id": "h_slab_f2_w",
+      "name": "h_slab_f2_w",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -23.0,
+          5.9,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "7.000, 0.100, 1.500"
+      }
+    },
+    {
+      "id": "h_slab_f2_e",
+      "name": "h_slab_f2_e",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.0,
+          5.9,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "1.000, 0.100, 1.500"
+      }
+    },
+    {
+      "id": "h_roof",
+      "name": "h_roof",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          9.0,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "9.000, 0.100, 6.000"
+      }
+    },
+    {
+      "id": "h_step_f0_0",
+      "name": "h_step_f0_0",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -15.85,
+          0.15,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.150, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_1",
+      "name": "h_step_f0_1",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -15.55,
+          0.3,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.300, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_2",
+      "name": "h_step_f0_2",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -15.25,
+          0.45,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.450, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_3",
+      "name": "h_step_f0_3",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.95,
+          0.6,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.600, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_4",
+      "name": "h_step_f0_4",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.65,
+          0.75,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.750, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_5",
+      "name": "h_step_f0_5",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.35,
+          0.9,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.900, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_6",
+      "name": "h_step_f0_6",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.05,
+          1.05,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.050, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_7",
+      "name": "h_step_f0_7",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.75,
+          1.2,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.200, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_8",
+      "name": "h_step_f0_8",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.45,
+          1.35,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.350, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f0_9",
+      "name": "h_step_f0_9",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.15,
+          1.5,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.500, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_0",
+      "name": "h_step_f1_0",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.15,
+          3.15,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.150, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_1",
+      "name": "h_step_f1_1",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.45,
+          3.3,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.300, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_2",
+      "name": "h_step_f1_2",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.75,
+          3.45,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.450, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_3",
+      "name": "h_step_f1_3",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -15.05,
+          3.6,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.600, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_4",
+      "name": "h_step_f1_4",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -15.35,
+          3.75,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.750, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_5",
+      "name": "h_step_f1_5",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -15.65,
+          3.9,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 0.900, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_6",
+      "name": "h_step_f1_6",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -15.95,
+          4.05,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.050, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_7",
+      "name": "h_step_f1_7",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -16.25,
+          4.2,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.200, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_8",
+      "name": "h_step_f1_8",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -16.55,
+          4.35,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.350, 1.500"
+      }
+    },
+    {
+      "id": "h_step_f1_9",
+      "name": "h_step_f1_9",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -16.85,
+          4.5,
+          -10.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "building"
+      ],
+      "userData": {
+        "kind": "static_mesh",
+        "collider": "box",
+        "halfExtents": "0.150, 1.500, 1.500"
+      }
+    }
+  ],
+  "lights": [
+    {
+      "id": "light_plaza_n",
+      "name": "light_plaza_n",
+      "kind": "point",
+      "position": [
+        0,
+        5,
+        -20
+      ],
+      "color": [
+        1.0,
+        0.85,
+        0.55
+      ],
+      "intensity": 1.0,
+      "range": 22.0
+    },
+    {
+      "id": "light_plaza_s",
+      "name": "light_plaza_s",
+      "kind": "point",
+      "position": [
+        0,
+        5,
+        20
+      ],
+      "color": [
+        1.0,
+        0.85,
+        0.55
+      ],
+      "intensity": 1.0,
+      "range": 22.0
+    },
+    {
+      "id": "light_house_g",
+      "name": "light_house_g",
+      "kind": "point",
+      "position": [
+        -21,
+        2.6,
+        -14
+      ],
+      "color": [
+        0.95,
+        0.85,
+        0.65
+      ],
+      "intensity": 1.1,
+      "range": 12.0
+    },
+    {
+      "id": "light_house_up",
+      "name": "light_house_up",
+      "kind": "point",
+      "position": [
+        -21,
+        5.6,
+        -14
+      ],
+      "color": [
+        0.85,
+        0.9,
+        1.0
+      ],
+      "intensity": 0.9,
+      "range": 12.0
+    },
+    {
+      "id": "light_hill_ne",
+      "name": "light_hill_ne",
+      "kind": "point",
+      "position": [
+        26,
+        5,
+        -24
+      ],
+      "color": [
+        0.95,
+        0.75,
+        0.45
+      ],
+      "intensity": 0.8,
+      "range": 18.0
+    }
   ],
   "water": [
-    { "id": "river", "kind": "box",
-      "center": [0, 0, 12], "size": [80, 1, 5],
+    {
+      "id": "river",
+      "kind": "box",
+      "center": [
+        0,
+        0,
+        12
+      ],
+      "size": [
+        80,
+        1,
+        5
+      ],
       "surfaceHeight": 0.05,
-      "color": [0.20, 0.42, 0.62, 0.75],
-      "waveAmplitude": 0.05, "waveSpeed": 1.4 }
+      "color": [
+        0.2,
+        0.42,
+        0.62,
+        0.75
+      ],
+      "waveAmplitude": 0.05,
+      "waveSpeed": 1.4
+    }
   ],
   "rivers": [],
-  "metadata": { "gameId": "shooter" }
+  "metadata": {
+    "gameId": "shooter"
+  }
 }

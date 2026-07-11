@@ -48,10 +48,26 @@ interface WaterVolume {
   waveSpeed: number;
 }
 
+// Schema v2 lifted point lights out of `entities` (where each was an entity
+// carrying `userData.kind = "point_light"` plus range/color/intensity strings)
+// into a top-level `lights` array. This tool reads either form: v2 worlds use
+// `lights`, v1 worlds still bucket the entities. Both emit the same LIGHT_*
+// arrays, so the runtime doesn't care which the file used.
+interface LightData {
+  id: string;
+  name: string;
+  kind: string;
+  position: [number, number, number];
+  color: [number, number, number];
+  intensity: number;
+  range: number;
+}
+
 interface WorldData {
   schemaVersion: number;
   name: string;
   id: string;
+  lights?: LightData[];
   bounds: { min: [number, number, number]; max: [number, number, number] };
   environment: {
     skyColor: [number, number, number];
@@ -248,18 +264,32 @@ function main() {
   out.push(`export const WATER_WAVE_SPD  = ${fmtNumList(world.water.map(w => w.waveSpeed))};`);
   out.push('');
 
-  // --- point_light ---------------------------------------------------------
-  const lights = buckets['point_light'] || [];
-  out.push('// Scene point lights');
+  // --- lights ---------------------------------------------------------------
+  // Prefer the v2 top-level array; fall back to the v1 point_light entities so
+  // an un-migrated world still builds.
+  const lightEntities = buckets['point_light'] || [];
+  const lights: LightData[] = world.lights && world.lights.length > 0
+    ? world.lights
+    : lightEntities.map(e => ({
+        id: e.id,
+        name: e.name,
+        kind: 'point',
+        position: e.transform.position,
+        color: parseVec3Str(e.userData.color, [1, 1, 1]),
+        intensity: parseFloat(e.userData.intensity || '1'),
+        range: parseFloat(e.userData.range || '12'),
+      }));
+
+  out.push('// Scene point lights (world.lights in schema v2)');
   out.push(`export const LIGHT_COUNT = ${lights.length};`);
-  out.push(`export const LIGHT_X     = ${fmtNumList(lights.map(e => e.transform.position[0]))};`);
-  out.push(`export const LIGHT_Y     = ${fmtNumList(lights.map(e => e.transform.position[1]))};`);
-  out.push(`export const LIGHT_Z     = ${fmtNumList(lights.map(e => e.transform.position[2]))};`);
-  out.push(`export const LIGHT_RANGE = ${fmtNumList(lights.map(e => parseFloat(e.userData.range || '12')))};`);
-  out.push(`export const LIGHT_R     = ${fmtNumList(lights.map(e => parseVec3Str(e.userData.color, [1, 1, 1])[0]))};`);
-  out.push(`export const LIGHT_G     = ${fmtNumList(lights.map(e => parseVec3Str(e.userData.color, [1, 1, 1])[1]))};`);
-  out.push(`export const LIGHT_B     = ${fmtNumList(lights.map(e => parseVec3Str(e.userData.color, [1, 1, 1])[2]))};`);
-  out.push(`export const LIGHT_INT   = ${fmtNumList(lights.map(e => parseFloat(e.userData.intensity || '1')))};`);
+  out.push(`export const LIGHT_X     = ${fmtNumList(lights.map(l => l.position[0]))};`);
+  out.push(`export const LIGHT_Y     = ${fmtNumList(lights.map(l => l.position[1]))};`);
+  out.push(`export const LIGHT_Z     = ${fmtNumList(lights.map(l => l.position[2]))};`);
+  out.push(`export const LIGHT_RANGE = ${fmtNumList(lights.map(l => l.range))};`);
+  out.push(`export const LIGHT_R     = ${fmtNumList(lights.map(l => l.color[0]))};`);
+  out.push(`export const LIGHT_G     = ${fmtNumList(lights.map(l => l.color[1]))};`);
+  out.push(`export const LIGHT_B     = ${fmtNumList(lights.map(l => l.color[2]))};`);
+  out.push(`export const LIGHT_INT   = ${fmtNumList(lights.map(l => l.intensity))};`);
   out.push('');
 
   // --- enemy_spawner -------------------------------------------------------

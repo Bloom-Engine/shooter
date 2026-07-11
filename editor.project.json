@@ -4,5 +4,5 @@
   "modelsDir": "assets/models",
   "prefabsDir": "assets/prefabs",
   "worldsDir": "assets/worlds",
-  "defaultWorld": "arena_01.world.json"
+  "defaultWorld": "arena_02.world.json"
 }

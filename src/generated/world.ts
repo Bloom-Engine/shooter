@@ -85,7 +85,7 @@ export const WATER_A         = [0.75];
 export const WATER_WAVE_AMP  = [0.05];
 export const WATER_WAVE_SPD  = [1.4];
 
-// Scene point lights
+// Scene point lights (world.lights in schema v2)
 export const LIGHT_COUNT = 5;
 export const LIGHT_X     = [0.0, 0.0, -21.0, -21.0, 26.0];
 export const LIGHT_Y     = [5.0, 5.0, 2.6, 5.6, 5.0];
