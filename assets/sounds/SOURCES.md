@@ -1,0 +1,42 @@
+# Sound sources
+
+All files converted to 16-bit mono 44.1 kHz WAV (the engine's `parse_wav`
+decodes 8/16-bit PCM only). Conversion: ffmpeg, no processing beyond
+downmix/bit-depth (`tools` has no audio step — regenerate by hand if
+sources change).
+
+## Unvanquished legacy assets (GPL-compatible, same line as our models)
+
+From github.com/UnvanquishedAssets/res-legacy_src.dpkdir (FLAC sources):
+
+| File(s) | Source path |
+|---|---|
+| `alien{0-4}_die{1-3}.wav` | `sound/player/level{0-4}/death{1-3}.flac` |
+| `alien{0-4}_pain.wav` | `sound/player/level{0-4}/pain50_1.flac` |
+| `alien0_attack.wav` | `models/weapons/level0/flash0.flac` |
+| `alien1_attack.wav` | `sound/player/level1/grab.flac` |
+| `alien{2-4}_attack.wav` | `models/weapons/level{2-4}/flash0.flac` |
+| `impact_flesh.wav` | `models/weapons/level2/impactflesh0.flac` |
+| `ricochet{1,2}.wav` | `models/weapons/rifle/ricochet{0,1}.flac` |
+| `player_pain{1,2}.wav` | `sound/player/human_bsuit/pain{50,100}_1.flac` |
+| `player_die{1,2}.wav` | `sound/player/human_bsuit/death{1,2}.flac` |
+
+Kind mapping: 0=dretch(level0) 1=mantis(level1) 2=marauder(level2)
+3=dragoon(level3) 4=tyrant(level4).
+
+## Sonniss GDC 2024 Game Audio Bundle (royalty-free game-use license)
+
+License: royalty-free incl. commercial use, no attribution; NOT
+redistributable as a sound library — only these processed/renamed
+game-ready files are committed, never pack folders.
+
+| File | Source |
+|---|---|
+| `rifle_fire2.wav` | Dramatic Cat — SVD Dragunov, DESIGNED Single Shot Core Long |
+| `blaster_fire.wav` | BluezoneCorp — Sci Fi Weapon, gun_shot_008 |
+| `splash1.wav` | BluezoneCorp — Designed Water, impact_006 (first 1.2 s) |
+
+## Pre-existing (provenance predates this file)
+
+`rifle_fire.wav` (superseded by rifle_fire2 but kept), `dretch_attack.wav`,
+`pickup.wav`, `menu.wav`, `game.wav`, `ambient.ogg`.

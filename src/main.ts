@@ -8,15 +8,16 @@ import {
   vec3,
   isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp, isAnyInputPressed,
   disableCursor, enableCursor, takeScreenshot,
-  loadModel, drawModel, loadModelAnimation, updateModelAnimation,
+  loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
   createMesh, createMeshExplicit, genMeshCube,
   compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
   compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
-  initAudio, loadSound, playSound, setSoundVolume,
+  initAudio, loadSound, playSound, setSoundVolume, playSound3D, setListenerPosition,
   loadMusic, playMusic, stopMusic, updateMusicStream, setMusicVolume,
   setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
+  createPlanarReflection, setMaterialReflectionProbe,
 } from 'bloom';
 import {
   setVignette, setFilmGrain,
@@ -57,6 +58,49 @@ const sfxPickup = loadSound('assets/sounds/pickup.wav');
 setSoundVolume(sfxFire, 0.35);
 setSoundVolume(sfxAttack, 0.6);
 setSoundVolume(sfxPickup, 0.8);
+// Round-7 audio (see assets/sounds/SOURCES.md): Sonniss weapon/water
+// shots + the aliens' ORIGINAL Unvanquished vocals (same GPL asset
+// line as the models). Alien deaths/attacks/pain play positionally via
+// playSound3D; the listener follows the camera every frame.
+const sfxFireRifle   = loadSound('assets/sounds/rifle_fire2.wav');
+const sfxFireBlaster = loadSound('assets/sounds/blaster_fire.wav');
+setSoundVolume(sfxFireRifle, 0.40);
+setSoundVolume(sfxFireBlaster, 0.45);
+const sfxImpactFlesh = loadSound('assets/sounds/impact_flesh.wav');
+setSoundVolume(sfxImpactFlesh, 0.45);
+const sfxRicochet = [loadSound('assets/sounds/ricochet1.wav'),
+                     loadSound('assets/sounds/ricochet2.wav')];
+setSoundVolume(sfxRicochet[0], 0.25);
+setSoundVolume(sfxRicochet[1], 0.25);
+const sfxSplash = loadSound('assets/sounds/splash1.wav');
+setSoundVolume(sfxSplash, 0.30);
+const sfxPlayerPain = [loadSound('assets/sounds/player_pain1.wav'),
+                       loadSound('assets/sounds/player_pain2.wav')];
+setSoundVolume(sfxPlayerPain[0], 0.65);
+setSoundVolume(sfxPlayerPain[1], 0.65);
+const sfxPlayerDie = [loadSound('assets/sounds/player_die1.wav'),
+                      loadSound('assets/sounds/player_die2.wav')];
+setSoundVolume(sfxPlayerDie[0], 0.8);
+setSoundVolume(sfxPlayerDie[1], 0.8);
+// Per-kind alien vocals, kind order matches KIND_NAME (0=dretch ..
+// 4=tyrant = Unvanquished level0..level4). Flat arrays, index
+// kind*3+variant for deaths (Perry convention).
+const sfxAlienDie: any[] = new Array(15);
+const sfxAlienAttack: any[] = new Array(5);
+const sfxAlienPain: any[] = new Array(5);
+for (let k = 0; k < 5; k++) {
+  for (let v = 0; v < 3; v++) {
+    const s = loadSound('assets/sounds/alien' + k + '_die' + (v + 1) + '.wav');
+    setSoundVolume(s, 0.75);
+    sfxAlienDie[k * 3 + v] = s;
+  }
+  const a = loadSound('assets/sounds/alien' + k + '_attack.wav');
+  setSoundVolume(a, 0.55);
+  sfxAlienAttack[k] = a;
+  const p = loadSound('assets/sounds/alien' + k + '_pain.wav');
+  setSoundVolume(p, 0.40);
+  sfxAlienPain[k] = p;
+}
 // Two tracks from the 2026-07-03 asset drop: menu.wav on the title screen,
 // game.wav once play starts (see the gameState transition in the loop).
 // The old ambient.ogg loop stays in the repo as a fallback.
@@ -197,47 +241,37 @@ const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
 }
-// Tier 3b — replace the cardboard-cutout prop_tree.glb with four
-// real CC0 variants (oak, fat, detailed, default) drawn in
-// rotation. Picked per-mesh by index hash so the same world
-// always lays out the same trees, but adjacent trees never
-// match exactly. Scale jitter via the same hash adds height
-// variety. See docs/visual-quality.md.
-const treeVariants: number[] = [
-  loadModel('assets/models/tree_oak.glb'),
-  loadModel('assets/models/tree_fat.glb'),
-  loadModel('assets/models/tree_detailed.glb'),
-  loadModel('assets/models/tree_default.glb'),
+// Round-4 (de-cartoonification) — the Kenney low-poly gumdrops were the
+// single biggest "toy world" signal: flat-shaded solid-colour polyhedra.
+// Back to the PUBG-style leaf-card trees (bark-textured tapered trunk +
+// alpha-cutout leaf-card canopy). Drawn through the cached-model scene
+// shader, which gives them wind sway, backlit leaf transmission and
+// dappled cutout shadows for free — and they show up in the water's
+// planar reflection (cached models render into the probe). Three GLB
+// variants (normal / tall-narrow / short-wide) from build-props.ts.
+const treeVariants = [
+  loadModel('assets/models/prop_tree.glb'),
+  loadModel('assets/models/prop_tree2.glb'),
+  loadModel('assets/models/prop_tree3.glb'),
 ];
+// All tree GLBs are 4 primitives: trunk + 2 branch stubs + leaf cards.
+const TREE_GLB_PARTS = 4;
 
-// Tree wind-sway material. Vertex displaces proportional to local
-// y² (canopy moves more than trunk), per-tree phase derived from
-// world XZ origin so neighbours desync. Loaded via the file API
-// for hot-reload + drawn through drawMeshWithMaterial across both
-// primitives of the tree GLBs.
-const matTree = compileMaterialFromFile('assets/materials/tree.wgsl', 'opaque');
-const TREE_PARAMS = [
-  // wind dir.xz, max sway (m at canopy), wind frequency (rad/s)
-  0.85, 0.50,  0.18,  1.4,
-  // trunk colour rgb, trunk_top_y (model-space height below which
-  // a vertex reads as trunk). Kenney tree trunks top out around
-  // y ≈ 0.6 in model space.
-  0.30, 0.20,  0.12,  0.65,
-];
-if (matTree > 0) setMaterialParams(matTree, TREE_PARAMS);
-// Kenney trees mix 2 or 3 primitives — read meshCount per-variant.
-const TREE_MESH_COUNTS: number[] = [2, 2, 3, 2];  // oak, fat, detailed, default
-
-// Forest scatter — pre-place ~120 trees across the open field at
+// Forest scatter — pre-placed trees across the open field at
 // startup using deterministic LCG. Each gets a variant, scale
 // jitter, position jitter, and a subtle per-tree hue tint so the
 // forest doesn't read as "the same model copy-pasted." Trees go
 // in a flat array so the per-frame draw loop is a single pass.
-const FOREST_COUNT_MAX = 120;
+// Round-5: 120 → 88. Through the cached scene pipeline every tree
+// now pays shadow-cascade + water-probe + main-pass draws (the old
+// immediate path skipped all of those — and alpha cutout with them),
+// so a leaner count buys back most of the frame-rate cost.
+const FOREST_COUNT_MAX = 88;
 const FOREST_X     = new Array<number>(FOREST_COUNT_MAX);
 const FOREST_Y     = new Array<number>(FOREST_COUNT_MAX);
 const FOREST_Z     = new Array<number>(FOREST_COUNT_MAX);
 const FOREST_VAR   = new Array<number>(FOREST_COUNT_MAX);
+const FOREST_YAW   = new Array<number>(FOREST_COUNT_MAX);
 const FOREST_SCALE = new Array<number>(FOREST_COUNT_MAX);
 const FOREST_TINT_R = new Array<number>(FOREST_COUNT_MAX);
 const FOREST_TINT_G = new Array<number>(FOREST_COUNT_MAX);
@@ -280,8 +314,11 @@ let FOREST_COUNT = 0;
     FOREST_X[FOREST_COUNT]     = px;
     FOREST_Y[FOREST_COUNT]     = py;
     FOREST_Z[FOREST_COUNT]     = pz;
-    FOREST_VAR[FOREST_COUNT]   = Math.floor(r3 * 4) & 3;
-    FOREST_SCALE[FOREST_COUNT] = 2.5 * (0.78 + r4 * 0.45);  // 1.95 .. 3.06
+    FOREST_VAR[FOREST_COUNT]   = Math.floor(r3 * 3) % 3;
+    FOREST_YAW[FOREST_COUNT]   = r3 * 360;                  // degrees (drawModelRotated)
+    // Leaf-card tree is ~5.5 m tall at scale 1 — 0.85..1.45 gives a
+    // believable size hierarchy (4.7..8 m) instead of uniform bushes.
+    FOREST_SCALE[FOREST_COUNT] = 0.85 + r4 * 0.60;
     // Per-tree hue tint — slight greens vary canopy, drier on the
     // sunny side. Shifts ±10% around white.
     const hueShift = (r5 - 0.5) * 0.20;
@@ -306,11 +343,17 @@ for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
 //   noise_freq, slope_threshold, ridge_height, pale_strength
 const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opaque');
 const TERRAIN_PARAMS = [
-  0.55, 0.62, 0.30,  0.0,
-  0.20, 0.46, 0.16,  0.0,
-  0.10, 0.28, 0.08,  0.0,
-  0.34, 0.26, 0.18,  0.0,
+  // Round-4 palette — desaturated toward olive; the old stops were
+  // saturated toy-greens and read as a plastic lawn.
+  0.46, 0.46, 0.26,  0.0,
+  0.24, 0.34, 0.16,  0.0,
+  0.13, 0.21, 0.10,  0.0,
+  0.32, 0.25, 0.17,  0.0,
   0.18, 0.78, 4.0,   0.55,
+  // river: centre z, half-width (full mud), bank fade width, waterline y.
+  // Matches the arena_02 river volume (z=12, carve half-width 2.6) —
+  // defined here because WATER_* constants load later in this file.
+  12.0, 2.4, 1.8,    0.12,
 ];
 if (matTerrain > 0) setMaterialParams(matTerrain, TERRAIN_PARAMS);
 // Per-mesh collider from userData.collider === 'box'.
@@ -587,11 +630,16 @@ const matWaterFromFile = compileMaterialFromFile('assets/materials/water.wgsl', 
 const matWater = matWaterFromFile;
 // Tier 4 layout: absorption coefficient (red dies fastest, blue
 // slowest), deep-water colour (greenish-teal), then knobs:
-//   foam, rim, sky_lod, micro_normal_strength.
+//   foam, rim, sky_lod, micro_strength.
+// Round-3 recalibration: the river bed sits only ~0.3 m down, so the
+// old 0.55/m absorption left the water reading as hazy grass —
+// exaggerate it (games do) so a shallow column still shifts teal.
+// Rim 0.25 → 0.10 and sky_lod 2.0 → 0.6 both fight the milky wash:
+// less white shoreline paint, sharper sky/cloud reflection.
 const WATER_PARAMS = [
-  0.55, 0.10, 0.05,   0.0,    // absorption per metre
+  2.20, 0.90, 0.60,   0.0,    // absorption per metre
   0.05, 0.18, 0.28,   0.0,    // deep_tint
-  0.60, 0.25,         2.0,   0.18,    // foam / rim / sky_lod / micro_strength
+  0.50, 0.10,         0.6,   0.18,    // foam / rim / sky_lod / micro_strength
 ];
 if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
 
@@ -645,6 +693,14 @@ const WATER_INDS  = new Array<number>(_wic);
   }
 }
 const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
+
+// Round-3 — planar reflection probe (EN-011). Mirror-renders the
+// cached-model world across the water plane into an HDR RT each frame;
+// water.wgsl blends it over the analytic sky by probe alpha, so trees /
+// house / banks actually appear in the river. Materials linked to a
+// probe are excluded from their own reflection automatically.
+const waterProbe = matWater > 0 ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
+if (waterProbe > 0) setMaterialReflectionProbe(matWater, waterProbe);
 
 // ---- SH-021 instanced grass — canonical blade × N instances -------------
 // Replaces the Tier-2b 5 000-blade baked-mesh path. One canonical
@@ -748,7 +804,10 @@ const GRASS_INSTANCED_WGSL =
   '  let cloud  = cloud_shadow(in.world_pos.xz, frame.time);\n' +
   '  let shadow = sample_sun_shadow(in.world_pos);\n' +
   '  let direct = view.sun_color.rgb * direct_w * cloud * shadow;\n' +
-  '  let albedo = in.blade_tint * (0.7 + 0.3 * in.tip_weight);\n' +
+  '  let tip2     = in.tip_weight * in.tip_weight;\n' +
+  '  let root_col = in.blade_tint * vec3<f32>(0.42, 0.50, 0.38);\n' +
+  '  let tip_col  = in.blade_tint * vec3<f32>(1.12, 1.08, 0.72);\n' +
+  '  let albedo   = mix(root_col, tip_col, tip2);\n' +
   '  let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;\n' +
   // Sky-fill: HDR irradiance sampled straight up (thin blades respond to
   // the sky dome; a fixed direction avoids per-blade ambient flicker from
@@ -765,34 +824,68 @@ const GRASS_INSTANCED_WGSL =
   '}\n';
 const matGrass = compileMaterialInstanced(GRASS_INSTANCED_WGSL);
 const GRASS_PARAMS = [
-  // base hue rgb, transmission strength
-  0.30, 0.46, 0.18,  0.40,
+  // base hue rgb (Round-4: slightly desaturated), transmission strength
+  0.30, 0.42, 0.20,  0.40,
 ];
 if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
 
-// Canonical blade mesh — 6 verts × 12 floats (pos.3 normal.3
-// color.4 uv.2), 12 indices = 4 triangles (front + back of each
-// plane in the cross). color.r is the tip weight (0 at root, 1 at
-// tip) which the vertex shader uses to localise the wind sway.
-const GRASS_BLADE_W = 0.06;
-const GRASS_BLADE_H = 0.45;
+// Canonical blade mesh — Round-4: two-segment tapered blades with a
+// bow, instead of the old single hard triangle (which read as plastic
+// spikes). Per crossed plane: 2 root verts → 2 narrower mid verts →
+// 1 tip vert, bowing along the plane normal so the per-instance yaw
+// randomises bow direction across the field. 10 verts × 12 floats
+// (pos.3 normal.3 color.4 uv.2); 36 indices = 12 triangles (front +
+// back of 3 quads/tips per plane). color.r is the tip weight (0 at
+// root → 1 at tip) which the vertex shader uses for wind sway and
+// the fragment shader for the root→tip colour gradient.
+const GB_W0 = 0.045;   // root half-width
+const GB_W1 = 0.026;   // mid half-width
+const GB_H1 = 0.26;    // mid height
+const GB_H2 = 0.50;    // tip height
+const GB_B1 = 0.025;   // bow at mid
+const GB_B2 = 0.075;   // bow at tip
 const GRASS_BLADE_VERTS: number[] = [
-  // Plane 1 (XY plane, normal +Z)
-  -GRASS_BLADE_W, 0,             0,    0, 0, 1,   0, 0, 1, 1,   0,   0,
-   GRASS_BLADE_W, 0,             0,    0, 0, 1,   0, 0, 1, 1,   1,   0,
-   0,             GRASS_BLADE_H, 0,    0, 0, 1,   1, 0, 1, 1,   0.5, 1,
-  // Plane 2 (YZ plane, normal +X)
-   0,             0,            -GRASS_BLADE_W,   1, 0, 0,   0, 0, 1, 1,   0,   0,
-   0,             0,             GRASS_BLADE_W,   1, 0, 0,   0, 0, 1, 1,   1,   0,
-   0,             GRASS_BLADE_H, 0,               1, 0, 0,   1, 0, 1, 1,   0.5, 1,
+  // Plane 1 (XY plane, normal +Z, bows toward +Z)
+  -GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   0,   0,
+   GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   1,   0,
+  -GB_W1, GB_H1, GB_B1,  0, 0, 1,   0.55, 0, 1, 1,   0,   0.55,
+   GB_W1, GB_H1, GB_B1,  0, 0, 1,   0.55, 0, 1, 1,   1,   0.55,
+   0,     GB_H2, GB_B2,  0, 0, 1,   1,    0, 1, 1,   0.5, 1,
+  // Plane 2 (YZ plane, normal +X, bows toward +X)
+   0,     0,     -GB_W0,   1, 0, 0,   0,    0, 1, 1,   0,   0,
+   0,     0,      GB_W0,   1, 0, 0,   0,    0, 1, 1,   1,   0,
+   GB_B1, GB_H1, -GB_W1,   1, 0, 0,   0.55, 0, 1, 1,   0,   0.55,
+   GB_B1, GB_H1,  GB_W1,   1, 0, 0,   0.55, 0, 1, 1,   1,   0.55,
+   GB_B2, GB_H2,  0,       1, 0, 0,   1,    0, 1, 1,   0.5, 1,
 ];
 const GRASS_BLADE_INDS: number[] = [
-  // Plane 1 front (CCW from +Z) + back (CCW from -Z)
-  0, 1, 2,   0, 2, 1,
-  // Plane 2 front (CCW from +X) + back (CCW from -X)
-  3, 4, 5,   3, 5, 4,
+  // Plane 1: root quad + tip tri, front (CCW from +Z) then back.
+  0, 1, 3,   0, 3, 2,   2, 3, 4,
+  0, 3, 1,   0, 2, 3,   2, 4, 3,
+  // Plane 2: same topology at base 5.
+  5, 6, 8,   5, 8, 7,   7, 8, 9,
+  5, 8, 6,   5, 7, 8,   7, 9, 8,
 ];
-const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, 6, GRASS_BLADE_INDS, 12);
+const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, 10, GRASS_BLADE_INDS, 36);
+
+// Round-4 — deterministic value noise over world XZ, used for the
+// large-scale "moisture" patches that vary grass colour/height (and
+// loosely match the terrain shader's macro patches). Pure math, no
+// state — Perry-safe.
+function hashCell(ix: number, iz: number): number {
+  let h = (ix * 374761393 + iz * 668265263) | 0;
+  h = (h ^ (h >> 13)) | 0;
+  h = (h * 1274126177) | 0;
+  return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+}
+function moistureNoise(x: number, z: number): number {
+  const fx = Math.floor(x), fz = Math.floor(z);
+  const tx = x - fx, tz = z - fz;
+  const sx = tx * tx * (3 - 2 * tx), sz = tz * tz * (3 - 2 * tz);
+  const a = hashCell(fx, fz),     b = hashCell(fx + 1, fz);
+  const c = hashCell(fx, fz + 1), d = hashCell(fx + 1, fz + 1);
+  return (a * (1 - sx) + b * sx) * (1 - sz) + (c * (1 - sx) + d * sx) * sz;
+}
 
 // Per-instance buffer — 20 000 blades × 9 floats (pos.xyz, rot_y,
 // scale, tint.rgba). Same RNG / heightmap / rejection logic as the
@@ -818,8 +911,16 @@ let GRASS_INSTANCE_COUNT = 0;
     const r4 = seed / 0x7fffffff;
     seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
     const r5 = seed / 0x7fffffff;
-    const px = -38 + r1 * 76;
-    const pz = -38 + r2 * 76;
+    let px = -38 + r1 * 76;
+    let pz = -38 + r2 * 76;
+    // Round-4 — clumping: pull each blade 60% toward a per-1.7 m-cell
+    // anchor so the field reads as natural tufts instead of an even
+    // lawn. Pull FIRST, then reject on the pulled position.
+    const cellX = Math.floor(px / 1.7), cellZ = Math.floor(pz / 1.7);
+    const ax = (cellX + 0.2 + hashCell(cellX, cellZ) * 0.6) * 1.7;
+    const az = (cellZ + 0.2 + hashCell(cellZ, cellX) * 0.6) * 1.7;
+    px = px + (ax - px) * 0.6;
+    pz = pz + (az - pz) * 0.6;
     if (px > BX0 && px < BX1 && pz > BZ0 && pz < BZ1) continue;
     if (Math.abs(pz - 12) < 3.5 && Math.abs(px) < 40) continue;
     // Bilinear heightmap sample.
@@ -836,17 +937,20 @@ let GRASS_INSTANCE_COUNT = 0;
       py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
            (h01 * (1 - fx) + h11 * fx) * fz;
     }
+    // Round-4 — moisture patches (~12 m wavelength): low-moisture areas
+    // go dry olive-yellow and slightly shorter, lush areas stay deep
+    // green and tall. Plus per-blade jitter on top.
+    const moist = moistureNoise(px * 0.085, pz * 0.085);
+    const dry   = Math.max(0, Math.min(1, (0.55 - moist) * 3.0));
+    const jit   = (r5 - 0.5) * 0.16;
     GRASS_INSTANCES[wi++] = px;
     GRASS_INSTANCES[wi++] = py;
     GRASS_INSTANCES[wi++] = pz;
-    GRASS_INSTANCES[wi++] = r3 * 6.2832;             // rot_y radians
-    GRASS_INSTANCES[wi++] = 0.85 + r4 * 0.40;        // scale 0.85..1.25
-    // Per-blade tint multiplier — biased toward green, ±15% per
-    // channel so the field reads as natural variation rather than
-    // a single colour.
-    GRASS_INSTANCES[wi++] = 0.85 + r5 * 0.30;
-    GRASS_INSTANCES[wi++] = 0.95 + r4 * 0.10;
-    GRASS_INSTANCES[wi++] = 0.85 + r3 * 0.30;
+    GRASS_INSTANCES[wi++] = r3 * 6.2832;                          // rot_y radians
+    GRASS_INSTANCES[wi++] = (0.85 + r4 * 0.40) * (1.05 - dry * 0.30);  // scale
+    GRASS_INSTANCES[wi++] = 0.85 + dry * 0.60 + jit;              // tint r
+    GRASS_INSTANCES[wi++] = 1.03 + dry * 0.02 + jit * 0.5;        // tint g
+    GRASS_INSTANCES[wi++] = 0.95 - dry * 0.40 + jit * 0.3;        // tint b
     GRASS_INSTANCES[wi++] = 1.0;
     GRASS_INSTANCE_COUNT++;
   }
@@ -1092,7 +1196,13 @@ const WALK_TILT = 0.06;        // unused; kept for future side-sway
 const ATTACK_LUNGE_AMP = 0.25; // m forward during attack
 // Per-kind tuning. Collider half-extents are generous (taller than the visual
 // model) so horizontal aim at any range connects.
-const KIND_SCALE = [1.6, 1.6, 1.9, 2.4, 3.0];
+// Round-6 rescale — the GLBs have wildly different native sizes (engine
+// getModelBounds rest-pose heights: dretch 0.74, mantis 2.54, marauder
+// 4.63, dragoon 14.99, tyrant 5.27 m), and the old uniform-ish scales
+// made the later kinds monstrous (dragoon 36 m!). Scales now target
+// world heights ≈ 0.65 / 1.4 / 1.8 / 2.1 / 3.0 m. Colliders unchanged
+// (they were deliberately generous).
+const KIND_SCALE = [0.88, 0.55, 0.39, 0.14, 0.57];
 const KIND_HX    = [1.0, 0.9, 1.2, 1.4, 1.8];
 const KIND_HY    = [1.0, 1.0, 1.2, 1.5, 2.0];
 const KIND_HZ    = [1.1, 1.0, 1.3, 1.6, 2.0];
@@ -1258,6 +1368,14 @@ let gameState = 0;
 const MUZZLE_FLASH_DUR = 0.08;
 let muzzleFlashT = 0;
 let damageFlashT = 0;
+// Phase 7 / Round-3 — seconds until the next wading splat may fire.
+// Splatting every moving frame overwhelmed the field's 3.2%/frame decay
+// (steady state ~19× over max — a stuck white smear); one splat per
+// 0.15 s at lower strength holds it near 1.0 instead.
+let splatCooldown = 0;
+// Round-7 — wading splash SFX cadence (slower than the visual splats
+// or it reads as a drum loop).
+let splashSoundCD = 0;
 let shotsFired = 0;
 let shotsHit = 0;
 
@@ -1409,11 +1527,11 @@ setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckl
   }
   // Forest trees — every primitive of every placed tree. glTF materials
   // ride along through attachModelToNode, so trunks bounce brown and
-  // canopies green without per-node colour overrides.
+  // canopies green without per-node colour overrides. (GI proxies are
+  // unrotated — close enough for bounce lighting.)
   for (let i = 0; i < FOREST_COUNT; i++) {
     const v = treeVariants[FOREST_VAR[i]];
-    const meshCount = TREE_MESH_COUNTS[FOREST_VAR[i]];
-    for (let mIdx = 0; mIdx < meshCount; mIdx++) {
+    for (let mIdx = 0; mIdx < TREE_GLB_PARTS; mIdx++) {
       const n = createSceneNode();
       attachModelToNode(n, (v as any).handle, mIdx);
       setSceneNodeTrs(n, FOREST_X[i], FOREST_Y[i], FOREST_Z[i], 0, FOREST_SCALE[i]);
@@ -1430,6 +1548,19 @@ setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckl
 // engine's deferred-render green-screen bug — kept dormant for future debug.
 const SELFTEST = false;
 let testFrame = 0;
+
+// ---- WATERTEST harness (temporary diagnostic) -------------------------------
+// Auto-starts a run, holds the camera on the river (the yaw the river spans
+// along) and wades the player up/down the band at spawn so an external
+// capture script can verify the water look + footstep wake without real
+// input. Wading stops after 20 s of uptime so wake decay can be captured
+// too. Same dormancy contract as SELFTEST/PERFTEST: MUST be false in
+// shipped builds.
+const WATERTEST = false;
+// Wall-clock anchor for the scripted walk — getTime() at frame 20 already
+// includes several seconds of asset loading, so timings are relative to
+// the moment the harness starts the run.
+let waterTestT0 = -1;
 
 // ---- PERFTEST harness (temporary diagnostic) --------------------------------
 // Bisects the fullscreen slowdown: measures wall-clock FPS over 120-frame
@@ -1705,6 +1836,52 @@ while (!windowShouldClose()) {
   // walk direction. Runs before the player controller update so
   // the override actually reaches updatePlayerController.
   if (SELFTEST && testFrame >= 20) input.moveZ = -1;
+  // Watertest: start the run, aim down the river, wade back and forth
+  // along it (direction swaps every ~1.2 s; the river spans X so the
+  // camera-forward walk stays inside the band). See harness block above.
+  if (WATERTEST) {
+    if (testFrame === 20 && gameState === 0) {
+      gameState = 1;
+      stopMusic(musicMenu);
+      playMusic(musicAmbient);
+    }
+    // Round-6 verification: waves ENABLED so enemy size/facing/shadows can
+    // be judged in the captures. (Re-suppress with waveBreakTimer = 9999
+    // when a run needs an unshoved scripted walk.)
+    if (testFrame === 30) {
+      for (let k = 0; k < 5; k++) {
+        const bb = getModelBounds(mdlAliens[k]);
+        console.log('BOUNDS ' + KIND_NAME[k]
+          + ' h=' + (bb.max.y - bb.min.y).toFixed(2)
+          + ' w=' + (bb.max.x - bb.min.x).toFixed(2)
+          + ' d=' + (bb.max.z - bb.min.z).toFixed(2)
+          + ' scaled_h=' + ((bb.max.y - bb.min.y) * KIND_SCALE[k]).toFixed(2));
+      }
+    }
+    playerHP = PLAYER_HP_MAX;
+    gameOver = false;
+    // Face -Z: spawn is (0, 20), the river band is z 9.5..14.5, so the
+    // river lies dead ahead and the camera looks across it at the far
+    // bank. moveZ = -1 is forward (same convention as SELFTEST).
+    CAM[0] = 0;
+    CAM[1] = 0.42;
+    input.moveX = 0;
+    input.moveZ = 0;
+    if (gameState === 1) {
+      if (waterTestT0 < 0) waterTestT0 = getTime();
+      const tw = getTime() - waterTestT0;
+      // Shadow check: stay ON GRASS at spawn (the water shader receives
+      // no sun shadow, so a wading player can't show one). Restore the
+      // walk below for water-look captures.
+      // if (tw < 1.3) {
+      //   input.moveZ = -1;                     // walk into the river (~8 m)
+      // } else if (tw < 20) {
+      //   input.moveX = Math.sin(tw * 2.6) > 0 ? 1 : -1;  // strafe along the band
+      // }
+      if (tw < 0) { input.moveZ = 0; }        // keep tw referenced
+      if ((testFrame % 120) === 0) console.log('WATERTEST fps=' + getFPS());
+    }
+  }
   // Only apply mouse look when cursor is captured — avoids jumpy yaw/pitch
   // when the user is moving the mouse outside the window. The first ~10
   // frames after window creation often report giant mouse deltas (system
@@ -1747,8 +1924,15 @@ while (!windowShouldClose()) {
                     pp.z < WATER_CZ + WATER_D * 0.5 &&
                     Math.abs(pp.x) < WATER_W * 0.5;
     const moving = Math.abs(input.moveX) + Math.abs(input.moveZ) > 0.1;
-    if (inRiver && moving) {
-      splatImpulse(pp.x, pp.z, 1.2, 0.6);
+    splatCooldown -= dt;
+    if (inRiver && moving && splatCooldown <= 0) {
+      splatImpulse(pp.x, pp.z, 1.0, 0.4);
+      splatCooldown = 0.15;
+    }
+    splashSoundCD -= dt;
+    if (inRiver && moving && splashSoundCD <= 0) {
+      playSound(sfxSplash);
+      splashSoundCD = 0.55;
     }
   }
 
@@ -1833,8 +2017,16 @@ while (!windowShouldClose()) {
         playerHP = playerHP - KIND_DMG[k];
         damageFlashT = 0.5;
         enAttackCD[i] = KIND_CD[k];
-        playSound(sfxAttack);
-        if (playerHP <= 0) { playerHP = 0; gameOver = true; }
+        // Per-kind bite/claw at the attacker's position + an armored
+        // pain grunt (alternating variants; heavy one when it kills).
+        playSound3D(sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
+        if (playerHP <= 0) {
+          playerHP = 0;
+          if (!gameOver) playSound(sfxPlayerDie[i & 1]);
+          gameOver = true;
+        } else {
+          playSound(sfxPlayerPain[i & 1]);
+        }
       }
       if (enAttackCD[i] > 0) enAttackCD[i] = enAttackCD[i] - dt;
       if (enFlashT[i]   > 0) enFlashT[i]   = enFlashT[i]   - dt;
@@ -1914,7 +2106,7 @@ while (!windowShouldClose()) {
   if (fireIntent || (forceFire && haveAmmo && combatActive)) {
     shotsFired = shotsFired + 1;
     muzzleFlashT = MUZZLE_FLASH_DUR;
-    playSound(sfxFire);
+    playSound(isRifle ? sfxFireRifle : sfxFireBlaster);
     // Third-person aiming: the crosshair is at screen centre, so
     // trace the camera-forward line out to a far point, treat that
     // as the aim target, and fire from the player's shoulder toward
@@ -1949,10 +2141,13 @@ while (!windowShouldClose()) {
       if (hit) {
         shotsHit = shotsHit + 1;
         spawnSpark(hit.point);
+        let struckEnemy = false;
         for (let i = 0; i < MAX_ENEMIES; i++) {
           if (enAlive[i] > 0 && hit.body === enBody[i]) {
+            struckEnemy = true;
             enHP[i] = enHP[i] - RIFLE_DAMAGE;
             enFlashT[i] = DRETCH_HIT_FLASH;
+            playSound3D(sfxImpactFlesh, hit.point.x, hit.point.y, hit.point.z);
             if (enHP[i] <= 0) {
               // Death: AI/waves see it gone (enAlive 0), the physics body
               // leaves play, but the corpse keeps drawing at its last
@@ -1964,10 +2159,20 @@ while (!windowShouldClose()) {
               const pk = playerPosition();
               enDeathYaw[i] = Math.atan2(pk.x - enX[i], -(pk.z - enZ[i]));
               setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
-              playSound(sfxAttack);   // reuse clank as death thud
+              // Per-kind death screech, positional, variant by slot.
+              playSound3D(sfxAlienDie[enKind[i] * 3 + (i % 3)],
+                          enX[i], enY[i] + 1, enZ[i]);
+            } else if ((i & 3) === 0) {
+              // Occasional pain bark so sustained fire isn't monotone.
+              playSound3D(sfxAlienPain[enKind[i]], enX[i], enY[i] + 1, enZ[i]);
             }
             break;
           }
+        }
+        if (!struckEnemy) {
+          // World hit — ricochet ping (alternating variants).
+          playSound3D(sfxRicochet[shotsFired & 1],
+                      hit.point.x, hit.point.y, hit.point.z);
         }
       }
     } else {
@@ -2003,6 +2208,7 @@ while (!windowShouldClose()) {
           enHP[j] = enHP[j] - BLASTER_DAMAGE;
           enFlashT[j] = DRETCH_HIT_FLASH;
           shotsHit = shotsHit + 1;
+          playSound3D(sfxImpactFlesh, hit.point.x, hit.point.y, hit.point.z);
           if (enHP[j] <= 0) {
             // Same death path as the rifle kill: corpse plays the die anim
             // at its last position; body leaves play immediately.
@@ -2012,7 +2218,8 @@ while (!windowShouldClose()) {
             const pk2 = playerPosition();
             enDeathYaw[j] = Math.atan2(pk2.x - enX[j], -(pk2.z - enZ[j]));
             setBodyPosition(enBody[j], vec3(enX[j], -100, enZ[j]), false);
-            playSound(sfxAttack);
+            playSound3D(sfxAlienDie[enKind[j] * 3 + (j % 3)],
+                        enX[j], enY[j] + 1, enZ[j]);
           }
           break;
         }
@@ -2050,6 +2257,16 @@ while (!windowShouldClose()) {
     W.ENV_SUN_I);
 
   if (PERFTEST) perfTB = getTime();
+  // Round-7 — keep the audio listener on the camera so playSound3D
+  // (alien deaths/attacks, impacts, ricochets) pans and attenuates
+  // correctly.
+  {
+    const lfx = CAM[5] - CAM[2], lfy = CAM[6] - CAM[3], lfz = CAM[7] - CAM[4];
+    const ll = Math.sqrt(lfx * lfx + lfy * lfy + lfz * lfz);
+    if (ll > 0.0001) {
+      setListenerPosition(CAM[2], CAM[3], CAM[4], lfx / ll, lfy / ll, lfz / ll);
+    }
+  }
   beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
     target:   vec3(CAM[5], CAM[6], CAM[7]),
@@ -2114,32 +2331,17 @@ while (!windowShouldClose()) {
       vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Forest scatter — ~120 trees pre-placed at startup. Through
-  // the tree wind-sway material when available; falls back to
-  // flat drawModel otherwise. Primitive 0 = trunk (warm brown),
-  // primitive 1 = leaves (green tinted with per-tree hue jitter).
+  // Forest scatter — ~120 leaf-card trees pre-placed at startup.
+  // Cached-model path: the scene shader gives alpha-cutout foliage
+  // wind sway + backlit transmission, the cutout shadow pipeline
+  // gives dappled shadows, and the planar probe reflects them in
+  // the river. Per-tree yaw + subtle whole-model hue jitter keep
+  // the three variants from reading as copy-paste.
   for (let i = 0; i < FOREST_COUNT; i++) {
     const pos = vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]);
     const v = treeVariants[FOREST_VAR[i]];
-    const sc = FOREST_SCALE[i];
-    if (matTree > 0) {
-      // Single per-tree leaf tint. Material handles trunk-vs-leaf
-      // split internally based on local-y, so we can render every
-      // primitive of the GLB with the same colour and the trunk
-      // still reads as brown.
-      const leaves = {
-        r: Math.max(0, Math.min(255, FOREST_TINT_R[i] - 165)),
-        g: Math.max(0, Math.min(255, FOREST_TINT_G[i] -  85)),
-        b: Math.max(0, Math.min(255, FOREST_TINT_B[i] - 195)),
-        a: 255 };
-      const meshCount = TREE_MESH_COUNTS[FOREST_VAR[i]];
-      for (let mIdx = 0; mIdx < meshCount; mIdx++) {
-        drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, mIdx);
-      }
-    } else {
-      const fallback = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
-      drawModel(v, pos, sc, fallback);
-    }
+    const tint = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
+    drawModelRotated(v, pos, FOREST_SCALE[i], FOREST_YAW[i], tint);
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
@@ -2170,22 +2372,14 @@ while (!windowShouldClose()) {
                 vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
                 W.MESH_SCALE[i], WHITE);
     } else if (mi === treePropIdx) {
-      // Tier 3b — pick a tree variant + scale jitter from a stable
-      // index hash. Wind-sway material when available; fall back
-      // to drawModel for the no-material case.
-      const v = treeVariants[i & 3];
+      // World-authored trees — variant + yaw + scale jitter from a
+      // stable index hash so the same world always lays out the same.
+      const v = treeVariants[i % 3];
       const scaleJitter = 0.85 + ((i * 17) & 31) / 100.0;  // 0.85 .. 1.16
-      const sc = W.MESH_SCALE[i] * scaleJitter * 2.5;
+      const sc = W.MESH_SCALE[i] * scaleJitter * 1.15;
       const pos = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
-      if (matTree > 0) {
-        const leaves = { r: 80, g: 165, b: 55, a: 255 };
-        const meshCount = TREE_MESH_COUNTS[i & 3];
-        for (let mIdx = 0; mIdx < meshCount; mIdx++) {
-          drawMeshWithMaterial(matTree, v as any, pos, sc, leaves, mIdx);
-        }
-      } else {
-        drawModel(v, pos, sc, WHITE);
-      }
+      const yawDeg = ((i * 47) % 360);
+      drawModelRotated(v, pos, sc, yawDeg, WHITE);
     } else {
       drawModel(meshModelHandles[mi],
                 vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
@@ -2308,8 +2502,11 @@ while (!windowShouldClose()) {
     const faceYaw = Math.atan2(dxA, -dzA);
     const attacking = Math.hypot(dxA, dzA) <= KIND_MELEE[k];
     const animIdx = attacking ? ANIM_ATTACK_IDX[k] : ANIM_WALK_IDX[k];
+    // Same engine quirk as the player model (see modelYaw above): the
+    // skinned path applies rotY INVERTED, so pass π/2 − yaw or the
+    // aliens strafe sideways-on toward the player.
     updateModelAnimation(animAliens[k], animIdx, enPhase[i], KIND_SCALE[k],
-      enX[i], enY[i], enZ[i], faceYaw);
+      enX[i], enY[i], enZ[i], Math.PI / 2 - faceYaw);
     const f = enFlashT[i] > 0 ? enFlashT[i] / DRETCH_HIT_FLASH : 0;
     const tint = f > 0
       ? { r: 255,
@@ -2332,7 +2529,7 @@ while (!windowShouldClose()) {
     const at = enDeathT[i] < dur - 0.04 ? enDeathT[i] : dur - 0.04;
     const sink = enDeathT[i] > dur + 0.6 ? (enDeathT[i] - dur - 0.6) * 0.9 : 0;
     updateModelAnimation(animAliens[k], ANIM_DIE_IDX[k], at, KIND_SCALE[k],
-      enX[i], enY[i] - sink, enZ[i], enDeathYaw[i]);
+      enX[i], enY[i] - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
     drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], WHITE);
     if (enDeathT[i] > dur + 2.0) enDying[i] = 0;
   }

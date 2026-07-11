@@ -22,7 +22,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
-import { encodePng, leafTexture, barkTexture, grassBladeTexture, flowerTexture,
+import { encodePng, decodePng, leafTexture, barkTexture, grassBladeTexture, flowerTexture,
          stoneTexture, woodTexture, metalTexture, floorTexture, heightToNormal,
          roughnessMR } from './png';
 
@@ -208,9 +208,190 @@ const metalRgba = metalTexture(256);
 const floorRgba = floorTexture(512);
 const barkRgba  = barkTexture(256);
 
+// ---- Round-5: external CC0 scans (assets/textures/external, see the
+// SOURCES.md there). All optional — a checkout without the downloads
+// falls back to the procedural textures below.
+const EXT = 'assets/textures/external';
+
+// Read an external file as raw bytes, or null when absent. JPEGs embed
+// into the GLB as-is (writeGlb sniffs the magic and sets image/jpeg).
+function extBytes(rel: string): Uint8Array | null {
+  const p = EXT + '/' + rel;
+  return existsSync(p) ? new Uint8Array(readFileSync(p)) : null;
+}
+
+// Composite the leaf-card cutout texture from REAL scanned leaves
+// (ambientCG LeafSet004: six leaves in a 3×2 grid, separate opacity
+// map). Leaves are stamped into a few clusters, leaving the border and
+// inter-cluster channels transparent — the big low-frequency holes that
+// survive mip averaging (see the alpha-mip note on leafTexture).
+function externalLeafCard(size: number): Uint8Array | null {
+  const colBytes = extBytes('leafset/LeafSet004/LeafSet004_2K-PNG_Color.png');
+  const opaBytes = extBytes('leafset/LeafSet004/LeafSet004_2K-PNG_Opacity.png');
+  if (!colBytes || !opaBytes) return null;
+  const col = decodePng(colBytes);
+  const opa = decodePng(opaBytes);
+  const W = col.width, H = col.height;
+  const CW = Math.floor(W / 3), CH = Math.floor(H / 2);
+  const out = new Uint8Array(size * size * 4);   // starts fully transparent
+  // Transparent texels keep a mid-green RGB so bilinear filtering at leaf
+  // edges doesn't bleed black fringes into the kept texels.
+  for (let i = 0; i < size * size; i++) {
+    out[i * 4] = 58; out[i * 4 + 1] = 92; out[i * 4 + 2] = 38;
+  }
+  let seed = 613291;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  const clusters = [
+    { cx: 0.34, cy: 0.36, r: 0.20, n: 9 },
+    { cx: 0.68, cy: 0.30, r: 0.18, n: 8 },
+    { cx: 0.52, cy: 0.66, r: 0.22, n: 10 },
+    { cx: 0.24, cy: 0.72, r: 0.15, n: 6 },
+  ];
+  for (const cl of clusters) {
+    for (let i = 0; i < cl.n; i++) {
+      const leaf = Math.floor(rnd() * 6) % 6;
+      const lu0 = (leaf % 3) * CW, lv0 = Math.floor(leaf / 3) * CH;
+      const ang = rnd() * Math.PI * 2;
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      // Leaf spans ~18–32% of the card.
+      const scale = (0.18 + rnd() * 0.14) * size / Math.max(CW, CH);
+      const th = rnd() * Math.PI * 2, rr = Math.sqrt(rnd()) * cl.r;
+      const px = (cl.cx + Math.cos(th) * rr) * size;
+      const py = (cl.cy + Math.sin(th) * rr) * size;
+      const shade = 0.72 + rnd() * 0.40;     // per-leaf light variation
+      const hue = (rnd() - 0.5) * 0.16;      // warm/cool jitter
+      const half = 0.5 * scale * Math.max(CW, CH) * 1.45;  // rotated diagonal
+      const x0 = Math.max(0, Math.floor(px - half)), x1 = Math.min(size - 1, Math.ceil(px + half));
+      const y0 = Math.max(0, Math.floor(py - half)), y1 = Math.min(size - 1, Math.ceil(py + half));
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          // Inverse-rotate destination → source-cell coords.
+          const dx = x - px, dy = y - py;
+          const sx = ( ca * dx + sa * dy) / scale + CW * 0.5;
+          const sy = (-sa * dx + ca * dy) / scale + CH * 0.5;
+          if (sx < 0 || sy < 0 || sx >= CW || sy >= CH) continue;
+          const si = (lv0 + (sy | 0)) * W + (lu0 + (sx | 0));
+          if (opa.rgba[si * 4] < 128) continue;     // opacity map, grey in R
+          const oi = (y * size + x) * 4;
+          out[oi]     = Math.min(255, Math.floor(col.rgba[si * 4]     * shade * (1 + hue)));
+          out[oi + 1] = Math.min(255, Math.floor(col.rgba[si * 4 + 1] * shade));
+          out[oi + 2] = Math.min(255, Math.floor(col.rgba[si * 4 + 2] * shade * (1 - hue)));
+          out[oi + 3] = 255;
+        }
+      }
+    }
+  }
+  return encodePng(size, size, out);
+}
+
+// Round-5b — ShareTextures branch atlases (CC0): whole scanned leaves /
+// pinnate fronds stamped as large elements. One species per tree
+// variant. Element rects are hand-read from the opacity maps (u0,v0,u1,v1).
+interface Atlas {
+  col: { width: number; height: number; rgba: Uint8Array };
+  opa: { width: number; height: number; rgba: Uint8Array };
+  rects: [number, number, number, number][];
+}
+function loadAtlas(colRel: string, opaRel: string,
+                   rects: [number, number, number, number][]): Atlas | null {
+  const cb = extBytes(colRel), ob = extBytes(opaRel);
+  if (!cb || !ob) return null;
+  return { col: decodePng(cb), opa: decodePng(ob), rects };
+}
+const atlasPlatanus = loadAtlas(
+  'platanus/PlatanusOccidentalis_1-2K/PlatanusOccidentalis_1_basecolor-2K.png',
+  'platanus/PlatanusOccidentalis_1-2K/PlatanusOccidentalis_1_opacity-2K.png',
+  [
+    [0.02, 0.02, 0.42, 0.40],   // leaf, pale
+    [0.40, 0.00, 1.00, 0.46],   // leaf, big dark
+    [0.20, 0.44, 0.85, 1.00],   // leaf, huge
+    [0.04, 0.40, 0.26, 0.66],   // small sprig with stems
+  ]);
+const atlasRobinia = loadAtlas(
+  'robinia/RobiniaViscosa_2-4K/RobiniaViscosa_2_basecolor-4K.png',
+  'robinia/RobiniaViscosa_2-4K/RobiniaViscosa_2_opaciy-4K.png',   // sic: pack typo
+  [
+    [0.00, 0.00, 0.47, 1.00],   // left frond
+    [0.50, 0.01, 1.00, 0.95],   // right frond
+  ]);
+
+// Stamp whole atlas elements into a card texture. Fewer, BIGGER stamps
+// than the per-leaf compositor — a card reads as one or two overlapping
+// branch clusters, with the card border + inter-stamp gaps providing the
+// low-frequency transparency.
+function atlasCard(size: number, atlas: Atlas, seed0: number, stamps: number): Uint8Array {
+  const { col, opa, rects } = atlas;
+  const W = col.width, H = col.height;
+  const out = new Uint8Array(size * size * 4);
+  // Transparent texels keep a mid-green RGB (no black edge fringes).
+  for (let i = 0; i < size * size; i++) {
+    out[i * 4] = 58; out[i * 4 + 1] = 92; out[i * 4 + 2] = 38;
+  }
+  let seed = seed0;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  for (let i = 0; i < stamps; i++) {
+    const rect = rects[Math.floor(rnd() * rects.length) % rects.length];
+    const rx0 = rect[0] * W, ry0 = rect[1] * H;
+    const rw = (rect[2] - rect[0]) * W, rh = (rect[3] - rect[1]) * H;
+    const ang = rnd() * Math.PI * 2;
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    // Element's longest side spans 55–85% of the card.
+    const scale = (0.55 + rnd() * 0.30) * size / Math.max(rw, rh);
+    const px = (0.30 + rnd() * 0.40) * size;
+    const py = (0.30 + rnd() * 0.40) * size;
+    const shade = 0.70 + rnd() * 0.42;
+    const hue = (rnd() - 0.5) * 0.14;
+    const half = 0.5 * scale * Math.hypot(rw, rh);
+    const x0 = Math.max(0, Math.floor(px - half)), x1 = Math.min(size - 1, Math.ceil(px + half));
+    const y0 = Math.max(0, Math.floor(py - half)), y1 = Math.min(size - 1, Math.ceil(py + half));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const dx = x - px, dy = y - py;
+        const sx = ( ca * dx + sa * dy) / scale + rw * 0.5;
+        const sy = (-sa * dx + ca * dy) / scale + rh * 0.5;
+        if (sx < 0 || sy < 0 || sx >= rw || sy >= rh) continue;
+        const si = ((ry0 + sy) | 0) * W + ((rx0 + sx) | 0);
+        if (opa.rgba[si * 4] < 128) continue;
+        const oi = (y * size + x) * 4;
+        out[oi]     = Math.min(255, Math.floor(col.rgba[si * 4]     * shade * (1 + hue)));
+        out[oi + 1] = Math.min(255, Math.floor(col.rgba[si * 4 + 1] * shade));
+        out[oi + 2] = Math.min(255, Math.floor(col.rgba[si * 4 + 2] * shade * (1 - hue)));
+        out[oi + 3] = 255;
+      }
+    }
+  }
+  return out;
+}
+
+const extLeafCard = externalLeafCard(512);
+const extBark   = extBytes('pine_bark/pine_bark_diff_1k.jpg');
+const extBarkN  = extBytes('pine_bark/pine_bark_nor_gl_1k.jpg');
+// Grayscale roughness JPEG: decodes to R=G=B, and glTF reads roughness
+// from G (metallic from B — harmless, metallicFactor is 0).
+const extBarkMR = extBytes('pine_bark/pine_bark_rough_1k.jpg');
+if (extBark) console.log('bark: Poly Haven pine_bark 1K');
+
+// Leaf card priority per tree variant: branch atlas (sycamore / robinia)
+// → LeafSet004 compositor → procedural noise blobs.
+const cardPlat1 = atlasPlatanus ? encodePng(512, 512, atlasCard(512, atlasPlatanus, 424711, 4)) : null;
+const cardPlat2 = atlasPlatanus ? encodePng(512, 512, atlasCard(512, atlasPlatanus, 918273, 4)) : null;
+const cardRobin = atlasRobinia  ? encodePng(512, 512, atlasCard(512, atlasRobinia, 550137, 3)) : null;
+if (cardPlat1) console.log('leaf cards: ShareTextures Platanus + Robinia atlases');
+else if (extLeafCard) console.log('leaf cards: scanned LeafSet004');
+{
+  // Drop inspectable copies next to the other test artefacts.
+  mkdirSync('tools/.testout', { recursive: true });
+  if (cardPlat1) writeFileSync('tools/.testout/leafcard_platanus.png', cardPlat1);
+  if (cardRobin) writeFileSync('tools/.testout/leafcard_robinia.png', cardRobin);
+  else if (extLeafCard) writeFileSync('tools/.testout/leafcard_preview.png', extLeafCard);
+}
+const fallbackLeaf = extLeafCard ?? encodePng(512, 512, leafTexture(512));
+
 const PROC_TEX: Record<string, Uint8Array> = {
-  leaf:        encodePng(256, 256, leafTexture(256)),
-  bark:        encodePng(256, 256, barkRgba),
+  leaf:        cardPlat1 ?? fallbackLeaf,
+  leaf2:       cardRobin ?? fallbackLeaf,
+  leaf3:       cardPlat2 ?? fallbackLeaf,
+  bark:        extBark ?? encodePng(256, 256, barkRgba),
   grass_blade: encodePng(256, 256, grassBladeTexture(256)),
   flower:      encodePng(256, 256, flowerTexture(256)),
   // Stone/wood/metal/floor: procedural fallbacks so the building + props are
@@ -229,13 +410,13 @@ const PROC_TEX: Record<string, Uint8Array> = {
   wood_n:  encodePng(512, 512, heightToNormal(512, 512, woodRgba, 2.2)),
   metal_n: encodePng(256, 256, heightToNormal(256, 256, metalRgba, 1.0)),
   floor_n: encodePng(512, 512, heightToNormal(512, 512, floorRgba, 1.8)),
-  bark_n:  encodePng(256, 256, heightToNormal(256, 256, barkRgba, 2.6)),
+  bark_n:  extBarkN ?? encodePng(256, 256, heightToNormal(256, 256, barkRgba, 2.6)),
   // Per-texel roughness (metallic-roughness maps) — recessed mortar/grooves
   // read matte, faces a touch glossier; all dielectric (metallic 0).
   stone_mr: encodePng(512, 512, roughnessMR(512, 512, stoneRgba, 0.72, 0.97)),
   wood_mr:  encodePng(512, 512, roughnessMR(512, 512, woodRgba, 0.62, 0.90)),
   floor_mr: encodePng(512, 512, roughnessMR(512, 512, floorRgba, 0.60, 0.88)),
-  bark_mr:  encodePng(256, 256, roughnessMR(256, 256, barkRgba, 0.78, 0.97)),
+  bark_mr:  extBarkMR ?? encodePng(256, 256, roughnessMR(256, 256, barkRgba, 0.78, 0.97)),
 };
 
 // Albedo texture key → its normal-map key (solid materials only; the alpha
@@ -356,29 +537,38 @@ function pushTrunk(m: Mesh, baseR: number, topR: number, height: number,
   m.push({ vertices: verts, indices, color, textureKey, roughness: 0.95, metallic: 0.0 });
 }
 
-function makeTree(): Mesh {
+// Variant knobs: `seed0` re-rolls the whole card scatter, `trunkH` is the
+// trunk height in metres (canopy rides on top), `spread` widens/narrows the
+// canopy. Three variants ship so the forest doesn't read as one model
+// copy-pasted (prop_tree / prop_tree2 / prop_tree3 at the bottom of this
+// file).
+function makeTree(seed0: number, trunkH: number, spread: number, leafKey: string): Mesh {
   const m: Mesh = [];
   // Deterministic pseudo-random so the GLB is reproducible.
-  let seed = 90187;
+  let seed = seed0;
   const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
 
   // Tapered, leaning, root-flared trunk (12 sides for a smooth-but-organic
   // profile) + a couple of low branch stubs so it isn't a bare pole.
-  pushTrunk(m, 0.28, 0.10, 3.0, 12, 0.22, 7, [1, 1, 1], 'bark');
-  pushCylinder(m, 0.55, 2.05, 0.2, 0.07, 0.5, 6, [1, 1, 1], 0.95, 0.0, 'bark');
-  pushCylinder(m, -0.5, 2.35, -0.3, 0.06, 0.45, 6, [1, 1, 1], 0.95, 0.0, 'bark');
+  pushTrunk(m, 0.28 * Math.sqrt(trunkH / 3.0), 0.10, trunkH, 12, 0.22, 7, [1, 1, 1], 'bark');
+  pushCylinder(m, 0.55 * spread, trunkH * 0.68, 0.2, 0.07, 0.5, 6, [1, 1, 1], 0.95, 0.0, 'bark');
+  pushCylinder(m, -0.5 * spread, trunkH * 0.78, -0.3, 0.06, 0.45, 6, [1, 1, 1], 0.95, 0.0, 'bark');
 
   const fv: number[] = [], fi: number[] = [];
   // Canopy = several overlapping leaf-card CLUMPS (foliage masses) rather than
   // symmetric horizontal rings — gives a rounder, ragged, non-boxy silhouette.
   // Each clump scatters cards through a squashed sphere with size + tilt jitter.
+  // Clump heights ride on trunkH; radii/offsets scale with spread.
+  // Round-4: more, SMALLER cards. Big 1.35–2.5 m cards read as flat green
+  // sheets — the canopy silhouette has to come from card layout, not from
+  // a handful of billboards.
   const clumps = [
-    { cx: 0.0, cy: 3.5, cz: 0.0, rad: 1.55, n: 30 },
-    { cx: 0.95, cy: 3.05, cz: 0.45, rad: 1.15, n: 18 },
-    { cx: -0.85, cy: 3.15, cz: -0.55, rad: 1.15, n: 18 },
-    { cx: 0.25, cy: 4.2, cz: -0.35, rad: 1.0, n: 15 },
-    { cx: -0.35, cy: 2.7, cz: 0.75, rad: 0.95, n: 13 },
-    { cx: 0.6, cy: 3.7, cz: -0.7, rad: 0.9, n: 12 },
+    { cx: 0.0,            cy: trunkH + 0.50, cz: 0.0,             rad: 1.55 * spread, n: 44 },
+    { cx: 0.95 * spread,  cy: trunkH + 0.05, cz: 0.45 * spread,   rad: 1.15 * spread, n: 26 },
+    { cx: -0.85 * spread, cy: trunkH + 0.15, cz: -0.55 * spread,  rad: 1.15 * spread, n: 26 },
+    { cx: 0.25 * spread,  cy: trunkH + 1.20, cz: -0.35 * spread,  rad: 1.0 * spread,  n: 21 },
+    { cx: -0.35 * spread, cy: trunkH - 0.30, cz: 0.75 * spread,   rad: 0.95 * spread, n: 18 },
+    { cx: 0.6 * spread,   cy: trunkH + 0.70, cz: -0.7 * spread,   rad: 0.9 * spread,  n: 17 },
   ];
   for (const cl of clumps) {
     for (let i = 0; i < cl.n; i++) {
@@ -390,20 +580,20 @@ function makeTree(): Mesh {
       const py = cl.cy + rr * uu * 0.82;
       const pz = cl.cz + rr * sq * Math.sin(th);
       const yaw = Math.atan2(px - cl.cx, pz - cl.cz) + (rnd() - 0.5) * 0.7;
-      const size = 1.35 + rnd() * 1.15;
+      const size = 0.90 + rnd() * 0.75;
       addLeafCard(fv, fi, px, py, pz, size, size, yaw, rnd() * 0.95);
     }
   }
   // A few ragged outliers poking past the clumps so the edge isn't a clean ball.
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 14; i++) {
     const yaw = rnd() * Math.PI * 2;
-    const r = 1.7 + rnd() * 0.7;
-    addLeafCard(fv, fi, Math.sin(yaw) * r, 3.3 + (rnd() - 0.3) * 2.0,
-                Math.cos(yaw) * r, 1.0 + rnd() * 0.9, 1.0 + rnd() * 0.9,
+    const r = (1.7 + rnd() * 0.7) * spread;
+    addLeafCard(fv, fi, Math.sin(yaw) * r, trunkH + 0.3 + (rnd() - 0.3) * 2.0,
+                Math.cos(yaw) * r, 0.75 + rnd() * 0.65, 0.75 + rnd() * 0.65,
                 yaw, rnd() * 0.8);
   }
   m.push({
-    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: 'leaf',
+    vertices: fv, indices: fi, color: [1, 1, 1], textureKey: leafKey,
     roughness: 0.9, metallic: 0.0, alphaMode: 'MASK', alphaCutoff: 0.5,
   });
   return m;
@@ -737,7 +927,13 @@ function writeGlb(outPath: string, mesh: Mesh): void {
     gltf.samplers = [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }];
     gltf.textures = texBytes.map((_, i) => ({ source: i, sampler: 0 }));
     gltf.images = texBytes
-      .map((_, i) => imageBv[i] >= 0 ? { bufferView: imageBv[i], mimeType: 'image/png' } : null)
+      // Round-5: sniff the container — external Poly Haven maps are JPEG
+      // (0xFFD8 magic) and glTF supports image/jpeg directly, so they embed
+      // without a re-encode.
+      .map((b, i) => imageBv[i] >= 0
+        ? { bufferView: imageBv[i],
+            mimeType: (b.length > 2 && b[0] === 0xff && b[1] === 0xd8) ? 'image/jpeg' : 'image/png' }
+        : null)
       .filter(x => x !== null);
   }
 
@@ -813,7 +1009,9 @@ function makeCalibRig(): Mesh {
   return m;
 }
 
-writeGlb('assets/models/prop_tree.glb',      makeTree());
+writeGlb('assets/models/prop_tree.glb',      makeTree(90187, 3.0, 1.0,  'leaf'));   // sycamore
+writeGlb('assets/models/prop_tree2.glb',     makeTree(41627, 3.9, 0.85, 'leaf2'));  // robinia
+writeGlb('assets/models/prop_tree3.glb',     makeTree(77321, 2.5, 1.3,  'leaf3'));  // sycamore mix
 writeGlb('assets/models/calib_rig.glb',      makeCalibRig());
 writeGlb('assets/models/prop_grasstuft.glb', makeGrassTuft());
 writeGlb('assets/models/prop_flower.glb',    makeFlowerTuft());

@@ -21,6 +21,10 @@ struct TerrainParams {
   // x = noise_freq (wraps per metre), y = slope_threshold (cos),
   // z = ridge_height (m), w = pale_strength
   knobs:      vec4<f32>,
+  // Round-4 — x = river centre z (m), y = river half-width incl. bank
+  // fade start, z = bank fade width, w = waterline y (bed blend fades
+  // out above it).
+  river:      vec4<f32>,
 };
 @group(2) @binding(11) var<uniform> tp: TerrainParams;
 
@@ -81,7 +85,30 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // and dirt dominates.
   let up_dot   = clamp(n.y, 0.0, 1.0);
   let slope_t  = smoothstep(tp.knobs.y, tp.knobs.y + 0.15, up_dot);
-  let surface  = mix(tp.dirt.rgb, grass, slope_t);
+  var surface  = mix(tp.dirt.rgb, grass, slope_t);
+
+  // Round-4 — macro moisture patches (~45 m wavelength): dry
+  // straw-olive sweeps + slightly darker lush pockets, so the field
+  // stops reading as one uniform green lawn. Loosely matches the
+  // grass blades' moisture tinting (they use the same idea at
+  // scatter time).
+  let patch_n  = fbm2(in.world_pos.xz * 0.022);
+  let dry_t    = smoothstep(0.52, 0.78, patch_n);
+  let wet_t    = smoothstep(0.42, 0.18, patch_n);
+  surface = mix(surface, surface * vec3<f32>(1.30, 1.12, 0.62), dry_t * 0.55);
+  surface = mix(surface, surface * vec3<f32>(0.80, 0.92, 0.82), wet_t * 0.35);
+
+  // Round-4 — riverbed: blend to wet mud inside the river channel,
+  // gated on world height so only the carved bed (below the
+  // waterline) and a thin damp bank strip take it. Pebble-scale
+  // noise keeps the mud from being one flat brown.
+  let dzr      = abs(in.world_pos.z - tp.river.x);
+  let bed_x    = 1.0 - smoothstep(tp.river.y, tp.river.y + tp.river.z, dzr);
+  let bed_y    = 1.0 - smoothstep(tp.river.w, tp.river.w + 0.35, in.world_pos.y);
+  let bed_t    = bed_x * bed_y;
+  let pebble   = value_noise(in.world_pos.xz * 3.1);
+  let mud      = vec3<f32>(0.23, 0.17, 0.11) * (0.75 + pebble * 0.5);
+  surface = mix(surface, mud, bed_t);
 
   // Height tint — pale near ridges. Use world.y / ridge_height as
   // the lerp control, capped.
