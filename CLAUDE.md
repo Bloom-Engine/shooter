@@ -61,7 +61,44 @@ perry compile src/main.ts -o main      # raw compile (skip world build)
 bun tools/convert-aliens-anim.ts       # regenerate animated alien GLBs
 bun tools/convert-arena.ts             # regenerate textured arena
 bun tools/validate-glb.ts <path>       # glTF-validator report
+./tools/deploy-ios.sh                  # build + sign + install + launch on iPhone
+./tools/deploy-ios.sh --console        # ...and stream the device's stdout/stderr
 ```
+
+### iOS
+
+`tools/deploy-ios.sh` is the whole loop. Set `BLOOM_IOS_DEVICE` to target a
+different device (`xcrun devicectl list devices` for the id).
+
+Four things about this target are load-bearing and non-obvious:
+
+- **`--features ios-game-loop` is mandatory.** UIKit wants
+  `UIApplicationMain()` to own the main thread forever; the game loop wants it
+  too. The feature makes Perry run the game on a spawned thread instead.
+  Without it the app links, installs, launches — and never shows a window.
+- **Perry's own signing step fails** on the extended attributes macOS leaves on
+  the asset files (`resource fork, Finder information, or similar detritus not
+  allowed`), so the script does `xattr -cr` and codesigns itself.
+- **The screen is reported in pixels, not points** (engine EN-024). Every
+  hardcoded HUD offset would come out a third of its intended size on a 3x
+  phone, so `main.ts` lays the HUD out in a ~1000-unit logical space and scales
+  the whole 2D pass through `beginMode2DRaw`'s zoom. The touch controls are
+  drawn *outside* that camera, in raw pixels, because they have to land on
+  exactly the coordinates `input.ts` hit-tests.
+- **Touch slots are sparse.** Scan `0..getMaxTouchPoints()` and skip slots
+  `isTouchActive(i)` rejects — never `0..getTouchCount()`, which reads a
+  released slot's stale coordinates as a live finger and leaves the player
+  walking after the thumb is gone.
+
+Signing material: profile at `~/.perry/com_bloomengine_shooter_dev.mobileprovision`
+(mint with `perry setup ios --development`), entitlements in `ent.plist`, team
+`K6UW5YV9F7`. The provisioning profile is *not* a wildcard — a new bundle id
+needs a new profile.
+
+The mobile render profile (`MOBILE` branch in `main.ts`) drops SSGI, SSR, GTAO
+and sun shafts and keeps shadows + bloom. That lands ~50 fps on an iPhone 16
+Pro. Lumen SW-GI is the one that must stay off: it re-bakes an SDF clipmap as
+the view moves, and the phone has no headroom to absorb the stall.
 
 ### Windows specifics (the current dev box)
 

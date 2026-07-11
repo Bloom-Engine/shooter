@@ -33,6 +33,27 @@ Controls:
 | F12              | Screenshot to `shooter_<N>.png`           |
 | Esc              | Quit                                      |
 
+### On an iPhone
+
+```
+./tools/deploy-ios.sh           # build, sign, install, launch
+./tools/deploy-ios.sh --console # ...and stream the device log
+```
+
+Runs at ~50 fps on an iPhone 16 Pro, landscape. Touch controls: the left half
+of the screen is a movement stick that appears under your thumb wherever it
+lands, the right half is drag-to-look, and FIRE / JUMP / R / GUN sit along the
+right edge. Holding FIRE still steers, so you can shoot and aim with the same
+thumb.
+
+The mobile branch drops the screen-space GI, reflections and ambient occlusion
+— a phone is a tile-based GPU on a battery, and those three are what scale
+worst — and keeps sun shadows and bloom, which is most of what the arena's look
+actually rests on.
+
+Requires a paid Apple developer account (Perry's signing flow is App Store
+Connect API-only). See `CLAUDE.md` for the provisioning details.
+
 Survive three waves — dretches, mantises, marauders, dragoons, and a
 tyrant. Ammo crates respawn at the four arena corners.
 
