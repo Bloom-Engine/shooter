@@ -46,6 +46,9 @@ import {
 import {
   animPlay, animSetLayer, animUpdate, animFinished, animClipDuration,
   findJoint, jointWorld,
+  createTextureArrayFromFiles, setMaterialTextureArray,
+  TEXTURE_ARRAY_ALBEDO, TEXTURE_ARRAY_NORMAL, TEXTURE_ARRAY_MR,
+  TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
 } from 'bloom/models';
 import { initInput, readInput, drawTouchControls, MOBILE, aimAssistScale } from './input';
 import {
@@ -401,18 +404,57 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
 //   grass_dry rgb  pad   grass_mid rgb  pad   grass_deep rgb pad   dirt rgb pad
 //   noise_freq, slope_threshold, ridge_height, pale_strength
 const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opaque');
+
+// SH-009 — four splat layers + their normals, as texture ARRAYS. The layer
+// order IS the ABI (terrain.wgsl indexes by it); it matches the emit order in
+// tools/build-terrain-textures.ts.
+//
+// NOTE the ordering below: bind the arrays BEFORE setting params. It used to
+// matter fatally — set_user_params rebuilt the material's bind group with the
+// 1x1 stub array hardcoded, silently unbinding the art (engine EN-014). That is
+// fixed, but binding first is still the honest order.
+{
+  const albedoArr = createTextureArrayFromFiles([
+    'assets/textures/terrain_grass_lush_albedo.png',
+    'assets/textures/terrain_grass_dry_albedo.png',
+    'assets/textures/terrain_dirt_albedo.png',
+    'assets/textures/terrain_rock_albedo.png',
+  ], TEX_ARRAY_FORMAT_SRGB, 4);
+  // Normals MUST be linear — sRGB-decoding an encoded normal corrupts it.
+  const normalArr = createTextureArrayFromFiles([
+    'assets/textures/terrain_grass_lush_normal.png',
+    'assets/textures/terrain_grass_dry_normal.png',
+    'assets/textures/terrain_dirt_normal.png',
+    'assets/textures/terrain_rock_normal.png',
+  ], TEX_ARRAY_FORMAT_LINEAR, 4);
+  // SH-010 — the shared detail normal rides the MR slot; nothing else wants it.
+  const detailArr = createTextureArrayFromFiles([
+    'assets/textures/terrain_detail_normal.png',
+  ], TEX_ARRAY_FORMAT_LINEAR, 4);
+
+  if (matTerrain > 0 && albedoArr > 0) {
+    setMaterialTextureArray(matTerrain, TEXTURE_ARRAY_ALBEDO, albedoArr);
+    setMaterialTextureArray(matTerrain, TEXTURE_ARRAY_NORMAL, normalArr);
+    setMaterialTextureArray(matTerrain, TEXTURE_ARRAY_MR, detailArr);
+  } else {
+    console.log('[terrain] splat textures missing - run: bun tools/build-terrain-textures.ts');
+  }
+}
 const TERRAIN_PARAMS = [
-  // Round-4 palette â€” desaturated toward olive; the old stops were
-  // saturated toy-greens and read as a plastic lawn.
-  0.46, 0.46, 0.26,  0.0,
-  0.24, 0.34, 0.16,  0.0,
-  0.13, 0.21, 0.10,  0.0,
-  0.32, 0.25, 0.17,  0.0,
-  0.18, 0.78, 4.0,   0.55,
-  // river: centre z, half-width (full mud), bank fade width, waterline y.
-  // Matches the arena_02 river volume (z=12, carve half-width 2.6) â€”
-  // defined here because WATER_* constants load later in this file.
+  // Per-layer tint (multiplied into the sampled albedo), so the palette stays
+  // tunable without regenerating the art. Kept near 1 — the textures already
+  // carry the colour; these only nudge it.
+  0.92, 0.96, 0.84,  0.0,   // lush
+  0.98, 0.94, 0.80,  0.0,   // dry
+  0.95, 0.92, 0.88,  0.0,   // dirt
+  0.92, 0.93, 0.95,  0.0,   // rock
+  // macro noise freq, slope threshold (cos), ridge height, pale strength
+  0.18, 0.72, 4.0,   0.45,
+  // river: centre z, half-width, bank fade width, waterline y.
+  // Matches the arena_02 river volume (z=12, carve half-width 2.6).
   12.0, 2.4, 1.8,    0.12,
+  // macro UV scale (tiles/m), detail UV scale, detail strength, normal strength
+  0.35, 6.0, 0.35,   0.85,
 ];
 if (matTerrain > 0) setMaterialParams(matTerrain, TERRAIN_PARAMS);
 // Per-mesh collider from userData.collider === 'box'.

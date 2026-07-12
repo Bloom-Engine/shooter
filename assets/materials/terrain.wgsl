@@ -1,30 +1,41 @@
-// Tier 2a — terrain colour variation. Replaces the flat-green
-// drawModel path with a material that mixes three grass stops by
-// world-XZ noise, slope-tints toward dirt-brown on steep faces,
-// and height-tints toward sun-bleached pale on ridges.
+// SH-009 / SH-010 — splat-mapped PBR terrain.
 //
-// Driven entirely from PerView (sun direction, camera) and
-// user_params (colour stops + thresholds). No textures yet — the
-// noise is a 2-octave hash function in the fragment.
+// What this replaces: three colour stops blended by a hash-noise, with NO
+// textures at any scale. Below ~1 m the ground had no detail at all — press the
+// camera to the floor and you saw a smooth gradient. It was the single most
+// jarring "this looks 2010" surface in the game, and it is also the surface the
+// player looks at most.
 //
-// Phase 6 hot-reloadable: edit this file at runtime to retune.
+// Four layers, sampled TRIPLANAR (world-XZ projection alone smears to nothing
+// on a cliff face, which is exactly where the rock layer lives), blended by the
+// masks the old shader was already computing — slope, height, noise,
+// distance-to-water — now routed to texture weights instead of colour stops.
+//
+// Layer order is the ABI, set by tools/build-terrain-textures.ts:
+//   0 grass_lush   1 grass_dry   2 dirt   3 rock
+// Arrays: albedo at @binding(14), normal at @binding(15) (EN-014).
+// A fifth texture — the shared detail normal — rides layer 0 of the MR array
+// slot, since nothing else needs it.
 
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
 #include "common/shadows.wgsl"
 
 struct TerrainParams {
-  grass_dry:  vec4<f32>,  // xyz rgb, w unused
-  grass_mid:  vec4<f32>,
-  grass_deep: vec4<f32>,
-  dirt:       vec4<f32>,
-  // x = noise_freq (wraps per metre), y = slope_threshold (cos),
-  // z = ridge_height (m), w = pale_strength
-  knobs:      vec4<f32>,
-  // Round-4 — x = river centre z (m), y = river half-width incl. bank
-  // fade start, z = bank fade width, w = waterline y (bed blend fades
-  // out above it).
-  river:      vec4<f32>,
+  // Per-layer tint, so the palette stays tunable without regenerating art.
+  tint_lush: vec4<f32>,
+  tint_dry:  vec4<f32>,
+  tint_dirt: vec4<f32>,
+  tint_rock: vec4<f32>,
+  // x = macro noise freq, y = slope threshold (cos), z = ridge height (m),
+  // w = pale strength
+  knobs:     vec4<f32>,
+  // x = river centre z, y = river half-width, z = bank fade width,
+  // w = waterline y
+  river:     vec4<f32>,
+  // x = macro UV scale (tiles/metre), y = detail UV scale, z = detail strength,
+  // w = normal strength
+  scales:    vec4<f32>,
 };
 @group(2) @binding(11) var<uniform> tp: TerrainParams;
 
@@ -32,7 +43,6 @@ struct VsOut {
   @builtin(position) clip_pos:     vec4<f32>,
   @location(0)       world_pos:    vec3<f32>,
   @location(1)       world_normal: vec3<f32>,
-  // EN-022 — clip positions for motion vectors.
   @location(2)       curr_clip:    vec4<f32>,
   @location(3)       prev_clip:    vec4<f32>,
 };
@@ -44,14 +54,13 @@ fn vs_main(in: VertexInput) -> VsOut {
   out.world_pos    = world.xyz;
   out.world_normal = normalize((draw.model * vec4<f32>(in.normal, 0.0)).xyz);
   out.clip_pos     = view.view_proj * world;
-  // EN-022 — static geometry: previous world == current world, so the
-  // motion vector is pure camera reprojection.
+  // EN-022 — static geometry: previous world == current world, so the motion
+  // vector is pure camera reprojection.
   out.curr_clip    = out.clip_pos;
   out.prev_clip    = view.prev_view_proj * world;
   return out;
 }
 
-// Cheap 2D hash → noise. Not pretty but fine for a colour mask.
 fn hash21(p: vec2<f32>) -> f32 {
   let q = vec3<f32>(p.x * 127.1, p.y * 311.7, 0.0);
   return fract(sin(dot(q, vec3<f32>(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -63,97 +72,144 @@ fn value_noise(p: vec2<f32>) -> f32 {
   let b = hash21(i + vec2<f32>(1.0, 0.0));
   let c = hash21(i + vec2<f32>(0.0, 1.0));
   let d = hash21(i + vec2<f32>(1.0, 1.0));
-  let u = f * f * (3.0 - 2.0 * f);  // smoothstep
+  let u = f * f * (3.0 - 2.0 * f);
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 fn fbm2(p: vec2<f32>) -> f32 {
   return value_noise(p) * 0.6 + value_noise(p * 2.7) * 0.3 + value_noise(p * 6.1) * 0.1;
 }
 
+/// Triplanar blend weights from the surface normal. Powered up so the
+/// transition between projections is tight rather than a wide mush.
+fn triplanar_weights(n: vec3<f32>) -> vec3<f32> {
+  var w = abs(n);
+  w = pow(w, vec3<f32>(4.0));
+  return w / max(w.x + w.y + w.z, 0.0001);
+}
+
+/// Sample one array layer triplanar-projected in world space. Three taps; the
+/// alternative (plain XZ) collapses to a smear of stretched pixels on every
+/// vertical face, which is where the rock is.
+fn tri_albedo(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32) -> vec3<f32> {
+  let cx = textureSample(albedo_array, albedo_array_samp, p.zy * s, layer).rgb;
+  let cy = textureSample(albedo_array, albedo_array_samp, p.xz * s, layer).rgb;
+  let cz = textureSample(albedo_array, albedo_array_samp, p.xy * s, layer).rgb;
+  return cx * w.x + cy * w.y + cz * w.z;
+}
+
+/// Triplanar normal, whiteout-blended: sample each plane's tangent normal,
+/// swizzle it into world space, and sum. Cheaper than a full TBN per plane and
+/// visually indistinguishable on terrain.
+fn tri_normal(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32, n: vec3<f32>) -> vec3<f32> {
+  let tx = textureSample(normal_array, albedo_array_samp, p.zy * s, layer).rgb * 2.0 - 1.0;
+  let ty = textureSample(normal_array, albedo_array_samp, p.xz * s, layer).rgb * 2.0 - 1.0;
+  let tz = textureSample(normal_array, albedo_array_samp, p.xy * s, layer).rgb * 2.0 - 1.0;
+  let nx = vec3<f32>(0.0, tx.y, tx.x) + n;
+  let ny = vec3<f32>(ty.x, 0.0, ty.y) + n;
+  let nz = vec3<f32>(tz.x, tz.y, 0.0) + n;
+  return normalize(nx * w.x + ny * w.y + nz * w.z);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> OpaqueOut {
   let n = normalize(in.world_normal);
+  let p = in.world_pos;
+  let w = triplanar_weights(n);
+  let s = tp.scales.x;
 
-  // Two-octave noise at the configured frequency.
-  let nz = fbm2(in.world_pos.xz * tp.knobs.x);
+  // ---- layer weights ------------------------------------------------------
+  // Same masks the colour-stop version used; they just drive textures now.
+  let nz    = fbm2(p.xz * tp.knobs.x);
+  let up    = clamp(n.y, 0.0, 1.0);
+  // Rock takes over on anything steep. This is the mask triplanar exists for.
+  let rock_w = 1.0 - smoothstep(tp.knobs.y, tp.knobs.y + 0.18, up);
 
-  // Three-stop mix: dry @ 0, mid @ 0.5, deep @ 1. Smooth.
-  var grass = mix(tp.grass_dry.rgb, tp.grass_mid.rgb,  smoothstep(0.0, 0.5, nz));
-  grass     = mix(grass,             tp.grass_deep.rgb, smoothstep(0.5, 1.0, nz));
+  // Dry/lush grass split by a macro moisture field (~45 m), so the field stops
+  // reading as one uniform lawn.
+  let moisture = fbm2(p.xz * 0.022);
+  let dry_w    = smoothstep(0.45, 0.75, moisture);
 
-  // Slope mix toward dirt. Below threshold of n.y we read as steep
-  // and dirt dominates.
-  let up_dot   = clamp(n.y, 0.0, 1.0);
-  let slope_t  = smoothstep(tp.knobs.y, tp.knobs.y + 0.15, up_dot);
-  var surface  = mix(tp.dirt.rgb, grass, slope_t);
+  // Dirt in the riverbed and up the damp bank, gated on height so only the
+  // carved channel takes it.
+  let dzr   = abs(p.z - tp.river.x);
+  let bed_x = 1.0 - smoothstep(tp.river.y, tp.river.y + tp.river.z, dzr);
+  let bed_y = 1.0 - smoothstep(tp.river.w, tp.river.w + 0.5, p.y);
+  let dirt_w = clamp(bed_x * bed_y + smoothstep(0.62, 0.85, nz) * 0.35, 0.0, 1.0);
 
-  // Round-4 — macro moisture patches (~45 m wavelength): dry
-  // straw-olive sweeps + slightly darker lush pockets, so the field
-  // stops reading as one uniform green lawn. Loosely matches the
-  // grass blades' moisture tinting (they use the same idea at
-  // scatter time).
-  let patch_n  = fbm2(in.world_pos.xz * 0.022);
-  let dry_t    = smoothstep(0.52, 0.78, patch_n);
-  let wet_t    = smoothstep(0.42, 0.18, patch_n);
-  surface = mix(surface, surface * vec3<f32>(1.30, 1.12, 0.62), dry_t * 0.55);
-  surface = mix(surface, surface * vec3<f32>(0.80, 0.92, 0.82), wet_t * 0.35);
+  // Composite. Order matters: grass is the base, dirt paints over it, rock wins
+  // outright on steep faces.
+  var w_lush = (1.0 - dry_w);
+  var w_dry  = dry_w;
+  var w_dirt = dirt_w;
+  var w_rock = rock_w;
+  let grass_left = max(0.0, 1.0 - w_dirt - w_rock);
+  w_lush = w_lush * grass_left;
+  w_dry  = w_dry  * grass_left;
+  w_dirt = w_dirt * max(0.0, 1.0 - w_rock);
+  let wsum = max(w_lush + w_dry + w_dirt + w_rock, 0.0001);
+  w_lush /= wsum; w_dry /= wsum; w_dirt /= wsum; w_rock /= wsum;
 
-  // Round-4 — riverbed: blend to wet mud inside the river channel,
-  // gated on world height so only the carved bed (below the
-  // waterline) and a thin damp bank strip take it. Pebble-scale
-  // noise keeps the mud from being one flat brown.
-  let dzr      = abs(in.world_pos.z - tp.river.x);
-  let bed_x    = 1.0 - smoothstep(tp.river.y, tp.river.y + tp.river.z, dzr);
-  let bed_y    = 1.0 - smoothstep(tp.river.w, tp.river.w + 0.35, in.world_pos.y);
-  let bed_t    = bed_x * bed_y;
-  let pebble   = value_noise(in.world_pos.xz * 3.1);
-  let mud      = vec3<f32>(0.23, 0.17, 0.11) * (0.75 + pebble * 0.5);
-  surface = mix(surface, mud, bed_t);
+  // ---- albedo -------------------------------------------------------------
+  var albedo = tri_albedo(0, p, w, s) * tp.tint_lush.rgb * w_lush
+             + tri_albedo(1, p, w, s) * tp.tint_dry.rgb  * w_dry
+             + tri_albedo(2, p, w, s) * tp.tint_dirt.rgb * w_dirt
+             + tri_albedo(3, p, w, s) * tp.tint_rock.rgb * w_rock;
 
-  // Height tint — pale near ridges. Use world.y / ridge_height as
-  // the lerp control, capped.
-  let ridge_t  = smoothstep(0.0, max(tp.knobs.z, 0.001), in.world_pos.y);
-  let pale     = surface + vec3<f32>(0.20, 0.18, 0.12) * ridge_t * tp.knobs.w;
-  let final_albedo = mix(surface, pale, ridge_t * tp.knobs.w);
+  // Macro variation — a low-frequency multiply so the tiling doesn't read as a
+  // grid from the air. Without this, any tileable texture announces its period
+  // the moment you get above it.
+  let macro_v = fbm2(p.xz * 0.012);
+  albedo = albedo * (0.86 + 0.28 * macro_v);
 
-  // Direct lighting — Lambert against PerView's sun + ambient.
-  // PerView.sun_dir.xyz is the direction the light TRAVELS toward
-  // the surface, so flip for the to-light vector. Skip the .w
-  // intensity multipliers — ambient.w lives elsewhere in the
-  // engine for some passes and the values match expectations
-  // already with rgb-only.
-  // Direct lighting — Lambert against PerView's sun + ambient.
-  // PerView.sun_dir.xyz is the direction the light TRAVELS toward
-  // the surface, so flip for the to-light vector.
+  // Height tint — pale, sun-bleached ridges.
+  let ridge_t = smoothstep(0.0, max(tp.knobs.z, 0.001), p.y);
+  albedo = albedo + vec3<f32>(0.10, 0.09, 0.06) * ridge_t * tp.knobs.w;
+
+  // ---- normal -------------------------------------------------------------
+  // Blend the dominant layer's normal (blending four normal maps by weight
+  // washes them all out; picking by weight keeps the relief crisp).
+  var nrm = n;
+  if (w_rock > 0.5) {
+    nrm = tri_normal(3, p, w, s, n);
+  } else if (w_dirt > 0.4) {
+    nrm = tri_normal(2, p, w, s, n);
+  } else if (w_dry > 0.5) {
+    nrm = tri_normal(1, p, w, s, n);
+  } else {
+    nrm = tri_normal(0, p, w, s, n);
+  }
+  nrm = normalize(mix(n, nrm, tp.scales.w));
+
+  // SH-010 — detail normal at ~40x the macro scale, covering the last order of
+  // magnitude (blade roots, grit) that a 512px macro texture cannot.
+  let ds = tp.scales.y;
+  let dt = textureSample(mr_array, albedo_array_samp, p.xz * ds, 0).rgb * 2.0 - 1.0;
+  nrm = normalize(nrm + vec3<f32>(dt.x, 0.0, dt.y) * tp.scales.z);
+
+  // ---- lighting -----------------------------------------------------------
   let sun_dir = normalize(view.sun_dir.xyz);
-  let n_dot_l = max(dot(n, sun_dir), 0.0);
+  let n_dot_l = max(dot(nrm, sun_dir), 0.0);
 
-  // Cloud shadows — large-scale scrolling noise on world XZ
-  // multiplied into the sun contribution. Mid-grey biased so most
-  // ground stays lit; deep dips read as overcast pockets drifting
-  // across the field. Frequency 0.025 = ~40 m wavelength; speed
-  // 0.5 m/s along (+x, +z*0.3).
-  let cp = in.world_pos.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
-  let cn = fbm2(cp);
-  let cloud = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
+  // Cloud shadows — large-scale scrolling noise, drifting with the wind.
+  let cp = p.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
+  let cloud = mix(0.55, 1.0, smoothstep(0.35, 0.78, fbm2(cp)));
 
-  // Cascaded sun shadow (building / trees / enemies now cast onto the
-  // terrain). Normal-offset variant — the constant depth bias alone
-  // acnes on hillsides once the terrain self-casts.
-  let sun_shadow = sample_sun_shadow_n(in.world_pos, n);
+  // Shadow receive uses the GEOMETRIC normal: the normal-offset bias is a
+  // surface-position correction, and feeding it a texture-perturbed normal
+  // makes the offset wander and the terrain self-acne.
+  let sun_shadow = sample_sun_shadow_n(p, n);
 
-  let direct  = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
-  // Sky-fill: HDR irradiance by the terrain normal (slopes facing away
-  // from the sky darken naturally) + a small flat-ambient floor.
-  let fill    = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
-  let lit     = final_albedo * (fill + direct);
+  let direct = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
+  let fill   = sample_env_diffuse(nrm) + view.ambient.rgb * 0.20;
+  let lit    = albedo * (fill + direct);
+
+  // Rock is a touch glossier than sod; wet riverbed dirt glossier still.
+  let rough = mix(0.95, 0.72, w_rock) - w_dirt * bed_y * 0.25;
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
-  out.material = vec2<f32>(0.0, 0.95);
-  // EN-022 — real motion vectors: lets TAA's motion-adaptive clamp
-  // engage on the terrain (audit F8's shimmer mechanism).
+  out.material = vec2<f32>(0.0, clamp(rough, 0.25, 1.0));
   out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);
-  out.albedo   = vec4<f32>(final_albedo, 1.0);
+  out.albedo   = vec4<f32>(albedo, 1.0);
   return out;
 }
