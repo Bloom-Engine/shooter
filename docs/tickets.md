@@ -21,14 +21,29 @@ or a design decision
 
 ## Round overview
 
-| Round | Theme | Tickets |
-|---|---|---|
-| 0 | Architecture (prereq for everything) | SH-025, SH-005, SH-026 |
-| 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 |
-| 2 | Audio | SH-003, SH-001, SH-035, SH-036 |
-| 3 | Game structure & content | SH-037..SH-043 |
-| 4 | Visual backlog (kept from the UE5-tier roadmap) | SH-009, SH-010, SH-011, SH-013, SH-014, SH-020, SH-023, SH-024, SH-007 |
-| 5 | Production tooling | SH-044 + editor PLAN items |
+| Round | Theme | Tickets | Status |
+|---|---|---|---|
+| 0 | Architecture (prereq for everything) | SH-025, SH-005, SH-026 | ⏳ not done — see note |
+| 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped (SH-031 ragdolls pending EN-025) |
+| 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
+| 3 | Game structure & content | SH-037..SH-043 | ✅ mostly; SH-040 + 2 enemy kinds open |
+| 4 | Visual backlog (kept from the UE5-tier roadmap) | SH-009, SH-010, SH-011, SH-013, SH-014, SH-020, SH-023, SH-024, SH-007 | ⏳ not started |
+| 5 | Production tooling | SH-044 + editor PLAN items | ⏳ not started |
+
+> **Round-1 results (2026-07-12):** see [`docs/aaa-round-1.md`](aaa-round-1.md).
+> Round 0 was deliberately deferred: the new systems went into their own modules
+> (`feel.ts`, `vfx.ts`, `weapons.ts`, `menu.ts`, `settings.ts`, `score.ts`,
+> `audio-mix.ts`), which got most of the benefit of the split, but `main.ts`
+> itself grew rather than shrank (~3,800 lines) and the loop is still one
+> function. SH-025 is now MORE urgent, not less.
+>
+> Also found and fixed a real engine bug that had nothing to do with the round
+> and everything to do with why it took so long: `set_user_params` silently
+> unbound a material's texture array (engine EN-014). And two new engine
+> tickets from things that turned out to be broken: EN-038 (`takeScreenshot()`
+> never fires on Windows — every screenshot harness has been capturing
+> nothing) and EN-039 (immediate draws can't pitch, so the gun can't tilt with
+> the aim).
 
 **Engine gates** (details in engine `docs/tickets.md`):
 
