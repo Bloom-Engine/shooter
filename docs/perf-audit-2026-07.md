@@ -336,3 +336,55 @@ Two fixes, in order of cost:
 
 Remaining, for a future round: `material_pass` (1.9 ms — terrain/grass/water), and
 the fixed 4K output tail (TSR + composite), which is why `rs0.25` buys nothing.
+
+
+### Round 3, part 3 — gameplay (the number that actually matters)
+
+The title screen was never the interesting measurement. Profiling an actual fight
+(`AITEST` + the profiler) showed something the title screen structurally could not:
+
+| pass | title | combat |
+|---|---|---|
+| `shadow_pass` | 0.12 ms | **3.96 ms** |
+
+A **33× gap**, and it exposed two bugs.
+
+1. **The forest sort broke the mover detection.** EN-043 keyed each caster on "the
+   Nth draw of this model handle" — which was fine until the forest started drawing
+   **front-to-back**. The sort order changes as the camera moves, so occurrence N
+   became a *different tree* every frame, dozens of stationary trees were misread as
+   movers, and the dynamic caster set blew past 32. Two of this round's own changes
+   interacting. Fixed: the key is now one hash of identity AND transform, tested for
+   set membership — order-independent by construction.
+
+2. **The static shadow cache only ever worked on a stationary camera (EN-045).** A
+   cascade keeps its cached depth only while its VP is unchanged, and the
+   `accepted_fit` + `REFIT_SLACK` machinery that makes that possible was gated on
+   `c > 0`. **Cascade 0 — the near cascade, holding the player and everything next to
+   them — re-fit every frame.** So its VP changed on every frame the camera moved,
+   i.e. all of gameplay, and every static caster in it re-rendered every frame.
+
+   The cache was landed, measured and celebrated on a screen where the camera does
+   not move — the one condition under which its central assumption always holds.
+   **Measure the thing you actually ship.**
+
+| | before | after |
+|---|---|---|
+| `shadow_pass` GPU (combat) | 3.58 ms | **0.53 ms** |
+| **gameplay** | **42–44 fps** | **53–56 fps** |
+
+## Round 3 final
+
+| | start of round | now |
+|---|---|---|
+| title screen | 33.5 fps | **57 fps** |
+| **gameplay** | **~33 fps** | **~54 fps** |
+| `shadow_pass` (title) | 6954 µs | 119 µs |
+| `shadow_pass` (combat) | ~3960 µs | 535 µs |
+| `main_hdr_pass` | 7430 µs | 2134 µs |
+
+**What is left, and it is now structural.** The frame is dominated by fixed-rate 4K
+output work: `taa_pass` **3.10 ms** (TSR upscale to 4K) and `final_composite_pass`
+**2.40 ms**. That is why `rs0.25` runs no faster than `rs0.5` — render-resolution work
+is no longer the bottleneck at all. Cutting output to 1440p is the remaining lever;
+everything else is sub-millisecond.

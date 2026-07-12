@@ -1600,6 +1600,7 @@ let waterTestT0 = -1;
 // cycle. Same dormancy contract as SELFTEST/WATERTEST/PERFTEST: MUST be
 // false in shipped builds.
 const AITEST = false;
+let aitestDone = false;
 
 // ---- COMBATSHOT harness -----------------------------------------------------
 // Drives a REAL fight and screenshots it, because the AAA-round systems (VFX,
@@ -1748,7 +1749,7 @@ function perfStageApply(s: number): void {
 }
 
 
-while (!windowShouldClose()) {
+while (!windowShouldClose() && !aitestDone) {
   beginDrawing();
   if (PERFTEST) {
     const nowTop = getTime();
@@ -3869,6 +3870,12 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
+
+
+
+
 
 
 
