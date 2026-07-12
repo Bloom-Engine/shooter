@@ -11,7 +11,7 @@
   endMode2D,
   loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
   createMesh, createMeshExplicit, genMeshCube,
-  compileMaterial, compileRefractiveMaterial, drawMeshWithMaterial,
+  drawMeshWithMaterial,
   compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume, playSound3D, setListenerPosition,
   loadMusic, playMusic, stopMusic, updateMusicStream, setMusicVolume,
@@ -30,7 +30,7 @@ import {
   setTaaEnabled, setRenderScale,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
-  setManualExposure, gamepadRumble,
+  setManualExposure, gamepadRumble, readFile,
 } from 'bloom/core';
 import {
   addPointLight, enableShadows,
@@ -510,77 +510,6 @@ WPN.initWeapons();
   }
 }
 
-// ---- Phase 1c smoke: material shader + cube mesh -------------------------
-// Compiles a tiny ABI-compliant shader through the new material
-// pipeline and draws a rotating colour-pulsed cube in front of the
-// player spawn. First visible consumer of the material-system path;
-// only exists to verify end-to-end compile â†’ submit â†’ dispatch works.
-
-const MAT_TEST_WGSL = '#include "material_abi.wgsl"\n' +
-  'struct VsOut { @builtin(position) pos: vec4<f32>, @location(0) n: vec3<f32>, @location(1) c: vec3<f32> };\n' +
-  '@vertex fn vs_main(in: VertexInput) -> VsOut {\n' +
-  '  var o: VsOut;\n' +
-  '  o.pos = draw.mvp * vec4<f32>(in.position, 1.0);\n' +
-  '  o.n = normalize((draw.model * vec4<f32>(in.normal, 0.0)).xyz);\n' +
-  '  let p = 0.5 + 0.5 * sin(frame.time * 1.5);\n' +
-  '  o.c = vec3<f32>(p, 0.4, 1.0 - p) * draw.model_tint.rgb;\n' +
-  '  return o;\n' +
-  '}\n' +
-  '@fragment fn fs_main(in: VsOut) -> OpaqueOut {\n' +
-  '  var out: OpaqueOut;\n' +
-  '  let ndl = max(dot(normalize(in.n), normalize(vec3<f32>(0.3, 0.7, 0.4))), 0.0);\n' +
-  '  let lit = in.c * (0.3 + 0.7 * ndl);\n' +
-  '  out.hdr = vec4<f32>(lit, 1.0);\n' +
-  '  out.material = vec2<f32>(0.0, 0.9);\n' +
-  '  out.velocity = vec2<f32>(0.0, 0.0);\n' +
-  '  out.albedo = vec4<f32>(in.c, 1.0);\n' +
-  '  return out;\n' +
-  '}\n';
-const matTest = compileMaterial(MAT_TEST_WGSL);
-// Minimal cube: 24 verts (one per face-corner so UVs / normals split
-// cleanly) Ã— 12 floats (pos, nrm, col, uv) = 288 floats. 6 faces Ã— 2
-// tris Ã— 3 idx = 36 indices.
-const MAT_TEST_VERTS: number[] = [
-  // +X face (nrm = +1, 0, 0)
-   0.5, -0.5, -0.5,  1,0,0,  1,1,1,1,  0,0,
-   0.5, -0.5,  0.5,  1,0,0,  1,1,1,1,  1,0,
-   0.5,  0.5,  0.5,  1,0,0,  1,1,1,1,  1,1,
-   0.5,  0.5, -0.5,  1,0,0,  1,1,1,1,  0,1,
-  // -X
-  -0.5, -0.5,  0.5, -1,0,0,  1,1,1,1,  0,0,
-  -0.5, -0.5, -0.5, -1,0,0,  1,1,1,1,  1,0,
-  -0.5,  0.5, -0.5, -1,0,0,  1,1,1,1,  1,1,
-  -0.5,  0.5,  0.5, -1,0,0,  1,1,1,1,  0,1,
-  // +Y (top)
-  -0.5,  0.5,  0.5,  0,1,0,  1,1,1,1,  0,0,
-   0.5,  0.5,  0.5,  0,1,0,  1,1,1,1,  1,0,
-   0.5,  0.5, -0.5,  0,1,0,  1,1,1,1,  1,1,
-  -0.5,  0.5, -0.5,  0,1,0,  1,1,1,1,  0,1,
-  // -Y
-  -0.5, -0.5, -0.5,  0,-1,0, 1,1,1,1,  0,0,
-   0.5, -0.5, -0.5,  0,-1,0, 1,1,1,1,  1,0,
-   0.5, -0.5,  0.5,  0,-1,0, 1,1,1,1,  1,1,
-  -0.5, -0.5,  0.5,  0,-1,0, 1,1,1,1,  0,1,
-  // +Z
-   0.5, -0.5,  0.5,  0,0,1,  1,1,1,1,  0,0,
-  -0.5, -0.5,  0.5,  0,0,1,  1,1,1,1,  1,0,
-  -0.5,  0.5,  0.5,  0,0,1,  1,1,1,1,  1,1,
-   0.5,  0.5,  0.5,  0,0,1,  1,1,1,1,  0,1,
-  // -Z
-  -0.5, -0.5, -0.5,  0,0,-1, 1,1,1,1,  0,0,
-   0.5, -0.5, -0.5,  0,0,-1, 1,1,1,1,  1,0,
-   0.5,  0.5, -0.5,  0,0,-1, 1,1,1,1,  1,1,
-  -0.5,  0.5, -0.5,  0,0,-1, 1,1,1,1,  0,1,
-];
-const MAT_TEST_INDS: number[] = [
-   0, 1, 2,  0, 2, 3,
-   4, 5, 6,  4, 6, 7,
-   8, 9,10,  8,10,11,
-  12,13,14, 12,14,15,
-  16,17,18, 16,18,19,
-  20,21,22, 20,22,23,
-];
-const matTestMesh = createMesh(MAT_TEST_VERTS, MAT_TEST_INDS);
 
 // ---- Phase 9 water â€” real shader-based river ----------------------------
 // Replaces the ~1800-cube tessellated river from earlier with a proper
@@ -590,147 +519,14 @@ const matTestMesh = createMesh(MAT_TEST_VERTS, MAT_TEST_INDS);
 // cubemap), plus foam on high-slope crests. Single drawMeshWithMaterial
 // call; Phase 4b handles the snapshot + translucent pass automatically.
 
-const WATER_WGSL =
-  '#include "material_abi.wgsl"\n' +
-  '#include "common/pbr.wgsl"\n' +
-  '\n' +
-  '// Phase 5 â€” per-material user_params at @group(2) @binding(11).\n' +
-  '// Runtime tweakable from TS via setMaterialParams(matWater, [...]).\n' +
-  'struct WaterParams {\n' +
-  '  tint:     vec4<f32>,  // xyz = absorption tint, w = absorption mix\n' +
-  '  knobs:    vec4<f32>,  // x = foam strength, y = rim brightness, z = sky LOD, w = -\n' +
-  '};\n' +
-  '@group(2) @binding(11) var<uniform> water_params: WaterParams;\n' +
-  '\n' +
-  'struct VsOut {\n' +
-  '  @builtin(position) clip_pos: vec4<f32>,\n' +
-  '  @location(0) world_pos: vec3<f32>,\n' +
-  '  @location(1) world_normal: vec3<f32>,\n' +
-  '  @location(2) screen_uv: vec2<f32>,\n' +
-  '};\n' +
-  '\n' +
-  'fn gerstner(\n' +
-  '  pos: vec2<f32>, dir: vec2<f32>, wavelength: f32,\n' +
-  '  steepness: f32, time: f32,\n' +
-  '  tangent_accum:  ptr<function, vec3<f32>>,\n' +
-  '  binormal_accum: ptr<function, vec3<f32>>,\n' +
-  ') -> vec3<f32> {\n' +
-  '  let k = 6.28318 / wavelength;\n' +
-  '  let c = sqrt(9.81 / k);\n' +
-  '  let f = k * (dot(dir, pos) - c * time);\n' +
-  '  let a = steepness / k;\n' +
-  '  let cos_f = cos(f);\n' +
-  '  let sin_f = sin(f);\n' +
-  '  (*tangent_accum) = (*tangent_accum) + vec3<f32>(\n' +
-  '    -dir.x * dir.x * steepness * sin_f,\n' +
-  '     dir.x * steepness * cos_f,\n' +
-  '    -dir.x * dir.y * steepness * sin_f,\n' +
-  '  );\n' +
-  '  (*binormal_accum) = (*binormal_accum) + vec3<f32>(\n' +
-  '    -dir.x * dir.y * steepness * sin_f,\n' +
-  '     dir.y * steepness * cos_f,\n' +
-  '    -dir.y * dir.y * steepness * sin_f,\n' +
-  '  );\n' +
-  '  return vec3<f32>(dir.x * a * cos_f, a * sin_f, dir.y * a * cos_f);\n' +
-  '}\n' +
-  '\n' +
-  '@vertex\n' +
-  'fn vs_main(in: VertexInput) -> VsOut {\n' +
-  '  var out: VsOut;\n' +
-  '  var local = in.position;\n' +
-  '  let world_xz = (draw.model * vec4<f32>(local, 1.0)).xz;\n' +
-  '  let t = frame.time;\n' +
-  '  var tangent  = vec3<f32>(1.0, 0.0, 0.0);\n' +
-  '  var binormal = vec3<f32>(0.0, 0.0, 1.0);\n' +
-  '  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0,  0.3)), 5.0, 0.25, t, &tangent, &binormal);\n' +
-  '  local = local + gerstner(world_xz, normalize(vec2<f32>( 0.4,  1.0)), 3.5, 0.20, t, &tangent, &binormal);\n' +
-  '  local = local + gerstner(world_xz, normalize(vec2<f32>(-0.5,  0.8)), 2.2, 0.15, t, &tangent, &binormal);\n' +
-  '  let normal = normalize(cross(binormal, tangent));\n' +
-  '  let world  = draw.model * vec4<f32>(local, 1.0);\n' +
-  '  out.world_pos    = world.xyz;\n' +
-  '  out.world_normal = normalize((draw.model * vec4<f32>(normal, 0.0)).xyz);\n' +
-  '  out.clip_pos     = view.view_proj * world;\n' +
-  '  out.screen_uv    = out.clip_pos.xy / out.clip_pos.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);\n' +
-  '  return out;\n' +
-  '}\n' +
-  '\n' +
-  '@fragment\n' +
-  'fn fs_main(in: VsOut) -> @location(0) vec4<f32> {\n' +
-  '  let n = normalize(in.world_normal);\n' +
-  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
-  '\n' +
-  '  // Refraction â€” perturb screen UV by wave normal xz.\n' +
-  '  let refract_uv = clamp(in.screen_uv + n.xz * 0.04, vec2<f32>(0.001), vec2<f32>(0.999));\n' +
-  '  let refracted  = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;\n' +
-  '\n' +
-  '  // Sky reflection from the engine env â€” roughness-biased LOD fakes a softer highlight.\n' +
-  '  let r   = reflect(-v, n);\n' +
-  '  let sky = sample_env(r, water_params.knobs.z);\n' +
-  '\n' +
-  '  // Schlick Fresnel.\n' +
-  '  let cos_theta = max(dot(n, v), 0.0);\n' +
-  '  let fresnel   = 0.02 + (1.0 - 0.02) * pow(1.0 - cos_theta, 5.0);\n' +
-  '\n' +
-  '  // Absorption â€” tint + mix factor from user_params.\n' +
-  '  let tinted = mix(water_params.tint.xyz, refracted, water_params.tint.w);\n' +
-  '  var water  = mix(tinted, sky, fresnel);\n' +
-  '\n' +
-  '  // Foam on wave crests (slope proxy â€” high when normal tilts off +Y).\n' +
-  '  let crestness = clamp(1.0 - n.y, 0.0, 1.0);\n' +
-  '  let foam      = smoothstep(0.08, 0.25, crestness);\n' +
-  '  water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * water_params.knobs.x);\n' +
-  '\n' +
-  '  // Phase 4c â€” shoreline fade. Sample the opaque-depth snapshot,\n' +
-  '  // linearise both that and the fragment depth to view-space Z\n' +
-  '  // (metres), and fade out as the water column thins.\n' +
-  '  let depth_dims = textureDimensions(scene_depth_tex);\n' +
-  '  let depth_ix   = vec2<i32>(in.screen_uv * vec2<f32>(depth_dims));\n' +
-  '  let scene_d    = textureLoad(scene_depth_tex, depth_ix, 0);\n' +
-  '  let ndc_xy     = vec2<f32>(in.screen_uv.x * 2.0 - 1.0, 1.0 - in.screen_uv.y * 2.0);\n' +
-  '  let floor_v    = view.inv_proj * vec4<f32>(ndc_xy, scene_d, 1.0);\n' +
-  '  let surf_v     = view.inv_proj * vec4<f32>(ndc_xy, in.clip_pos.z, 1.0);\n' +
-  '  let floor_z    = floor_v.z / floor_v.w;\n' +
-  '  let surf_z     = surf_v.z / surf_v.w;\n' +
-  '  // Both z are negative (wgpu looks down -Z); water column = surf - floor.\n' +
-  '  let column     = max(surf_z - floor_z, 0.0);\n' +
-  '  let shore_t    = smoothstep(0.0, 0.15, column);\n' +
-  '  let rim        = (1.0 - shore_t) * water_params.knobs.y;\n' +
-  '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), rim);\n' +
-  '\n' +
-  '  // Phase 7 â€” sample the world-space impulse field for ripples.\n' +
-  '  // The engine maps the 128 m centred square to [0,1] UVs; we use\n' +
-  '  // textureLoad because the field is R32Float (non-filterable).\n' +
-  '  let imp_uv   = clamp(in.world_pos.xz / 128.0 + vec2<f32>(0.5), vec2<f32>(0.0), vec2<f32>(0.999));\n' +
-  '  let imp_dims = textureDimensions(impulse_tex);\n' +
-  '  let imp_ix   = vec2<i32>(imp_uv * vec2<f32>(imp_dims));\n' +
-  '  let imp      = textureLoad(impulse_tex, imp_ix, 0).r;\n' +
-  '  // Splat contributions â€” whiten where impulses hit, multiplied\n' +
-  '  // against the existing shore rim so water already near the shore\n' +
-  '  // gets an extra-bright footprint but deep water rings stay\n' +
-  '  // subtle.\n' +
-  '  let imp_mix = clamp(imp * 1.2, 0.0, 1.0);\n' +
-  '  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), imp_mix * 0.85);\n' +
-  '  let alpha = mix(0.45, 0.92, shore_t);\n' +
-  '  return vec4<f32>(water, alpha);\n' +
-  '}\n';
-// Phase 6 â€” water source lives in assets/materials/water.wgsl on
-// disk. compileMaterialFromFile registers the path with the engine's
-// hot-reload watcher; editing the file at runtime triggers an
-// in-place pipeline rebuild. The inline WATER_WGSL string above is
-// kept as a fallback when the file isn't readable â€” useful for
-// shipping single-binary builds where assets aren't on disk.
-// Phase 5 â€” file-backed compile + direct setMaterialParams. Going
-// through loadMaterial would be cleaner but Perry mishandles the
-// inline-array .length pass-through to the FFI right now (FFI sees
-// zero), so we set the params explicitly.
-//   tint rgb       absorption_mix  foam  rim   sky_lod  pad
-const matWaterFromFile = compileMaterialFromFile('assets/materials/water.wgsl', 'refractive');
-// Round-2 audit (F2): the inline WATER_WGSL fallback above has drifted from
-// the on-disk shader â€” Tier-3-era lighting AND a 2-vec4 params layout that
-// silently misreads the 3-vec4 WATER_PARAMS, so engaging it ships wrong
-// water. Until SH-005 auto-generates the inline copies from the .wgsl
-// files, prefer NO water over wrong water in binary-only builds.
-const matWater = matWaterFromFile;
+// SH-005: the inline WGSL fallbacks are gone. They existed so a binary-only
+// build could run with no assets on disk, and they cost more than they bought:
+// the water copy silently drifted to a 2-vec4 params layout that misread the
+// real 3-vec4 WATER_PARAMS, so engaging the "fallback" shipped WRONG water, and
+// the grass copy had to be hand-patched twice during EN-022. The game already
+// loads its world, textures and models from disk; shaders are no different.
+// One source of truth, no drift possible.
+const matWater = compileMaterialFromFile('assets/materials/water.wgsl', 'refractive');
 // Tier 4 layout: absorption coefficient (red dies fastest, blue
 // slowest), deep-water colour (greenish-teal), then knobs:
 //   foam, rim, sky_lod, micro_strength.
@@ -817,133 +613,12 @@ if (waterProbe > 0) setMaterialReflectionProbe(matWater, waterProbe);
 // through sample_sun_shadow (EN-016). Both are folded into the
 // material so SH-011 (grass shading polish) ships in the same pass.
 //
-// IMPORTANT: GRASS_INSTANCED_WGSL is duplicated from
-// `assets/materials/grass_instanced.wgsl`. compileMaterialInstanced
-// only accepts a string source today (no from-file variant), so the
-// on-disk file is the source of truth and the inline copy must
-// track edits to it. SH-005 will auto-generate this from the file.
-const GRASS_INSTANCED_WGSL =
-  '#include "material_abi.wgsl"\n' +
-  '#include "common/shadows.wgsl"\n' +
-  '#include "common/pbr.wgsl"\n' +
-  '\n' +
-  'struct GrassParams { base: vec4<f32>, };\n' +
-  '@group(2) @binding(11) var<uniform> grass: GrassParams;\n' +
-  '\n' +
-  'struct InstancedVertexInput {\n' +
-  '  @location(0)  position:        vec3<f32>,\n' +
-  '  @location(1)  normal:          vec3<f32>,\n' +
-  '  @location(2)  color:           vec4<f32>,\n' +
-  '  @location(3)  uv:              vec2<f32>,\n' +
-  '  @location(4)  joints:          vec4<f32>,\n' +
-  '  @location(5)  weights:         vec4<f32>,\n' +
-  '  @location(6)  tangent:         vec4<f32>,\n' +
-  '  @location(7)  instance_pos:    vec3<f32>,\n' +
-  '  @location(8)  instance_rot_y:  f32,\n' +
-  '  @location(9)  instance_scale:  f32,\n' +
-  '  @location(10) instance_tint:   vec4<f32>,\n' +
-  '};\n' +
-  '\n' +
-  'struct VsOut {\n' +
-  '  @builtin(position) clip_pos:     vec4<f32>,\n' +
-  '  @location(0)       world_pos:    vec3<f32>,\n' +
-  '  @location(1)       world_normal: vec3<f32>,\n' +
-  '  @location(2)       blade_tint:   vec3<f32>,\n' +
-  '  @location(3)       tip_weight:   f32,\n' +
-  '  @location(4)       curr_clip:    vec4<f32>,\n' +
-  '  @location(5)       prev_clip:    vec4<f32>,\n' +
-  '  @location(6)       dist_fade:    f32,\n' +
-  '};\n' +
-  '\n' +
-  '@vertex fn vs_main(in: InstancedVertexInput) -> VsOut {\n' +
-  '  var out: VsOut;\n' +
-  // Round-9 anti-grit: sub-pixel-thin distant blades scintillate through
-  // the 0.5 render-scale TSR and read as grit. Widen blades with camera
-  // distance so they stay >= ~1 internal pixel; dist_fade lets the
-  // fragment stage flatten per-blade contrast at range too.
-  '  let d_cam = length(view.camera_pos.xz - in.instance_pos.xz);\n' +
-  '  let fade  = smoothstep(9.0, 42.0, d_cam);\n' +
-  '  let wide  = 1.0 + fade * 1.6;\n' +
-  '  let scaled = vec3<f32>(in.position.x * wide, in.position.y, in.position.z * wide) * in.instance_scale;\n' +
-  '  let cy = cos(in.instance_rot_y);\n' +
-  '  let sy = sin(in.instance_rot_y);\n' +
-  '  let rotated = vec3<f32>(cy * scaled.x + sy * scaled.z, scaled.y, -sy * scaled.x + cy * scaled.z);\n' +
-  '  let tip   = in.color.r;\n' +
-  '  let phase = dot(in.instance_pos.xz, frame.wind.xy * 0.6) + frame.time * frame.wind.w;\n' +
-  '  let sway  = sin(phase) * frame.wind.z * tip;\n' +
-  '  let displaced = rotated + vec3<f32>(frame.wind.x, 0.0, frame.wind.y) * sway;\n' +
-  '  let world = displaced + in.instance_pos;\n' +
-  '  let n_rot = vec3<f32>(cy * in.normal.x + sy * in.normal.z, in.normal.y, -sy * in.normal.x + cy * in.normal.z);\n' +
-  '  out.world_pos    = world;\n' +
-  '  out.world_normal = normalize(n_rot);\n' +
-  '  out.clip_pos     = view.view_proj * vec4<f32>(world, 1.0);\n' +
-  '  out.tip_weight   = tip;\n' +
-  '  out.dist_fade    = fade;\n' +
-  '  out.blade_tint   = grass.base.rgb * in.instance_tint.rgb;\n' +
-  // EN-022 â€” previous-frame sway â†’ real motion vectors (mirrors
-  // assets/materials/grass_instanced.wgsl; keep in sync).
-  '  let t_prev  = frame.time - frame.delta_time;\n' +
-  '  let phase_p = dot(in.instance_pos.xz, frame.wind.xy * 0.6) + t_prev * frame.wind.w;\n' +
-  '  let sway_p  = sin(phase_p) * frame.wind.z * tip;\n' +
-  '  let world_p = rotated + vec3<f32>(frame.wind.x, 0.0, frame.wind.y) * sway_p + in.instance_pos;\n' +
-  '  out.curr_clip = out.clip_pos;\n' +
-  '  out.prev_clip = view.prev_view_proj * vec4<f32>(world_p, 1.0);\n' +
-  '  return out;\n' +
-  '}\n' +
-  '\n' +
-  'fn cloud_shadow(world_xz: vec2<f32>, t: f32) -> f32 {\n' +
-  '  let p = world_xz * 0.025 + vec2<f32>(t * 0.5, t * 0.15);\n' +
-  '  let i = floor(p);\n' +
-  '  let f = fract(p);\n' +
-  '  let h00 = fract(sin(dot(i,                       vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
-  '  let h10 = fract(sin(dot(i + vec2<f32>(1.0, 0.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
-  '  let h01 = fract(sin(dot(i + vec2<f32>(0.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
-  '  let h11 = fract(sin(dot(i + vec2<f32>(1.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);\n' +
-  '  let u  = f * f * (3.0 - 2.0 * f);\n' +
-  '  let nz = mix(mix(h00, h10, u.x), mix(h01, h11, u.x), u.y);\n' +
-  '  return mix(0.55, 1.0, smoothstep(0.35, 0.78, nz));\n' +
-  '}\n' +
-  '\n' +
-  '@fragment fn fs_main(in: VsOut) -> OpaqueOut {\n' +
-  '  let n = normalize(in.world_normal);\n' +
-  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
-  // view.sun_dir is direction-TO-sun (engine convention; the world data +
-  // all material shaders were normalised to it in the branch merge).
-  '  let l = normalize(view.sun_dir.xyz);\n' +
-  '  let wrap     = 0.5;\n' +
-  '  let n_dot_l  = (dot(n, l) + wrap) / (1.0 + wrap);\n' +
-  '  let direct_w = max(n_dot_l, 0.0);\n' +
-  '  let back  = max(dot(-n, l), 0.0);\n' +
-  '  let view_align = max(dot(v, -l), 0.0);\n' +
-  '  let trans = pow(back, 2.0) * pow(view_align, 1.5);\n' +
-  '  let cloud  = cloud_shadow(in.world_pos.xz, frame.time);\n' +
-  '  let shadow = sample_sun_shadow(in.world_pos);\n' +
-  '  let direct = view.sun_color.rgb * direct_w * cloud * shadow;\n' +
-  // Round-9 anti-grit: at range the strong rootâ†’tip gradient plus
-  // per-blade tint jitter alias into speckle. Flatten the gradient and
-  // converge on one meadow tone as dist_fade rises â€” near grass keeps
-  // the full contrast, the far field reads as a soft carpet.
-  '  let tip_soft = mix(in.tip_weight * in.tip_weight, 0.42, in.dist_fade * 0.85);\n' +
-  '  let root_col = in.blade_tint * vec3<f32>(0.42, 0.50, 0.38);\n' +
-  '  let tip_col  = in.blade_tint * vec3<f32>(1.12, 1.08, 0.72);\n' +
-  '  var albedo   = mix(root_col, tip_col, tip_soft);\n' +
-  '  let meadow   = grass.base.rgb * vec3<f32>(0.78, 0.90, 0.55);\n' +
-  '  albedo       = mix(albedo, meadow, in.dist_fade * 0.55);\n' +
-  '  let trans_color = albedo * vec3<f32>(1.10, 1.20, 0.85) * grass.base.w;\n' +
-  // Sky-fill: HDR irradiance sampled straight up (thin blades respond to
-  // the sky dome; a fixed direction avoids per-blade ambient flicker from
-  // the Â±normal card sides) + a small flat floor. Mirrors
-  // assets/materials/grass_instanced.wgsl â€” keep the two in sync.
-  '  let fill = sample_env_diffuse(vec3<f32>(0.0, 1.0, 0.0)) + view.ambient.rgb * 0.20;\n' +
-  '  let lit = albedo * (fill + direct) + trans * trans_color * cloud;\n' +
-  '  var out: OpaqueOut;\n' +
-  '  out.hdr      = vec4<f32>(lit, 1.0);\n' +
-  '  out.material = vec2<f32>(0.0, 0.92);\n' +
-  '  out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);\n' +
-  '  out.albedo   = vec4<f32>(albedo, 1.0);\n' +
-  '  return out;\n' +
-  '}\n';
-const matGrass = compileMaterialInstanced(GRASS_INSTANCED_WGSL);
+// The WGSL is READ FROM DISK (SH-005). It used to be duplicated inline as a
+// binary-only fallback, and the copy had to be hand-patched during EN-022 --
+// the drift was not hypothetical. compileMaterialInstanced takes a source
+// string, so reading the file costs one call and removes the second copy.
+const matGrass = compileMaterialInstanced(
+  readFile('assets/materials/grass_instanced.wgsl'));
 const GRASS_PARAMS = [
   // base hue rgb (Round-4: slightly desaturated), transmission strength
   0.30, 0.42, 0.20,  0.40,
@@ -1206,70 +881,8 @@ const matBuildingMesh = createMeshExplicit(BUILDING_VERTS, _bvc, BUILDING_INDS, 
 // approach. Phase 10's acceptance criterion: no engine change between
 // Phase 9 and 10 â€” only TypeScript.
 
-const GLASS_WGSL =
-  '#include "material_abi.wgsl"\n' +
-  '#include "common/pbr.wgsl"\n' +
-  '\n' +
-  'struct GlassVsOut {\n' +
-  '  @builtin(position) clip_pos: vec4<f32>,\n' +
-  '  @location(0) world_pos:    vec3<f32>,\n' +
-  '  @location(1) world_normal: vec3<f32>,\n' +
-  '  @location(2) screen_uv:    vec2<f32>,\n' +
-  '};\n' +
-  '\n' +
-  '@vertex\n' +
-  'fn vs_main(in: VertexInput) -> GlassVsOut {\n' +
-  '  var out: GlassVsOut;\n' +
-  '  let world  = draw.model * vec4<f32>(in.position, 1.0);\n' +
-  '  out.world_pos    = world.xyz;\n' +
-  '  out.world_normal = normalize((draw.model * vec4<f32>(in.normal, 0.0)).xyz);\n' +
-  '  out.clip_pos     = view.view_proj * world;\n' +
-  '  out.screen_uv    = out.clip_pos.xy / out.clip_pos.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);\n' +
-  '  return out;\n' +
-  '}\n' +
-  '\n' +
-  '@fragment\n' +
-  'fn fs_main(in: GlassVsOut) -> @location(0) vec4<f32> {\n' +
-  '  let n = normalize(in.world_normal);\n' +
-  '  let v = normalize(view.camera_pos.xyz - in.world_pos);\n' +
-  '\n' +
-  '  // Subtle refraction through the pane â€” glass bends light far less\n' +
-  '  // than water, so 0.008 gets the parallax look without distorting the\n' +
-  '  // scene into abstraction.\n' +
-  '  let refract_uv = clamp(in.screen_uv + n.xy * 0.008,\n' +
-  '                         vec2<f32>(0.001), vec2<f32>(0.999));\n' +
-  '  let refracted  = textureSampleLevel(scene_color_tex, scene_color_samp, refract_uv, 0.0).rgb;\n' +
-  '\n' +
-  '  // Sharp sky reflection on the front face â€” clear glass is nearly\n' +
-  '  // mirror-smooth at grazing angles.\n' +
-  '  let r   = reflect(-v, n);\n' +
-  '  let sky = sample_env(r, 0.5);\n' +
-  '\n' +
-  '  // Glass F0 is ~0.04. Schlick Fresnel â€” grazing angles turn\n' +
-  '  // near-mirror, face-on is ~4%.\n' +
-  '  let cos_theta = max(dot(n, v), 0.0);\n' +
-  '  let fresnel   = 0.04 + (1.0 - 0.04) * pow(1.0 - cos_theta, 5.0);\n' +
-  '\n' +
-  '  // Faint cyan tint in the transmitted colour â€” window glass is never\n' +
-  '  // perfectly neutral.\n' +
-  '  let tinted = refracted * vec3<f32>(0.92, 0.96, 0.98);\n' +
-  '  let glass  = mix(tinted, sky, fresnel);\n' +
-  '\n' +
-  '  // Alpha follows the Fresnel curve: face-on we see mostly through,\n' +
-  '  // glancing angles go opaque with reflection.\n' +
-  '  // Face-on: ~25% alpha (mostly transparent, slight tint). Grazing:\n' +
-  '  // near-opaque as the reflection dominates.\n' +
-  '  let alpha = 0.25 + 0.75 * fresnel;\n' +
-  '  return vec4<f32>(glass, alpha);\n' +
-  '}\n';
-// Phase 6 â€” glass also lives on disk + hot-reloadable. Inline WGSL
-// retained as a fallback for binary-only ship builds.
-const matGlassFromFile = compileMaterialFromFile(
-  'assets/materials/glass.wgsl', 'refractive',
-);
-const matGlass = matGlassFromFile > 0
-  ? matGlassFromFile
-  : compileRefractiveMaterial(GLASS_WGSL);
+const matGlass = compileMaterialFromFile(
+  'assets/materials/glass.wgsl', 'refractive');
 
 // Glass pane mesh â€” a single 2m Ã— 2.4m quad on the XY plane, normal +Z.
 // Subdivided 1Ã—1 (two triangles) because glass has no per-vertex
@@ -2321,16 +1934,15 @@ while (!windowShouldClose()) {
     // sample points. Consecutive-frame diffs catch real frame-to-frame
     // change; cross-window diffs catch slower state alternation. The
     // desktop-capture path (DWM) is bypassed entirely.
+    //
+    // ...except takeScreenshot() does NOT work on Windows: the TS call never
+    // reaches the native FFI (engine EN-038), so this block has been quietly
+    // capturing nothing the whole time. Left in place — it is correct the day
+    // EN-038 is fixed — but use tools/shot-window.ps1 until then.
     if (perfWindows >= 6 && perfWindows <= 21 && perfWindows % 3 === 0
         && perfStageFrame >= 10 && perfStageFrame < 14) {
       takeScreenshot('tools/.testout/eng_w' + perfWindows
         + '_f' + perfStageFrame + '.png');
-    }
-    if (perfStageFrame === 1) {
-      if (perfWindows === 23) {
-        console.log('PERF done');
-        perfDone = true;
-      }
     }
     if (perfWindows === 25 && perfStageFrame === 1) setProfilerEnabled(true);
     perfStageFrame = perfStageFrame + 1;
