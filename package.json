@@ -14,7 +14,10 @@
   },
   "perry": {
     "allow": {
-      "nativeLibrary": ["bloom", "bloom/core", "bloom/scene", "bloom/physics", "bloom/world"]
+      "nativeLibrary": [
+        "bloom", "bloom/core", "bloom/scene", "bloom/physics", "bloom/world",
+        "bloom/models", "bloom/audio", "bloom/vfx"
+      ]
     }
   }
 }

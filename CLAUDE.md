@@ -5,22 +5,20 @@ Notes for AI coding assistants working on this repo.
 ## Quick orientation
 
 The full picture is in `README.md`. This is a Perry-compiled TypeScript
-FPS built on the Bloom engine. Five alien kinds, three waves, two
+**third-person shooter** (over-the-shoulder orbit camera — TPS, not
+FPS) built on the Bloom engine. Five alien kinds, three waves, two
 weapons, textured arena, skeletal-animated enemies, ambient music —
 runnable with `perry compile src/main.ts -o main && ./main`.
 
 ## Where things live
 
-- `src/main.ts` — single-file game (~2,200 LOC). Flat-array state per
-  Perry convention. Also carries an inline copy of
-  `grass_instanced.wgsl` (`GRASS_INSTANCED_WGSL`) that MUST be kept in
-  sync with the on-disk file when either changes (SH-005 will automate
-  this; the drift bit for real once already).
-- `src/input.ts` / `src/player.ts` — small single-purpose modules.
-- `src/generated/world.ts` — **generated, do not edit**. Built from
-  `assets/worlds/arena_02.world.json` by `tools/build-world.ts`. The
-  runtime reads world geometry, lighting, spawners, pickups, and the
-  wave plan from this module.
+- `src/main.ts` — single-file game (~3,200 LOC; SH-025 tracks the
+  module split). Flat-array state per Perry convention. Also carries
+  inline copies of the grass/water/glass WGSL that MUST be kept in
+  sync with the on-disk files when either changes (SH-005 will
+  automate this; the drift bit for real once already).
+- `src/input.ts` / `src/player.ts` / `src/world-runtime.ts` — small
+  single-purpose modules.
 - `assets/worlds/*.world.json` — authored level data using the engine's
   standard world schema (`engine/src/world/types.ts`). The editor at
   `../editor/` round-trips these files unmodified.
@@ -53,10 +51,10 @@ runnable with `perry compile src/main.ts -o main && ./main`.
 ## Build commands
 
 ```
-npm run dev                            # build world + compile + run
-npm run build                          # build world + compile only
-npm run world                          # regenerate src/generated/world.ts
-perry compile src/main.ts -o main      # raw compile (skip world build)
+npm run dev                            # compile + run (world loads at runtime)
+npm run build                          # compile only
+npm run assets                         # rebuild props + terrain visual mesh
+perry compile src/main.ts -o main      # raw compile
 ./main                                  # play
 bun tools/convert-aliens-anim.ts       # regenerate animated alien GLBs
 bun tools/convert-arena.ts             # regenerate textured arena
@@ -102,8 +100,9 @@ the view moves, and the phone has no headroom to absorb the stall.
 
 ### Windows specifics (the current dev box)
 
-- `npm` may not be on the PowerShell PATH — run the generator directly:
-  `bun tools/build-world.ts assets/worlds/arena_02.world.json`.
+- `npm` may not be on the PowerShell PATH — run the tools directly
+  with `bun` (e.g. `bun tools/build-terrain.ts`) and compile with
+  `perry` as below.
 - Compile with `perry compile src/main.ts -o main --debug-symbols` so
   `main.pdb` lands next to the exe — crash reports then symbolize.
 - Engine rebuild:

@@ -1,6 +1,6 @@
 # Bloom Shooter
 
-A first-person arena wave shooter built in TypeScript on the
+A third-person arena wave shooter built in TypeScript on the
 [Bloom engine](https://github.com/Bloom-Engine/engine) and compiled with
 [Perry](https://github.com/PerryTS/perry). Art and audio converted from
 the open-source [Unvanquished](https://github.com/UnvanquishedAssets)
@@ -101,13 +101,13 @@ glTF skin layout, texture resizing).
 shooter/
   src/                TypeScript game code (Perry-compiled)
     main.ts           entry + game loop
-    input.ts          WASD / mouse / fire input aggregator
-    camera-fp.ts      first-person yaw / pitch camera
+    input.ts          WASD / mouse / touch / fire input aggregator
     player.ts         Jolt character-controller wrapper
+    world-runtime.ts  runtime world loader (world.json -> flat arrays)
   assets/             committed runtime assets
     models/           .glb (arena + 5 alien classes)
     sounds/           .wav SFX + .ogg ambient
-    worlds/           JSON world format (not yet runtime-loaded; see docs)
+    worlds/           JSON world format, loaded at runtime (edit with ../editor)
     LICENSE.md        Unvanquished asset attribution
   tools/              Bun scripts for offline asset conversion + diagnostics
     convert-aliens-anim.ts   IQE → glTF skeletal with skinning + animations

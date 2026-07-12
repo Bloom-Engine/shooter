@@ -6,656 +6,839 @@ engine repo's `docs/tickets.md`.
 Status legend: 🟢 ready · 🟡 needs engine support · 🔴 needs an asset
 or a design decision
 
-> **Round-2 status (2026-07-04, see `docs/audit-round2.md`):** shooter
-> PRs #2 (water fresnel/foam recalibration, tree crown shading, fog +
-> sun shafts, exact title centering), #3 (mixed-kind wave plan via
-> comma-cycle world data, MAX_CONCURRENT 6, third-person camera ray,
-> water bounds from world data) and #4 (motion vectors in all four
-> world materials incl. the inline grass copy) are open against main.
-> The EN-020 crash root-cause work (2026-07-04/06) additionally
-> hardened the engine FFI — see `docs/perry-quirks.md` § 5.
+> **Reorganized 2026-07-12** after the AAA gap audit (shooter + engine
+> + editor surveyed). The renderer is no longer the bottleneck — the
+> gap to AAA is *feel* (animation, VFX, camera, audio), *game
+> structure* (menus, saves, gamepad, content volume), and *production
+> throughput* (editor + asset ingest). The backlog is now organized
+> into rounds in recommended shipping order. Water tickets are closed:
+> water is accepted at current quality.
+>
+> **The game is a third-person shooter (TPS)** — over-the-shoulder
+> orbit camera (`TP_ORBIT_DIST`), not first-person. All feel tickets
+> below are designed for that camera. Docs that said "FPS" have been
+> corrected.
+
+## Round overview
+
+| Round | Theme | Tickets |
+|---|---|---|
+| 0 | Architecture (prereq for everything) | SH-025, SH-005, SH-026 |
+| 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 |
+| 2 | Audio | SH-003, SH-001, SH-035, SH-036 |
+| 3 | Game structure & content | SH-037..SH-043 |
+| 4 | Visual backlog (kept from the UE5-tier roadmap) | SH-009, SH-010, SH-011, SH-013, SH-014, SH-020, SH-023, SH-024, SH-007 |
+| 5 | Production tooling | SH-044 + editor PLAN items |
+
+**Engine gates** (details in engine `docs/tickets.md`):
+
+| Game ticket | Engine ticket | What it unlocks |
+|---|---|---|
+| SH-031 ragdoll deaths | EN-025 ragdoll FFI | clip → physics death handoff |
+| SH-033 combat VFX | EN-026 particles + EN-027 decals | blood/smoke/shells/bullet holes |
+| SH-034 locomotion, SH-030 polish | EN-028 anim blending/masks/root motion | pop-free transitions |
+| SH-035 audio depth | EN-029 buses/reverb/occlusion | weapon tails, zone reverb |
+| SH-038 menus | EN-030 UI widget layer | navigable settings/pause UI |
+| SH-039 gamepad | EN-031 backend verification | pad input actually polled natively |
+| SH-027 weapon attach (v2) | EN-033 bone-socket query | weapon rides the hand bone |
+
+## Closed tickets (2026-07-12)
+
+| Ticket | Resolution |
+|---|---|
+| SH-002 scrolling water normal map | ❌ won't-do — water accepted at current quality |
+| SH-004 tree-tint distribution | folded into SH-014 (HSV clamp) |
+| SH-006 footstep dust puffs | absorbed into SH-033 (combat VFX suite) |
+| SH-008 sprint key | absorbed into SH-032 (movement expansion) |
+| SH-012 two-sided foliage lighting | ✅ shipped (round-2 PR #2, evolved form — crown AO + rim-gated transmission) |
+| SH-015 multi-octave Gerstner | ❌ won't-do — water accepted |
+| SH-016 GGX sun glint | ❌ won't-do — water accepted |
+| SH-017 texture caustics | ❌ won't-do — water accepted |
+| SH-018 shore wetness | ❌ won't-do — water accepted |
+| SH-019 underwater post-process | ❌ won't-do — wading is not a mechanic; EN-017 post-pass (now shipped) is consumed by SH-029 instead |
+| SH-021 high-density instanced grass | ✅ shipped (20k instances, one draw, wind + shadows + transmission) |
+| SH-022 planar-reflective river | ✅ shipped (planar probe + round-2 fresnel recalibration + 2026-07 probe perf fixes) |
 
 ---
 
-## SH-001 — Wind-coupled ambient audio 🔴
+# Round 0 — Architecture
 
-**Why:** the visible scene now reads as breezy (grass + tree
-canopies + cloud shadows all swing on the same wind UBO), but
-audio is still a static `ambient.ogg` loop. A 3D-positioned
-leaf-rustle layered onto forest clusters would close the
-last "this place isn't alive" gap.
-
-**Scope:** small once the asset exists.
-
-- Source a CC0 leaf-rustle / wind-through-trees loop (~10–20 s).
-- `playSound3D` with the source positioned at a few representative
-  forest centroids; volume scales with `wind.amp` from the same
-  vec4 that drives grass + tree sway.
-- Falloff: linear within ~25 m, silent past ~40 m.
-
-**Acceptance:** stand near a tree cluster, hear leaves rustling;
-walk away to open field, the rustle fades; the volume swells if
-we crank `wind.amp` mid-game.
-
-**Blocker:** asset.
+Prerequisite for the feel/content rounds: gameplay work multiplies
+LOC, and `main.ts` is already at ~3,200 lines with ~18 subsystems
+inline.
 
 ---
 
-## SH-002 — Scrolling normal-map for water 🔴
+## SH-025 — Split `main.ts` into modules 🟢
 
-**Why:** the Tier 4 water has procedural micro-normal that gives
-crinkle, but at close range it still reads slightly synthetic. A
-real tiled normal-map texture scrolling at two layered speeds
-(per-pixel detail you can't get from sin lobes) is the standard
-trick to push water past "good" into "great."
+**Why:** `main.ts` is ~3,200 LOC: audio setup, physics colliders,
+water/grass/glass/building mesh+material construction, enemy tables +
+pools + AI, wave director, weapons, projectiles, pickups, sparks, GI
+proxies, four dormant test harnesses, and a ~1,300-line game loop —
+all in one module scope. Every feel ticket in Round 1 lands inside
+this file; without boundaries the merge conflicts and accidental
+coupling will eat the round. Perry compiles multi-module projects fine
+(`input.ts`/`player.ts`/`world-runtime.ts` already exist) — the
+single-file layout is historical, not required.
+
+**Scope:** medium — pure code motion, no behavior change.
+
+- Target modules (each owns its flat-array state and exports
+  init/update/draw functions):
+  - `src/world-setup.ts` — env/post-FX config, static + heightfield +
+    trunk colliders, water/grass/glass/building meshes + materials,
+    GI proxies.
+  - `src/enemies.ts` — kind tables, Jolt body pool, per-kind AI state
+    machines, hit/death/corpse handling.
+  - `src/waves.ts` — wave director + spawners + pickups.
+  - `src/weapons.ts` — weapon state, firing, projectile pool.
+  - `src/vfx.ts` — sparks, muzzle flash, projectile draw (future home
+    of the SH-033 particle/decal wrappers).
+  - `src/audio-game.ts` — sound handle tables, 3D-audio helpers,
+    music state.
+  - `src/hud.ts` — the whole 2D pass (HUD, overlays, touch controls).
+  - `src/debug.ts` — SELFTEST/WATERTEST/AITEST/PERFTEST harnesses,
+    F5–F8 toggle bar, diag bar. (Keep the harnesses — they are the
+    audit tooling — but out of the shipping loop's file.)
+- Perry rules carry over verbatim: flat arrays via `new Array(n)` +
+  index assignment, no `throw`, no per-frame FFI-string parsing,
+  static imports only.
+
+**Acceptance:** game behaves identically (title-screen fps within
+noise of pre-split; one full 3-wave playthrough with kills, death,
+restart); `main.ts` shrinks to orchestration (< ~600 LOC); each
+harness still runs when its flag is flipped.
+
+---
+
+## SH-005 — Inline WGSL fallback strings auto-generated 🟢 *(kept; scope grown)*
+
+**Why:** `main.ts` carries inline copies of **three** shaders now —
+`GRASS_INSTANCED_WGSL`, the ~130-line water WGSL, and the glass WGSL
+(~600 LOC of duplication against `assets/materials/*.wgsl`). The
+drift bit for real during EN-022 (motion-vector rewrite had to be
+hand-applied to both copies).
+
+**Scope:** small — `tools/build-materials.ts` reads each
+`assets/materials/*.wgsl` and emits `src/generated/materials.ts`
+exporting one const per file; game imports from the generated module.
+Hook into `npm run build`/`npm run dev`.
+
+**Acceptance:** edit `assets/materials/water.wgsl`, run the build,
+the generated module updates verbatim; no hand-maintained WGSL
+strings remain in game source.
+
+---
+
+## SH-026 — Dead-weight sweep 🟢
+
+**Why:** the repo ships things the game never uses, and the loop
+carries scaffolding.
 
 **Scope:** small.
 
-- Source / paint a `water_normal.png` (1024² tile, two-layer
-  Worley/Perlin, baked).
-- Add to `shooter/assets/textures/` and load via the existing
-  texture-loading API.
-- Bind into the water material at `@group(2) @binding(0..1)`
-  (the standard PBR base-color slots are unused for water).
-- Vertex shader scrolls UVs at two speeds + scales; fragment
-  unpacks the normal and combines with the existing wave normal.
+- Delete or stop shipping `house.glb` (45 prims/45 materials, unused)
+  and `calib_rig.glb` (20k tris, unused) — perf-audit finding 12.
+- Remove the startup smoke-test material + cube block
+  (`main.ts:448-518`) or fold it into `src/debug.ts`.
+- Remove the `perfWindows === 23` early-exit leftover in the PERFTEST
+  path.
+- Verify no other committed asset is unreferenced
+  (`bun tools/validate-glb.ts` sweep + grep for each `assets/models/*`
+  filename).
 
-**Acceptance:** standing on the riverbank looking down close,
-sub-mm ripples visible per pixel even when the camera is still.
-
-**Blocker:** asset.
-
----
-
-## SH-003 — Footstep audio (positional) 🟢
-
-**Why:** standing-still vs walking is currently silent except
-for the muzzle flash and ambient. Footsteps would sell motion.
-
-**Scope:** small.
-
-- Source / record 3–4 footstep SFX (grass, dirt, water).
-- Trigger one per step from the player controller — detect step
-  by accumulating horizontal travelled distance modulo a
-  STRIDE constant (~0.8 m at MOVE_SPEED).
-- Pick a variant by sampling the surface beneath the player
-  (water if `pp.z` in river band; otherwise grass).
-
-**Acceptance:** walking on grass plays grass footsteps at a
-believable cadence; entering the river switches to water splashes.
-
-**Blocker:** asset.
+**Acceptance:** binary/asset payload drops; a full playthrough is
+unchanged.
 
 ---
 
-## SH-004 — Tighter tree-tint distribution 🟢
+# Round 1 — Combat feel
 
-**Why:** the per-tree leaf-tint hue jitter range was tuned by eye
-and a few canopies still come out cooler than naturalistic. The
-material's local-Y trunk/leaf split now handles the bigger issue,
-but the leaf colour space could use a cleaner saturation clamp.
-
-**Scope:** tiny — a 10-line tweak to the `(FOREST_TINT_R/G/B - 165/-85/-195)`
-projection in `main.ts` so the green channel never drops below
-a minimum saturation.
-
-**Acceptance:** all 120 forest trees read as healthy summer green;
-no cyan / desaturated outliers.
+The largest gap-to-effort ratio in the whole audit. Everything here
+is what makes 30 seconds of footage read as AAA.
 
 ---
 
-## SH-005 — Inline WGSL fallback strings should be auto-generated 🟡
-
-**Why:** `main.ts` has ~200 lines of inline WGSL strings duplicated
-from `assets/materials/*.wgsl` so the game still runs in a binary-
-only build with no on-disk assets. They drift from the on-disk
-files whenever the WGSL changes. A build-time tool that reads each
-`assets/materials/*.wgsl` and emits a generated TS module with the
-strings would give us the safety net + zero drift.
-
-**Scope:** small — a `tools/build-materials.ts` that reads the
-WGSL files and writes `src/generated/materials.ts` exporting one
-const per file. Then `main.ts` imports from the generated module
-instead of inlining strings.
-
-**Acceptance:** edit `assets/materials/water.wgsl`, re-run
-`npm run materials` (or hook into `npm run build`), inline string
-in the generated module updates verbatim.
-
-**Blocker:** none, but `npm run dev` workflow extension needed.
-
----
-
-## SH-006 — Footstep dust / impact puffs 🟡
-
-**Why:** the impulse-field infrastructure already exists (Phase 7);
-we use it for water ripples. Same pattern could trigger small
-particle puffs at the player's feet on grass / dirt. Adds presence
-to running.
-
-**Scope:** medium — needs a small particle system.
-
-- Lightweight CPU-side particle pool (positions + velocities +
-  lifetime).
-- Spawn 3–5 particles per footstep (when `inGrass`), upward + a
-  tiny outward kick.
-- Render via `drawMeshWithMaterial` against the additive material
-  with a brown-tinted draw call.
-
-**Acceptance:** running across grass leaves a small dust trail
-that fades within ~0.5 s.
-
----
-
-## SH-007 — Tier 5 cloud-volume drifting 🟡
-
-**Why:** the HDR sky has clouds painted-in but they're static. A
-slow-rotating sample of the env_tex (or a separate cloud noise
-layer added to the sky pass) would give the sky the same "alive"
-quality as the ground.
-
-**Scope:** larger — needs sky-pass shader extension.
-
-**Blocker:** depends on **EN-005** (atmospheric scattering /
-sky pass refactor) for clean integration.
-
----
-
-## SH-008 — Sprint key 🟢
-
-**Why:** standard FPS feel. Hold Shift to sprint at 1.5× speed.
-
-**Scope:** tiny — `MOVE_SPEED` becomes `MOVE_SPEED * (sprinting ? 1.5 : 1)`
-in `player.ts`. Maybe drain a stamina meter, or simpler: always-on
-when held.
-
-**Acceptance:** holding Shift while moving is visibly faster;
-releasing returns to normal.
-
----
-
-# UE5-tier rendering roadmap
-
-Tickets SH-009 onward are the work to take ground / grass / trees /
-water from the current "polished mid-tier" baseline (Tiers 1–4 in
-`docs/visual-quality.md`) toward Unreal-Engine-5-class quality. The
-overall plan + phase ordering lives in
-[`docs/visual-quality.md`](visual-quality.md) under the "Tier 6+"
-section; each ticket here is the concrete unit of work.
-
-Phase A = shader-only, no engine change. Phase B = gated by a small
-engine FFI addition. Phase C = v2 roadmap territory.
-
----
-
-## SH-009 — Splat-mapped PBR terrain 🟢  *(Phase A)*
-
-**Why:** the largest remaining quality gap in the scene is the
-ground itself. `terrain.wgsl` today is purely procedural — three
-colour stops blended by a 2-octave hash noise, with zero textures.
-Below ~1 m the surface has no detail at all; the camera looking
-straight down sees a smooth gradient. Even one tileable PBR layer
-is a generational leap, and 4 layers blended by slope/height/noise
-gets us to Half-Life-2-era ground at minimum, modern outdoors with
-detail textures.
-
-**Scope:** medium — new material + 12 textures.
-
-- Source 4 CC0 PBR sets (1024² tileable) from polyhaven.com:
-  `grass_lush`, `grass_dry`, `dirt`, `rock_cliff`. Each ships
-  albedo + normal + roughness + AO.
-- Pack them into 4 texture-array slots (or 12 separate slots —
-  see EN-014 for the cleanest binding pattern).
-- Rewrite `assets/materials/terrain.wgsl` to:
-  - **Triplanar projection** so cliffs and overhangs sample sanely
-    (current world-XZ fbm fails on vertical faces).
-  - 4-layer weight blend driven by `(noise, slope, height,
-    distance_to_water)` — same masks the current shader already
-    computes, just routing them to texture weights.
-  - Detail normal layered at ~50× UV scale (covered by SH-010).
-  - Cascade-shadow sample (today the shader skips sun shadows).
-- Replace `TERRAIN_PARAMS` floats in `main.ts:257-263` with new
-  layer weights / blend thresholds.
-
-**Acceptance:** standing on the ground looking down, surface
-reads as real grass at any distance; cliffs and steep terrain show
-rock; transitions between layers blend instead of stepping; water
-edge tile shifts toward dirt naturally.
-
-**Blocker:** asset sourcing (1 hour); cleanest version waits on
-EN-014 (texture-array binding pattern) but a 12-slot interim
-version works today.
-
----
-
-## SH-010 — Detail normal + macro variation 🟢  *(Phase A)*
-
-**Why:** a 1024² texture stretched over an 80 m terrain reads as
-~1 cm per texel — but ground detail breaks down at 2 cm scales
-(individual blade roots, pebbles, cracks). The standard UE5 trick
-is a separate detail normal map tiled at 25–50× the macro UV plus
-a low-frequency macro variation mask to break the obvious tiling.
-
-**Scope:** small — once SH-009 has a normal-map binding, adding a
-detail layer is a vertex-shader UV scale + a fragment-shader normal
-combine.
-
-- Source one 512² CC0 detail normal (`grass_detail_normal.png`,
-  fine blade-root noise).
-- Source one 256² macro variation mask (`grass_macro_var.png`,
-  large blob noise) — multiply this into albedo at world-XZ
-  scale ~30 m so the whole field doesn't read identical.
-- Material change: sample detail normal at UV × 50, blend into the
-  base normal via the half-derivative trick. Sample macro var at
-  UV × 0.03, multiply albedo by `0.85 + 0.3 * macro`.
-
-**Acceptance:** pressing the camera against the ground shows
-sub-cm normal detail; flying overhead, no obvious tiling pattern
-visible at any zoom level.
-
-**Blocker:** none after SH-009 ships.
-
----
-
-## SH-011 — Grass shading polish 🟡 *(Phase A — wrap-lambert + shadow receive shipped, density LOD pending)*
-
-**Why:** `grass.wgsl` today is Lambert against the sun + cloud
-shadow. Real grass has three behaviours we miss:
-
-1. **Sub-surface translucency** — sun lighting *behind* a blade
-   passes through the leaf and tints it luminous green. Without
-   this the back-lit lawn reads dead-flat.
-2. **Cascade shadow receiving** — the grass shader doesn't sample
-   `shadow_tex_0/1/2` so tree shadows don't fall on the grass.
-   Trees float visually as a result.
-3. **Density LOD** — uniform 5 000 blades across 80 × 80 m means
-   sparse foreground. Re-bucketing into 3 density rings (2× inside
-   12 m, 1× from 12–25 m, fade out 25–40 m) keeps the budget but
-   makes the immediate ground feel carpeted.
-
-**Scope:** small — one shader edit + one scatter-rebucket in
-`main.ts`.
-
-- ✅ Add `wrap_lambert(n,l,wrap=0.5)` for soft front-face shading. *(shipped via grass_instanced.wgsl in SH-021 pass)*
-- ✅ Add transmission term: `pow(back, 2) * pow(view·-l, 1.5)`
-  scaled by a warm-green tint, added to `lit` independent of `cloud`. *(shipped)*
-- ✅ Sample shadow cascades via `sample_sun_shadow(world_pos)` (EN-016 helper). *(shipped)*
-- ⏳ In the scatter loop, change to ring-based density (2× inside
-  12 m, 1× 12–25 m, fade out 25–40 m). *(pending — current scatter
-  is still uniform across the playfield)*
-
-**Acceptance:** standing in the field at sunrise, blades glow when
-back-lit ✅; tree shadows visibly fall onto the grass beneath ✅;
-the foreground always looks dense ⏳.
-
-**Blocker:** none — density-LOD is straightforward; the shading
-work landed in the SH-021 instanced-grass material rewrite.
-
----
-
-## SH-012 — Two-sided foliage lighting in `tree.wgsl` ✅ *(shipped in round-2 PR #2, evolved form)*
-
-> **Status 2026-07-04:** landed, in a better-tuned shape than sketched
-> below: crown self-occlusion on the sky-fill (`crown_ao`), rim-gated
-> transmission (`pow(back,2)·pow(view_align,1.5)·rim`, leaf-gated via
-> the trunk/leaf discriminator), and a distance-based leaf-shading
-> floor. Validated by region-luma: backlit canopies dropped from a
-> +35% flat wash to +26% concentrated on sun-struck tops. The
-> "proper ABI" version remains SH-023 (gated on EN-012).
-
-**Why:** `tree.wgsl` is plain Lambert with cloud noise. The
-canopy half facing away from the sun goes pure black on every
-tree, reading as solid silhouette rather than translucent leaves.
-The cheapest fix is a wrap-lambert + a transmission term using the
-same trick as grass — no new geometry, no new ABI.
-
-**Scope:** tiny.
-
-- Add `wrap_lambert(n, l, 0.5)` so the shadowed side keeps a soft
-  fill instead of dropping to zero.
-- Add transmission: `back_term = saturate(dot(-n, l)) * pow(saturate(dot(v, l)), 4) * trans_strength`.
-- Apply the back term **only** to leaf vertices (use the existing
-  `local_y > trunk_top_y` discriminator already in the shader).
-- Per-tree leaf-tint controls transmission strength via the alpha
-  channel of `draw.model_tint`.
-
-**Acceptance:** standing inside the forest looking up at the sun
-through a canopy, leaves read as luminous edge-lit instead of
-solid black; the trunk still shadows correctly.
-
-**Blocker:** none. EN-012 is the "do this properly via the standard
-PBR ABI" version, but the local fix lives in tree.wgsl with no
-dependency.
-
----
-
-## SH-013 — Hierarchical wind via vertex-color regions 🟢  *(Phase A)*
-
-**Why:** current wind is one quadratic-Y sine — every vertex above
-`y = 1.4` sways at the same frequency and phase. Real foliage
-moves at three different rates: trunk leans slowly, branches sway
-medium, leaves flutter fast. The vertex format already carries a
-4-channel color attribute (used by grass for tip-weight). Tree
-GLBs don't currently set vertex color, so all four channels are
-free.
-
-**Scope:** medium — converter change + shader change.
-
-- Extend `tools/convert-arena.ts` (or add `tools/bake-tree-wind.ts`)
-  to bake per-vertex weights into the tree GLBs:
-  - **R** = main bend weight (0 at root → 1 at outer canopy,
-    distance from local origin in the XZ plane)
-  - **G** = branch wind weight (large near branch tips, low elsewhere
-    — same as existing local-y heuristic, but localised per branch
-    cluster instead of global Y)
-  - **B** = leaf flutter weight (1 only on the leaf primitive)
-  - **A** = phase offset hash so branches in one tree desync
-- Rewrite the `tree.wgsl` vertex shader to displace by three
-  layered sines, each weighted by the matching color channel.
-
-**Acceptance:** trunk leans slowly under a gust, branches sway at
-~2× frequency, leaves flutter at ~5× frequency; adjacent branches
-on one tree don't move in lockstep.
-
-**Blocker:** none. Best paired with EN-013 (global wind UBO) so
-all foliage materials can be driven by one set of params, but the
-local TreeParams UBO works today.
-
----
-
-## SH-014 — Bark normal + per-tree HSV variance 🟢  *(Phase A)*
-
-**Why:** trunks today are flat brown. Once SH-009 establishes the
-normal-map binding pattern, dropping a tileable bark normal map
-on the trunk-portion of `tree.wgsl` is a free upgrade. Separately,
-the existing per-tree leaf tint is computed in RGB channel-deltas
-which can drift to cyan or desaturated outliers (already noted
-as SH-004); rotating to HSV saturation-clamped variance fixes it
-in one place.
-
-**Scope:** small.
-
-- Source `bark_oak_512.png` + `bark_oak_normal_512.png` from
-  Polyhaven (CC0).
-- Add binding to `tree.wgsl`; sample triplanar in trunk region only.
-- Replace the `(R-165, G-85, B-195)` projection in `main.ts:1595-1597`
-  with an HSV jitter: hue ±0.04 around 0.30, saturation clamp
-  [0.45, 0.85], value clamp [0.55, 0.85]. Then convert back to RGB.
-
-**Acceptance:** trunks show real bark grooves under raking sun;
-all 120 forest trees stay in the healthy-summer-green leaf band
-(closes SH-004).
-
-**Blocker:** SH-009 lands the texture-loading pattern first.
-
----
-
-## SH-015 — Multi-octave Gerstner + dense water tessellation 🟢  *(Phase A)*
-
-**Why:** `water.wgsl` runs 3 Gerstner lobes (5 m / 3.5 m / 2.2 m
-wavelengths) on an 80 × 10 vert mesh. UE5 water typically uses
-6–8 lobes spanning ~10 m down to ~0.4 m so the surface reads as
-crinkled at every scale. Adding 4 short-wavelength lobes only
-helps if the mesh is dense enough to sample them — the current
-80 × 10 quantises anything below 1 m wavelength to noise.
-
-**Scope:** small.
-
-- In `water.wgsl:vs_main`, add 4 more `gerstner` calls at
-  wavelengths 1.4 m, 0.9 m, 0.6 m, 0.4 m, with steepness curve
-  decreasing as wavelength shrinks (0.10, 0.07, 0.05, 0.03).
-- In `main.ts:554-555`, bump `WATER_COLS = 320, WATER_ROWS = 40`
-  (32 000 verts, ~96 000 indices — well within the engine budget).
-- Tune the existing 3 long-wavelength lobes to the same wind dir
-  family so the spectrum reads coherent.
-
-**Acceptance:** standing on the riverbank, water shows a layered
-spectrum from boat-wake-scale down to ripple-scale; no obvious
-single sine pattern; vertex displacement smooth at all
-tessellation scales.
-
-**Blocker:** none.
-
----
-
-## SH-016 — GGX sun glint on water 🟢  *(Phase A)*
-
-**Why:** today the only specular is `sample_env(r, lod)` against
-the static IBL panorama. That gives a soft sky reflection but no
-moving sun glint. Real water's "wet" cue is the sharp specular
-highlight from the sun on every wave crest as you walk along the
-bank. UE5 Single Layer Water uses a separate GGX evaluation
-against the directional sun for exactly this.
-
-**Scope:** tiny — one extra term in `fs_main`.
-
-- Compute GGX-D × Schlick-G × Schlick-F against `view.sun_dir` /
-  `view.sun_color`, roughness ~0.02 (very sharp).
-- Add to `water` after the IBL `sky` mix; clip below the horizon
-  so we don't double-add when the sun is low.
-
-**Acceptance:** moving the camera along the riverbank shows a
-swimming sparkle pattern that tracks individual wave crests; turning
-to face the sun, a bright moving glint cone appears.
-
-**Blocker:** none.
-
----
-
-## SH-017 — Texture-based water caustics 🟢  *(Phase A)*
-
-**Why:** caustics in `water.wgsl:124-130` are 3 sin lobes max-blended
-into a sharp interference pattern. It animates but reads as a
-synthetic regular pattern at close range. The standard cheap
-upgrade is a 2-layer scrolling Voronoi/Worley caustic texture (the
-same trick UE5 ships as `T_Water_Caustic_01_M`) sampled at
-world-XZ + animated by a scrolling offset, modulated by water
-column.
-
-**Scope:** small.
-
-- Source / paint `water_caustic.png` (1024² Voronoi-edge bake,
-  greyscale).
-- Sample twice at different world-XZ scales (1.2 × and 0.8 ×) and
-  scroll speeds; max-blend the two samples.
-- Replace the 3-sin block; keep the column-fade smoothstep.
-
-**Acceptance:** river bed under shallow water shows wandering
-crisp caustic lines that don't repeat obviously; deep water stays
-dark per Beer-Lambert.
-
-**Blocker:** none. Asset is the only requirement (~30 min in any
-texture tool).
-
----
-
-## SH-018 — Shore wetness 🟢  *(Phase A)*
-
-**Why:** the river/land transition reads as a hard tile boundary —
-dry grass meets bright shoreline foam at the same shading values.
-Real wet ground darkens albedo and drops roughness. Sampling the
-distance-to-waterline in the terrain shader and biasing both
-within ~1 m closes the seam beautifully.
-
-**Scope:** small — terrain shader edit only.
-
-- Pass water plane Y + half-extents through `TerrainParams` (UBO).
-- Inline a shore-mask: `1 - smoothstep(0, 1.0,
-  distance_to_water)`.
-- Multiply albedo by `mix(1.0, 0.55, shore_mask)`; multiply
-  roughness output by `mix(1.0, 0.35, shore_mask)`.
-
-**Acceptance:** the strip of ground within 1 m of the waterline
-reads visibly damper (darker + glossier); the transition fades
-out smoothly inland.
-
-**Blocker:** none.
-
----
-
-## SH-019 — Underwater post-process 🟡  *(Phase A)*
-
-**Why:** when the camera Y dips below the river surface (some
-shore tiles in arena_02 let you wade), the world should tint
-blue-green and lose contrast — basic submerged colour absorption.
-Today nothing changes.
-
-**Scope:** small.
-
-- Detect `camera.y < water_y && inside_river_xz` in `main.ts`
-  per frame; toggle a custom post-FX call.
-- Engine option A — leverage existing `setFog` to push a thicker
-  bluer fog while submerged (works today, dirty).
-- Engine option B — add a post-pass slot that runs a fullscreen
-  WGSL shader after composite (need engine FFI; small).
-
-**Acceptance:** wading into the river visibly tints + dims the
-view; walking back out clears it within 200 ms.
-
-**Blocker:** option B needs an engine post-pass FFI (proposed in
-EN-017). Option A works as a stop-gap.
-
----
-
-## SH-020 — Real leaf-card trees 🟡  *(Phase B — gated on EN-010)*
-
-**Why:** Kenney trees are low-poly with single-colour leaf
-volumes. The standard quality leap is alpha-tested foliage cards —
-each leaf cluster is a textured quad with alpha cutoff, giving
-the silhouetted leaf detail you can't get from solid geometry.
+## SH-027 — Real weapon models 🔴 *(asset conversion; v2 gated on EN-033)*
+
+**Why:** both weapons are **grey `drawCube` primitives**
+(`main.ts:2795-2836`). This is the single most visible "placeholder"
+left in the game.
 
 **Scope:** medium.
 
-- Source one CC0 foliage-card tree pack (Quaternius "Foliage Pack
-  Vol 2" has alpha-tested oaks).
-- Convert via existing `tools/convert-arena.ts` flow; expose
-  `alpha_cutoff` per primitive.
-- Wire a new `tree_cutout.wgsl` material that uses the
-  `Bucket::Cutout` path (EN-010), reading `MaterialFactors.alpha_cutoff`.
-- Replace 2 of the 4 tree variants with leaf-card versions; keep
-  the others as solid for performance comparison.
+- Convert the Unvanquished rifle + a blaster-appropriate weapon from
+  `vendor/unvanquished pkg/res-weapons_src.dpkdir` (IQE/MD5 sources)
+  via the existing converter flow (new `tools/convert-weapons.ts`,
+  patterned on `convert-aliens-anim.ts`; static mesh is enough for
+  v1, fire/reload clips if the sources carry them).
+- Record each weapon's muzzle position in the GLB (or a constants
+  table) so muzzle flash, tracers, and shell ejection (SH-033) spawn
+  from the real barrel.
+- **v1 attach:** draw the weapon at a fixed offset from the player
+  model transform, pitched with aim — same math the cube uses today.
+- **v2 attach (EN-033):** query the hand joint's world transform per
+  frame and parent the weapon to it, so it rides walk/run/attack
+  animations.
 
-**Acceptance:** zooming on a tree at 5 m, individual leaf
-silhouettes visible against the sky; from 30 m the tree reads as
-a textured volume, not a polygon ball.
+**Acceptance:** no cube weapons anywhere; rifle and blaster are
+visibly distinct models; muzzle flash originates at the true muzzle
+in third-person at all pitches.
 
-**Blocker:** EN-010 (alpha-cutout bucket).
-
----
-
-## SH-021 — High-density instanced grass ✅ *(Phase B — shipped)*
-
-**Why:** 5 000 blades was the CPU-mesh-build ceiling, not a quality
-choice. With EN-001 instanced drawing we now push 20 000 blades at
-a single draw call.
-
-**What shipped:**
-
-- ✅ `assets/materials/grass_instanced.wgsl` — canonical instanced
-  material declaring `InstancedVertexInput` with attributes 7-10
-  (pos / rot_y / scale / tint).
-- ✅ Canonical 6-vert cross-quad blade mesh (12 indices for
-  double-sided cross) created once at startup.
-- ✅ 20 000-instance flat-array buffer with deterministic LCG
-  scatter, heightmap-bilinear Y, building + river rejection,
-  per-blade scale 0.85–1.25 and tint variance ±15%.
-- ✅ Single `drawMeshWithMaterialInstanced` call per frame
-  (down from one big baked mesh; up 4× density).
-- ✅ Wind via `frame.wind` (EN-013) — `setWind(0.85, 0.50, 0.10, 1.6)`
-  at startup; per-blade phase from world XZ + frame.time.
-- ✅ Cascade shadow receive via `sample_sun_shadow` (EN-016 helper).
-- ✅ Wrap-lambert + transmission for back-lit blades (closes
-  SH-011's first two acceptance criteria).
-- ✅ Old `assets/materials/grass.wgsl` deleted; old 5 000-blade
-  `GRASS_VERTS`/`GRASS_INDS` baked-mesh path removed from main.ts.
-
-**Acceptance:** ground reads as carpeted to ~30 m ✅; 20 000 blades
-at one draw call ✅; tree shadows visibly fall on grass ✅; back-lit
-blades glow ✅. (Density-ring LOD per SH-011 still pending; current
-scatter is uniform.)
-
-**Note:** the new material lives in `compileMaterialInstanced(string)`
-which has no from-file/hot-reload path today, so the WGSL is also
-inlined in `main.ts` as `GRASS_INSTANCED_WGSL`. Source of truth is
-the `.wgsl` file; the inline copy must track edits to it. SH-005's
-auto-generation will close that gap. *(This bit for real during
-EN-022: the motion-vector rewrite had to be applied to both copies
-by hand — the drift risk is not hypothetical.)*
+**Blocker:** asset conversion pass (vendor submodule already
+documented in README).
 
 ---
 
-## SH-022 — Planar-reflective river ✅ *(shipped — planar-reflection water landed pre-round-2)*
+## SH-028 — Weapon mechanics: reload, spread, recoil, aim 🟢
 
-> **Status:** the water material samples a real reflection of the
-> scene (with env fallback at grazing angles) — trees/buildings on
-> the bank reflect. Round-2 PR #2 then recalibrated fresnel (clamped
-> 0.60), reflection-ray floor, and grazing-angle foam fade after the
-> mirror band regression (audit F: water measured 1.16–1.23× sky
-> luma, now 1.00×). Original sketch kept below for context.
+**Why:** `R` refills the mag instantly, the rifle raycast is
+pixel-perfect down camera-forward with zero spread
+(`main.ts:2500-2501`), and recoil is a cosmetic 18 cm model slide for
+one flash tick. AAA gunfeel is these four systems interacting.
 
-**Why:** today the water reflects only the static HDR sky panorama
-via `sample_env()`. Trees lining the bank don't show up in the
-reflection; bridges and buildings near the water look
-disconnected. Planar reflection (mirror camera into a low-res RT
-captured per frame) is the single most-noticed water upgrade in
-modern games.
+**Scope:** medium — all game-side math in `src/weapons.ts`.
 
-**Scope:** small once EN-011 lands.
+- **Timed reload:** rifle 1.6 s, blaster 2.0 s; movement allowed;
+  switching weapons or dodging cancels it; HUD shows a radial/bar
+  progress; reload SFX start/finish.
+- **Spread:** per-weapon base cone (rifle 0.8°) growing +0.25° per
+  shot to a 3.0° cap, recovering at 4°/s; fired ray perturbed inside
+  the cone; crosshair gap renders live spread. Blaster: no cone
+  (projectile), slower recovery of camera kick instead.
+- **Recoil:** camera pitch kick per shot (rifle 0.35°, blaster 1.2°)
+  with smooth recovery toward the pre-fire aim; small horizontal
+  jitter so full-auto climbs with wobble, not a rail.
+- **Aim mode (TPS shoulder aim):** hold RMB / LT — orbit distance
+  6.0 → 2.6 m, FOV 70 → 52 (lerped ~10/s), spread ×0.4, look
+  sensitivity ×0.6, crosshair tightens. Camera-collision logic
+  (`main.ts:2113-2168`) already handles the closer orbit.
+- Per-weapon stat table (damage, rpm, mag, reload, spread base/growth/
+  recovery, kick) as one flat structure so SH-042's new weapons are
+  rows, not code.
 
-- Tag the river quad as a reflection source (engine API TBD).
-- In `water.wgsl`, replace the `sample_env(r, lod)` call with a
-  sample of the planar reflection RT, perturbed by the surface
-  normal.
-- Fall back to `sample_env` for grazing angles past the planar
-  capture's FOV.
-
-**Acceptance:** trees on the far bank visibly reflect in the
-river; standing on the bridge sees the bridge underside in the
-reflection; reflection wobbles with surface waves.
-
-**Blocker:** EN-011 (planar reflection capture).
-
----
-
-## SH-023 — Adopt foliage shading model 🟡  *(Phase B — gated on EN-012)*
-
-**Why:** SH-012 patches transmission into `tree.wgsl` locally;
-SH-011 does the same for grass. Once the engine ships a real
-foliage shading model in the standard PBR ABI (two-sided lighting
-+ light wrapping + simple subsurface tint), foliage materials
-become 4-line declarations instead of bespoke shaders.
-
-**Scope:** small — port both materials to the new ABI.
-
-- Replace the local wrap-lambert + transmission code in
-  `grass.wgsl` and `tree.wgsl` with the standard `shading_model:
-  foliage` declaration.
-- Tune the per-material transmission tint via `MaterialFactors`.
-
-**Acceptance:** behaviourally identical to SH-011 + SH-012, but
-the shaders shrink ~30 lines each and lighting stays consistent
-with any new foliage materials.
-
-**Blocker:** EN-012.
+**Acceptance:** full-auto at 20 m visibly walks off target and
+recovers; tap-fire stays tight; reload is interruptible with visible
+progress; aim mode zooms smoothly over the shoulder and steadies the
+gun; all tunables live in the stat table.
 
 ---
 
-## SH-024 — Imposter LOD for distant trees 🟡  *(Phase B — gated on EN-015)*
+## SH-029 — Camera & screen feedback 🟢
 
-**Why:** the arena ships 120 trees today; if we open the playfield
-or move toward dense-forest gameplay we'll want 500 – 1 000.
-Beyond ~40 m the per-tree GPU cost is wasted on silhouette pixels
-— an octahedral imposter (one quad textured with a pre-rendered
-multi-angle bake) is the standard solution.
+**Why:** no camera shake, no FOV kick, no damage flinch, no hit-stop
+anywhere — fixed FOV 70 and a red edge vignette are the entire
+somatic channel. This is pure `main.ts` math plus the already-shipped
+engine post-pass slot (EN-017 ✅); zero engine work.
 
-**Scope:** small once EN-015 ships an imposter system.
+**Scope:** medium.
 
-- Bake octahedral imposter atlases for all 4 tree variants at
-  build time (`tools/bake-tree-imposters.ts`).
-- Game-side: tree draw loop swaps to the imposter material when
-  `distance(camera, tree) > 40`.
+- **Trauma-based shake:** single scalar `trauma` (0..1); events add
+  trauma (player damage 0.4, tyrant stomp within 12 m 0.3 scaled by
+  distance, explosion 0.6); shake amplitude = trauma², applied as
+  hash-noise yaw/pitch/roll offsets (max ~1.2°) decaying at 1.5/s.
+  Exposed as a 0–1 accessibility slider (SH-043).
+- **FOV kick:** sprint +6° (SH-032), dodge +4° pulse, lerp ~8/s.
+- **Damage flinch:** short pitch/yaw impulse away from the damage
+  source + a directional red arc on the HUD pointing at the attacker.
+- **Hit-stop:** on kill, timescale 0.05 for ~50 ms (cap once per
+  second); on heavy hits (dragoon pounce connecting), 80 ms.
+- **Post FX states via `addPostPass`:** damage flash (brief warm
+  desaturate), low-health (< 25 HP) desaturation + vignette deepen.
+- **Landing dip:** small camera Y dip + recovery on landing from a
+  jump/fall.
 
-**Acceptance:** 1 000 trees draw at the same cost as today's 120;
-the LOD switch is invisible during normal gameplay.
+**Acceptance:** getting hit is unmistakable with eyes on the
+crosshair (flinch + arc + flash); kills feel punchy (hit-stop +
+shake); sprint/dodge read through FOV; all magnitudes on the settings
+sliders; motion-sensitive players can zero the shake.
 
-**Blocker:** EN-015.
+---
+
+## SH-030 — Enemy hit reactions 🟢 *(polish pass gated on EN-028)*
+
+**Why:** shooting an enemy produces only a 0.18 s red tint flash
+(`main.ts:2876-2882`). No flinch, no stagger — damage feedback is the
+core loop of a shooter and this is the weakest link in it.
+
+**Scope:** medium.
+
+- Verify pain clips exist in the converted GLBs
+  (`bun tools/inspect-glb.ts assets/models/enemy_dretch.glb` — the
+  IQE sources carry pain animations and the converter already
+  extracts all clips); add an `ANIM_PAIN_IDX` per-kind table next to
+  `ANIM_WALK_IDX`.
+- New `AI_FLINCH` state: light kinds (dretch/mantis/marauder) play
+  pain + freeze steering for ~0.25 s on any hit, with a 0.6 s lockout
+  so full-auto doesn't stun-lock.
+- Heavy kinds (dragoon/tyrant): stagger meter — if damage taken in a
+  1 s window exceeds 15% of max HP, 0.6 s stagger (pain clip +
+  movement zeroed); otherwise unflinching (preserves their menace).
+- v1 uses hard clip swaps (current engine behavior); when EN-028
+  lands, crossfade 0.1 s in/out.
+
+**Acceptance:** every landed shot produces a visible skeletal
+reaction or an intentional "armored, unflinching" read on heavies;
+sustained fire staggers a dragoon mid-telegraph; no stun-lock.
+
+---
+
+## SH-031 — Ragdoll deaths 🟡 *(gated on EN-025)*
+
+**Why:** deaths play one clip, clamp the last frame, then the corpse
+sinks through the floor (`main.ts:2885-2901`). Ragdoll handoff is the
+single strongest "physical world" signal in the genre, and Jolt
+already ships the ragdoll code — it just has no FFI.
+
+**Scope:** small once EN-025 lands.
+
+- On death: play the die clip for 0.15–0.3 s (the recognizable
+  "mortal blow" pose), then hand off to a ragdoll seeded with the
+  current pose and an impulse along the killing shot's direction
+  scaled by weapon damage.
+- Corpses settle for ~8 s, then sink/free as today (pool of
+  `BODIES_PER_KIND` ragdolls, reused).
+- Mobile profile keeps the clip-only path (perf).
+
+**Acceptance:** enemies crumple over terrain edges and slide down
+slopes; a blaster kill visibly shoves the body; no corpse clips
+through the heightfield; frame cost < 0.5 ms with 4 active ragdolls.
+
+**Blocker:** EN-025.
+
+---
+
+## SH-032 — Movement expansion: sprint + dodge 🟢 *(absorbs SH-008)*
+
+**Why:** the player walks at one speed and jumps. Enemy AI (mantis
+darts, dragoon pounces) is already more mobile than the player —
+inverted from how a power-fantasy shooter should feel.
+
+**Scope:** small — `player.ts` + input.
+
+- **Sprint:** hold Shift / stick fully deflected (touch) — 1.5×
+  `MOVE_SPEED`, +6° FOV (SH-029), sprint interrupts aim mode, firing
+  drops sprint. No stamina meter — arcade pacing.
+- **Dodge:** tap Ctrl (pad: B) — 4.5 m burst over 0.25 s in the
+  current move direction, 1.2 s cooldown, cancels reload, small FOV
+  pulse. No i-frames v1 (tune after playtest).
+- Player run animation exists in the GLB and is currently unused
+  (`main.ts:440-443`) — wire it to sprint.
+
+**Acceptance:** sprint visibly faster with run anim + FOV; dodge
+reliably escapes a telegraphed dragoon pounce when timed; cooldowns
+readable on the HUD.
+
+---
+
+## SH-033 — Combat VFX suite 🟡 *(gated on EN-026 particles + EN-027 decals; absorbs SH-006)*
+
+**Why:** the game has a 16-slot spark pool and a muzzle puff — no
+blood, no tracers, no shells, no impact variety, no dust, and the
+world takes no marks. This is most of the remaining visual gap in
+actual combat footage.
+
+**Scope:** medium game-side once the engine systems exist. Itemized:
+
+- **Muzzle:** flash sprite (2 frames) + 4–6 smoke wisps per shot,
+  warm point-light pulse (already exists — keep).
+- **Tracers:** stretched additive quad along the hitscan ray every
+  3rd rifle shot, ~12 m/frame apparent speed.
+- **Shells:** 1 per rifle shot, 24-slot pool, manual ballistic arc +
+  one ground bounce + ricochet-tick SFX, fade after 3 s.
+- **Blood:** 8–12 dark sprites burst from the hit point along the
+  ray reflection + a splat decal beneath the enemy; per-kind tint
+  (alien green/violet — matches the licensed art's palette).
+- **Impact decals:** bullet holes on stone/building, scorch for
+  blaster, 64-slot ring buffer, normal-aligned (EN-027).
+- **Dust kicks:** footstep puffs while sprinting on grass/dirt
+  (absorbs SH-006) + landing puff, driven from the SH-003 step
+  events.
+- **Death burst:** brief per-kind particle burst on kill (fluid spray
+  for dretch, chitin flecks for tyrant) layered under the ragdoll.
+- **Explosion set:** flash + fireball sprites + smoke column + dirt
+  chunks + decal — consumed by SH-042's lucifer cannon.
+- **Water splash** on projectile/ray hits in the river — the impulse
+  field already exists; add the sprite burst.
+
+**Acceptance:** a 10-second combat clip contains visible tracers,
+shells, blood, and persistent bullet holes; total particle GPU cost
+< 0.5 ms in heavy combat on the dev 760M; mobile profile halves pool
+sizes.
+
+**Blockers:** EN-026, EN-027.
+
+---
+
+## SH-034 — Locomotion & animation blending 🟡 *(part gated on EN-028)*
+
+**Why:** every animation change is a hard swap; enemies play walk at
+a fixed rate regardless of actual velocity (foot-sliding); the player
+never blends idle/walk/run; attacks hijack the whole body.
+
+**Scope:** medium.
+
+- **No engine dep, do now:** sync each enemy's walk-clip playback
+  rate to its actual speed / authored stride speed — kills the
+  foot-slide for a few lines.
+- **Gated on EN-028 crossfade:** 0.15 s fades on all transitions
+  (walk↔attack↔pain↔die, player idle↔walk↔run).
+- **Gated on EN-028 masks:** attack as an upper-body layer over
+  locomotion so enemies bite while closing instead of stopping.
+- **Gated on EN-028 root motion:** dragoon pounce and tyrant charge
+  driven by authored root motion (the engine currently strips it at
+  import) — the authored arcs are better than the hand-tuned
+  kinematics in the AI.
+
+**Acceptance:** no foot-sliding at any enemy speed; no visible pops
+between clips; a marauder can lunge-bite mid-stride; the dragoon
+pounce trajectory matches its authored animation.
+
+**Blocker:** EN-028 for everything past the playback-rate sync.
+
+---
+
+# Round 2 — Audio
+
+---
+
+## SH-003 — Footstep audio (positional) 🔴 *(kept; extended)*
+
+**Why:** motion is silent except water wading. Footsteps are the
+cheapest presence signal in games.
+
+**Scope:** small.
+
+- 3–4 step variants each for grass and dirt + reuse the water splash;
+  trigger by accumulated horizontal distance modulo stride (~0.8 m
+  walk, ~0.55 m interval at sprint); surface picked from position
+  (river band = water, else grass/dirt by terrain paint category).
+- **Extended:** tyrant footsteps as heavy 3D thuds with a subtle
+  distance-scaled camera rumble (SH-029 trauma 0.05/step within
+  15 m) — telegraphs the most dangerous enemy through walls.
+- Emits "step events" consumed by SH-033's dust kicks.
+
+**Acceptance:** walking/sprinting is audible at believable cadence;
+entering the river switches to splashes; an unseen tyrant is heard
+(and faintly felt) approaching.
+
+**Blocker:** asset (step SFX — Sonniss GDC bundle already in the
+audio sources).
+
+---
+
+## SH-001 — Wind-coupled ambient audio 🔴 *(kept)*
+
+**Why:** grass, canopies, and cloud shadows all move on the wind UBO;
+audio is a static loop. A 3D leaf-rustle bed scaled by `wind.amp`
+closes the "place isn't alive" gap.
+
+**Scope:** small once the asset exists — `playSound3D` loops at 3–4
+forest centroids, volume from the same wind vec4 that drives sway;
+linear falloff 25→40 m.
+
+**Acceptance:** rustle near trees, fading in open field, swelling
+when `wind.amp` is cranked.
+
+**Blocker:** asset (CC0 wind-through-trees loop).
+
+---
+
+## SH-035 — Weapon audio & mix depth 🟡 *(gated on EN-029)*
+
+**Why:** weapon shots are single one-shot samples on a flat mix. The
+"crack-BOOM" that makes AAA guns feel powerful is a close-mic body
+layer plus a reverb tail plus a mix that ducks around it.
+
+**Scope:** medium.
+
+- Fire = body sample + tail layer routed through the reverb send.
+- Bus layout (EN-029): master → music / sfx / ui; music ducks −6 dB
+  for 1.5 s when the player takes damage; everything but a heartbeat
+  LP ducks at < 15 HP.
+- Reverb zone: proximity to the building raises the send (~0.3)
+  so fights by the walls sound enclosed; open field stays dry.
+- Occlusion: 1 ray to each audible emitter; blocked by the building
+  → low-pass ~1.2 kHz.
+- Distance layers for enemy vocals: beyond ~25 m swap to a
+  low-passed variant so far shrieks read distant, not quiet.
+
+**Acceptance:** rifle sounds distinct at the wall vs open field; a
+dragoon shrieking behind the building is audibly muffled; taking
+damage audibly ducks the music; no render-thread glitches.
+
+**Blocker:** EN-029.
+
+---
+
+## SH-036 — Dynamic music intensity 🔴
+
+**Why:** one looping combat track from the first frame to the last
+flattens the pacing the wave director already creates.
+
+**Scope:** small logic, asset-bound.
+
+- Two intensity states v1: **calm** (between waves / < 2 enemies
+  alive) and **combat** (wave active), crossfaded over ~2 s on state
+  change with a 4 s hysteresis so it doesn't flap.
+- Stingers: wave-clear, player death, victory (2–4 s one-shots over
+  the bed).
+- Assets: arrange the existing `game.wav` into two loopable stems +
+  3 stingers (or source CC0 equivalents).
+
+**Acceptance:** clearing a wave audibly relaxes the music within
+seconds; the next wave's spawn re-escalates it; stingers land on
+clear/death/win.
+
+**Blocker:** asset (stems).
+
+---
+
+# Round 3 — Game structure & content
+
+What turns the demo into a game. Order matters: SH-037 (settings
+data) before SH-038 (menus that edit it); SH-040 (levels) before
+SH-041/SH-042 fill them.
+
+---
+
+## SH-037 — Settings & persistence foundation 🟢
+
+**Why:** nothing persists — no settings, no saves, every tunable is a
+compile-time constant. Every later ticket (menus, gamepad, meta
+scores, accessibility) needs this file.
+
+**Scope:** small.
+
+- `settings.json` next to the binary via the engine's
+  `bloom_read_file`/`bloom_write_file`; parsed **once at boot**
+  (`JSON.parse` is safe at load on Perry 0.5.1208; keep the flat-array
+  rules — read fields by explicit key, never `.push()`).
+- Schema v1: `video` (renderScale, fpsCap, vsync, fov, shakeScale),
+  `audio` (master/music/sfx volumes), `controls` (sensitivity,
+  invertY, bind map, aimToggle/holdMode).
+- Write-through on change (from SH-038's UI); missing/corrupt file →
+  defaults, never a crash.
+- Same file carries `meta` (best scores, unlocks) for SH-041.
+
+**Acceptance:** change sensitivity, quit, relaunch — it stuck; delete
+the file — clean defaults; no per-frame file or parse work.
+
+---
+
+## SH-038 — Front-end, pause & settings menus 🟡 *(gated on EN-030; IM interim possible)*
+
+**Why:** there is no pause, no settings UI, and the title screen is
+"press anything." Two states exist in the whole game
+(`main.ts:1491`).
+
+**Scope:** medium.
+
+- **Pause (Esc / Start):** freezes the sim (dt=0 path — audio keeps
+  running, world stops), releases cursor capture; Resume / Settings /
+  Restart / Quit.
+- **Title:** Play / Level select (SH-040) / Settings / Quit over the
+  existing live-world backdrop.
+- **Settings panel:** sliders/toggles bound to SH-037 (video, audio,
+  controls, accessibility), applied live where possible (renderScale,
+  volumes) and on-confirm otherwise.
+- **Game-over / victory:** proper flow into Restart / Level select /
+  Title instead of the bare `R` prompt.
+- Navigable by mouse, keyboard, touch, and gamepad (SH-039) — this
+  is what EN-030's focus model exists for. Interim: the game already
+  hit-tests hand-drawn touch buttons; an IM version can ship before
+  EN-030 if that lands first.
+- Menu click/hover SFX on the ui bus.
+
+**Acceptance:** Esc pauses and fully resumes mid-combat with no state
+corruption; all SH-037 settings are editable in-game on all four
+input methods; dying no longer dead-ends into a keyboard-only prompt.
+
+**Blocker:** EN-030 (or accept the IM interim).
+
+---
+
+## SH-039 — Gamepad support 🟡 *(gated on EN-031 verification)*
+
+**Why:** input is keyboard/mouse + touch only. The engine FFI surface
+already exists (`bloom_is_gamepad_available`, `bloom_get_gamepad_axis`,
+button queries — engine `package.json:1664-1697`) but nothing in the
+game consumes it, and the native backends need verification (EN-031 —
+the `inject_*` twins suggest the desktop path may never have been
+wired to real hardware).
+
+**Scope:** medium.
+
+- Mapping: LS move, RS look, RT fire, LT aim, A jump, B dodge,
+  X reload, Y switch weapon, Start pause, D-pad menu nav.
+- Look-stick response curve (x·|x|) + separate pad sensitivity in
+  SH-037; deadzones per stick.
+- **Aim slowdown** (TPS-standard pad assist): inside a 6° cone of an
+  enemy, look sensitivity ×0.65. No magnetism v1.
+- Menus (SH-038) fully navigable; on-screen glyphs switch to pad
+  buttons when a pad was the last input.
+
+**Acceptance:** full playthrough start-to-victory on a pad without
+touching the keyboard, on Windows and iPhone (BT controller).
+
+**Blocker:** EN-031.
+
+---
+
+## SH-040 — Level pipeline & selection 🟢
+
+**Why:** `world-runtime.ts:23` hardcodes `arena_02`; `arena_01` is a
+stale 8-entity v1 file; there is no way to ship more than one level.
+The entire world pipeline (runtime `loadWorld`, editor round-trip)
+already supports N levels — only the game pretends otherwise.
+
+**Scope:** medium (code small; content is the point).
+
+- `WORLD_PATH` becomes a parameter: default from `settings.json`,
+  selected via the title-screen level list (SH-038); level list =
+  scan or a small manifest of `assets/worlds/*.world.json` with
+  display names.
+- Rehab `arena_01` in the editor to schema v2 (terrain, lights,
+  forest, wave plan) as the "small intro arena."
+- Author **one new arena in the editor** end-to-end (different
+  read: e.g. dense-forest ravine with the river as a chokepoint) —
+  this is also the acceptance test for the whole editor pipeline and
+  will surface its gaps (see Round 5).
+- Per-world wave plans already live in world data (`wave_config`) —
+  no code per level.
+
+**Acceptance:** three selectable, completable arenas; adding a fourth
+requires zero game-code changes — world file + manifest entry only.
+
+---
+
+## SH-041 — Meta loop: scoring, report, unlocks 🟢
+
+**Why:** win/lose → restart with no numbers is a tech-demo loop.
+Score pressure is the cheapest replayability system for an arena
+shooter.
+
+**Scope:** medium.
+
+- Score: per-kind kill values × a combo multiplier (decays 4 s
+  without a kill); accuracy and wave-time bonuses.
+- End-of-wave report card (kills, accuracy, time, combo peak) and
+  end-of-run total with per-arena best persisted via SH-037.
+- Unlocks keyed to progress (e.g. chaingun unlocked by clearing
+  arena_01; lucifer cannon by clearing arena_02 — pairs with
+  SH-042).
+- Optional wave modifiers surfaced on the report ("next wave:
+  frenzied — enemies +20% speed, score ×1.5") for risk/reward.
+
+**Acceptance:** the HUD shows live score/combo; the report screen
+appears between waves; bests persist across relaunches; at least one
+unlock gate works end-to-end.
+
+---
+
+## SH-042 — Content expansion: +2 weapons, +2 enemy kinds 🔴
+
+**Why:** 2 weapons and 5 enemy kinds is one encounter's worth of
+variety; the run is ~3 minutes. The Unvanquished source packs carry
+a full arsenal and more alien classes — conversion capacity, not
+authoring, is the constraint.
+
+**Scope:** large (this is the content ticket).
+
+- **Chaingun:** 0.5 s spin-up → 1,200 rpm hitscan, heavy spread
+  (2.5° base), strong shake while firing, big ammo pool. Stresses the
+  SH-028 stat table and SH-029 feedback.
+- **Lucifer cannon:** hold-to-charge (0–1.5 s) plasma sphere,
+  radius-4 m AoE on impact with falloff damage + the SH-033 explosion
+  set + a point-light pulse. First AoE — splash must damage the
+  player too.
+- **Basilisk** (IQE source exists): fast wall-hugging flanker; on
+  hit applies a 4 s poison DoT (green edge vignette + tick SFX). New
+  AI flavour: prefers approach vectors outside the player's view
+  cone.
+- **Advanced marauder** (IQE source exists): the first **ranged**
+  enemy — holds a 12–18 m band, strafes, fires 3-projectile volleys
+  (reuse the blaster projectile pool with a hostile flag). Forces
+  cover usage and re-weights every arena.
+- Wave plans in all three arenas updated to mix the new kinds;
+  `MAX_CONCURRENT` 6 → 8 (skinned VB caching landed; re-verify combat
+  frame time).
+
+**Acceptance:** 4 weapons with distinct roles; 7 enemy kinds; at
+least one wave per arena mixing ranged + melee pressure; heavy-combat
+frame time still ≥ 35 fps on the dev box at 4K/TSR.
+
+**Blocker:** asset conversion (models/anims/SFX for all four).
+
+---
+
+## SH-043 — Accessibility & localization scaffolding 🟢
+
+**Why:** all-or-nothing camera shake, red-only damage cues, hardcoded
+English literals, fixed keybinds. Cheap now, expensive to retrofit.
+
+**Scope:** medium.
+
+- `src/strings.ts`: every user-facing string through one flat table
+  (key → text). English-only today; the table *is* the localization
+  scaffolding.
+- Remappable binds (data in SH-037, UI in SH-038); hold vs toggle
+  for aim and sprint.
+- Colorblind-safe feedback: hits confirmed by a white crosshair
+  flash + tick sound, not only red tint; damage direction by shape
+  (arc), not only color; HUD palette option.
+- Caption cues for gameplay-critical audio: off-screen telegraphs
+  ("Tyrant charging ←") as small HUD text, toggleable.
+- Sliders: camera shake 0–1 (SH-029), FOV 60–90, look sensitivity.
+
+**Acceptance:** shake can be zeroed; a colorblind player gets full
+hit/damage information; every string in the game routes through
+`strings.ts`; binds remap and persist.
+
+---
+
+# Round 4 — Visual backlog *(kept from the UE5-tier roadmap)*
+
+Still worth shipping, now sequenced **after** feel/structure — the
+renderer is past the point of diminishing returns relative to the
+rounds above. Phase framing (A/B/C) from `docs/visual-quality.md`
+still applies.
+
+---
+
+## SH-009 — Splat-mapped PBR terrain 🟢 *(EN-014 texture arrays SHIPPED — fully unblocked)*
+
+**Why:** the largest remaining pure-visual gap. `terrain.wgsl` is
+procedural color stops with zero textures — below ~1 m the ground has
+no detail.
+
+**Scope:** medium — 4 CC0 PBR sets (grass_lush / grass_dry / dirt /
+rock_cliff from Poly Haven; `forrest_ground_01` is already staged in
+`assets/textures/external/`), texture-array bindings (EN-014 ✅),
+triplanar projection, 4-layer weight blend by (noise, slope, height,
+water-distance), cascade shadow sample. Pairs with the editor's
+terrain-paint mode (Round 5) so the weights become authorable.
+
+**Acceptance:** ground reads as real material at all distances;
+cliffs show rock; layer transitions blend, not step.
+
+---
+
+## SH-010 — Detail normal + macro variation 🟢
+
+As specified previously: 512² detail normal at ~50× UV via
+half-derivative blend + 256² macro mask at ~30 m scale into albedo.
+Lands right after SH-009's binding pattern.
+
+---
+
+## SH-011 — Grass density LOD ⏳ *(remainder only — shading shipped)*
+
+Wrap-lambert, transmission, and shadow receive shipped with SH-021.
+Remaining: ring-based density (2× inside 12 m, 1× 12–25 m, fade
+25–40 m) — engine grass-tile culling (aeb3228) makes this a
+scatter-time bucketing change only.
+
+---
+
+## SH-013 — Hierarchical wind via vertex-color regions 🟢
+
+Bake per-vertex wind weights (R main bend / G branch / B leaf flutter
+/ A phase) into tree GLBs; three layered sines in the tree material.
+Trunk leans slow, branches medium, leaves fast.
+
+---
+
+## SH-014 — Bark normal + per-tree HSV variance 🟢 *(absorbs SH-004)*
+
+Triplanar bark normal on trunk region; replace the RGB channel-delta
+leaf tint with HSV jitter (hue ±0.04 @ 0.30, sat clamp 0.45–0.85,
+val clamp 0.55–0.85) — closes the cyan-outlier issue SH-004 tracked.
+
+---
+
+## SH-020 — Real leaf-card trees 🟢 *(EN-010 cutout bucket SHIPPED — unblocked)*
+
+Replace 2 of 4 tree variants with alpha-cutout leaf-card versions
+(the scanned-leaf card pipeline from the round-5 texture work already
+exists in `build-props.ts`); per-primitive `alpha_cutoff` through the
+cutout bucket.
+
+---
+
+## SH-023 — Adopt foliage shading model 🟡 *(EN-012 selector exists — verify then port)*
+
+The engine's material system now carries a shading-model selector
+with a foliage branch (`material_system.rs`); once its coverage is
+confirmed, port grass/tree materials to `shading_model: foliage`
+declarations and delete ~30 lines of bespoke lighting from each.
+
+---
+
+## SH-024 — Imposter LOD for distant trees 🟡 *(gated on EN-015)*
+
+Octahedral imposters for the 4 tree variants; swap beyond 40 m.
+Only matters at > 500 trees — keep last.
+
+---
+
+## SH-007 — Drifting clouds 🟢 *(EN-005 procedural sky SHIPPED — blocker cleared, low priority)*
+
+The Hillaire sky has no clouds; a slow scrolling cloud layer (noise
+or panorama sample) in the sky pass restores the "alive sky" the
+cloud-shadow ground layer already implies.
+
+---
+
+# Round 5 — Production tooling
+
+Content velocity is the real AAA moat. Game-side ticket below;
+editor-side items live in `../editor/PLAN.md` — listed here because
+they gate SH-040/SH-042's content work.
+
+**Editor items (from PLAN.md, priority order for content throughput):**
+
+1. **Wire prefab authoring** (PLAN §E) — `prefab-tool.ts` is fully
+   written (create/save/add-child) with **zero UI entry points**, and
+   the shooter has zero prefabs. This is the single biggest reuse
+   multiplier available; a tree cluster, a spawner+pickup camp, a
+   building corner become one placeable asset.
+2. **Terrain texture painting** (PLAN §D) — pairs with SH-009; the
+   schema's `TerrainLayer` weights are authored nowhere today.
+3. **Play-in-editor** (beyond the fly-cam): a "Launch game here"
+   button — save to a temp world, shell out to the shooter binary
+   with that path (SH-040 makes the path a parameter). Cheap and
+   transforms iteration.
+4. **Multi-select transforms** — selection is a Set but gizmos act on
+   primary only.
+5. **Asset thumbnails** (PLAN §G — `renderAllThumbnails` exists,
+   uncalled) + inspector rename/tint/modelRef (PLAN §F2).
+6. **`postSaveCommand` hook** (PLAN §K2) — auto-run
+   `bun tools/build-terrain.ts` on save; kills the last bake step in
+   the level loop.
+
+---
+
+## SH-044 — Asset ingest automation 🟢
+
+**Why:** audio conversion is ad-hoc hand-run ffmpeg (unscripted,
+`assets/sounds/SOURCES.md`), texture downscaling uses macOS-only
+`sips`, and `gen-building.ts` output is copy-pasted into world files.
+SH-042's content push multiplies all three frictions.
+
+**Scope:** small.
+
+- `tools/convert-audio.ts`: batch ffmpeg driven by a manifest
+  (source path → output name/format/gain), covering everything in
+  `SOURCES.md`; becomes the documented path for new SFX.
+- Replace `sips` with the in-repo PNG codec (`tools/png.ts` already
+  encodes/decodes) or ffmpeg scaling — converters become
+  Windows-clean.
+- `gen-building.ts` gains `--merge <world.json>` to insert/replace
+  its entities programmatically instead of stdout copy-paste.
+- One documented command (`npm run convert`) rebuilds every committed
+  asset from `vendor/` + external sources on any OS.
+
+**Acceptance:** fresh clone + vendor submodules + one command
+reproduces `assets/` byte-comparable (or documented-diff) on Windows
+and macOS; adding a new SFX is a manifest line, not a shell history.
