@@ -10,6 +10,7 @@
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
   loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
+  setModelFoliageWind, setFoliageShadowMotion,
   createMesh, createMeshExplicit, genMeshCube,
   drawMeshWithMaterial,
   compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
@@ -345,11 +346,29 @@ for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
 // dappled cutout shadows for free â€” and they show up in the water's
 // planar reflection (cached models render into the probe). Three GLB
 // variants (normal / tall-narrow / short-wide) from build-props.ts.
+// Swaying tree SHADOWS: correct, but a caster that moves every frame cannot reuse
+// the cached static shadow depth. Measured on this box (AMD 760M, 4K/TSR):
+// see docs/tickets.md SH-013 for the number that decided this.
+const FOLIAGE_SHADOW_MOTION = false;
+
 const treeVariants = [
   loadModel('assets/models/prop_tree.glb'),
   loadModel('assets/models/prop_tree2.glb'),
   loadModel('assets/models/prop_tree3.glb'),
 ];
+// SH-013 / EN-041 - the trees are plants, so let the wind bend them.
+//
+// Until now the engine swayed ALPHA-CUT materials only, which meant the leaf
+// cards fluttered and all 88 trunks stood perfectly rigid - a forest of poles
+// with twitching hair. The wind is hierarchical now: the trunk leans slowly
+// (the motion you read at 30 m), the branches swing at their own rate, and the
+// leaves flutter fast at the tips.
+for (let i = 0; i < treeVariants.length; i++) setModelFoliageWind(treeVariants[i], 1.0);
+// Swaying SHADOWS are a separate, paid-for decision: a caster that moves cannot
+// reuse the cached static shadow depth, so all 88 trees would re-render into
+// every cascade every frame. Measured before switching on - see docs/tickets.md
+// SH-013.
+setFoliageShadowMotion(FOLIAGE_SHADOW_MOTION);
 // All tree GLBs are 4 primitives: trunk + 2 branch stubs + leaf cards.
 const TREE_GLB_PARTS = 4;
 
@@ -4035,6 +4054,12 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
+
+
+
+
 
 
 

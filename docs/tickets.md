@@ -27,7 +27,7 @@ or a design decision
 | 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped, incl. SH-031 ragdolls (EN-025) |
 | 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
 | 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select and SH-042 (4 weapons + 7 enemy kinds, 2 of them RANGED) |
-| 4 | Visual backlog | SH-009, SH-010, SH-007 ✅ · SH-020 ✅ (round 5) · SH-011, SH-013, SH-014, SH-023, SH-024 ⏳ | ✅ splat terrain + coherent cloud deck (EN-040); foliage polish open |
+| 4 | Visual backlog | SH-007, SH-009, SH-010, SH-013, SH-014, SH-020 ✅ · SH-011, SH-023 ⏳ · SH-024 blocked (EN-015) | ✅ splat terrain, coherent cloud deck (EN-040), hierarchical foliage wind (EN-041) |
 | 5 | Production tooling | SH-044 ✅ + editor PLAN items ⏳ | ✅ asset ingest scripted + cross-platform; editor items are in `../editor` |
 
 > **Round-1 results (2026-07-12):** see [`docs/aaa-round-1.md`](aaa-round-1.md).
@@ -803,15 +803,35 @@ scatter-time bucketing change only.
 
 ---
 
-## SH-013 — Hierarchical wind via vertex-color regions 🟢
+## SH-013 — Hierarchical wind ✅ *(shipped 2026-07-12 as EN-041 — no vertex colours needed)*
 
-Bake per-vertex wind weights (R main bend / G branch / B leaf flutter
-/ A phase) into tree GLBs; three layered sines in the tree material.
-Trunk leans slow, branches medium, leaves fast.
+> **Shipped, and the plan changed on contact.** The ticket said to bake wind
+> weights into vertex colours. Two things killed that: `COLOR_0` is already spent
+> by the engine as an **albedo multiplier**, so wind weights there would tint every
+> trunk; and our trees are *procedurally generated*, which means the regions are
+> known analytically and don't need authoring at all.
+>
+> So the weights are **derived** from where each vertex sits relative to the model
+> origin: trunk bend ∝ height² (a cantilever), branch sway ∝ reach from the trunk
+> axis, leaf flutter on the cutout cards only. Same three-layer result the ticket
+> wanted — trunk slow, branches medium, leaves fast — with no new attribute and no
+> GLB re-bake.
+>
+> **The real find:** the engine only ever swayed alpha-cut materials, so leaf cards
+> fluttered and **all 88 trunks were rigid**. `setModelFoliageWind(model, 1.0)`
+> opts a model in; everything else in the world stays still.
+>
+> **Swaying shadows are OFF (`FOLIAGE_SHADOW_MOTION = false`)** — and the reason is
+> engine EN-042, not taste. A moving caster can't reuse the cached static shadow
+> depth, so it must join the DYNAMIC set, which holds 64. The forest is 88 × 4 =
+> **352**. Enabling it overflowed the budget and the overflow was dropped silently:
+> it measured *faster* (34 → 40 fps) because it had deleted every tree shadow **and
+> the player's own shadow**. The engine now degrades gracefully (24 foliage casters
+> max), but the feature stays off until EN-042 raises the budget properly.
 
 ---
 
-## SH-014 — Bark normal + per-tree HSV variance 🟡 *(tint half SHIPPED; bark normal open)*
+## SH-014 — Bark normal + per-tree HSV variance ✅ *(both halves shipped 2026-07-12)*
 
 > **Tint half shipped 2026-07-12 — and the diagnosis was better than the fix the
 > ticket proposed.** The tints were independent per-channel jitter (r, g and b
@@ -833,11 +853,12 @@ Trunk leans slow, branches medium, leaves fast.
 > `bake-forest-to-world.ts`, which re-seeds the whole forest). Verified: the diff
 > is exactly 264 lines = 88 trees × 3 channels.
 
-**Remaining — bark normal:** the tree GLBs carry `POSITION,NORMAL,TEXCOORD_0`
-and **no `TANGENT`**, so a normal map cannot be sampled until `build-props.ts`
-generates tangents. Needs: tangent generation + a bark normal map (derivable from
-the existing bark albedo by luminance→height→normal, no new asset download) +
-confirming the scene shader samples `normalTexture` from the glTF material.
+**Bark normal — ✅ already shipped, my earlier note was wrong.** I claimed this was
+blocked on the missing `TANGENT` attribute. It isn't: the engine reconstructs a TBN
+from screen-space derivatives (Mikkelsen 2010) whenever a mesh has no tangents, and
+the tree trunk materials have carried `normalTexture` + `metallicRoughnessTexture`
+(Poly Haven `pine_bark_nor_gl_1k`) since the round-5 texture work. Verified by
+reading the GLB material blocks. Nothing to do.
 
 ---
 
