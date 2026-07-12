@@ -811,11 +811,33 @@ Trunk leans slow, branches medium, leaves fast.
 
 ---
 
-## SH-014 — Bark normal + per-tree HSV variance 🟢 *(absorbs SH-004)*
+## SH-014 — Bark normal + per-tree HSV variance 🟡 *(tint half SHIPPED; bark normal open)*
 
-Triplanar bark normal on trunk region; replace the RGB channel-delta
-leaf tint with HSV jitter (hue ±0.04 @ 0.30, sat clamp 0.45–0.85,
-val clamp 0.55–0.85) — closes the cyan-outlier issue SH-004 tracked.
+> **Tint half shipped 2026-07-12 — and the diagnosis was better than the fix the
+> ticket proposed.** The tints were independent per-channel jitter (r, g and b
+> each nudged at random around 1.0), i.e. a random walk in RGB — so **33 of 88
+> trees** had their multiplier pushed off the green axis toward cyan or magenta.
+> Saturation was low enough that no single tree looked wrong, but the canopy
+> picked up a faint iridescent speckle that read as digital noise.
+>
+> HSV jitter with clamps (what the ticket asked for) would have papered over it.
+> Real trees do not vary in hue at random: they vary along **one** axis — how
+> lush or how dry — which runs green → yellow-olive, plus crown brightness. So
+> that is what is generated now: a 1-D dryness parameter mapped into a wedge
+> where **green is always the dominant channel**, so no tree *can* drift to cyan.
+> Hue is now confined to 0.146–0.283 (was 0.354–0.856), zero outliers, and with
+> *more* visible variety than before (sat 0.10–0.30, was 0.00–0.14).
+>
+> `bun tools/retint-forest.ts assets/worlds/arena_02.world.json` — rewrites ONLY
+> the `tint` field, so editor-authored positions survive (unlike re-running
+> `bake-forest-to-world.ts`, which re-seeds the whole forest). Verified: the diff
+> is exactly 264 lines = 88 trees × 3 channels.
+
+**Remaining — bark normal:** the tree GLBs carry `POSITION,NORMAL,TEXCOORD_0`
+and **no `TANGENT`**, so a normal map cannot be sampled until `build-props.ts`
+generates tangents. Needs: tangent generation + a bark normal map (derivable from
+the existing bark albedo by luminance→height→normal, no new asset download) +
+confirming the scene shader samples `normalTexture` from the glTF material.
 
 ---
 
