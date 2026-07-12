@@ -248,3 +248,51 @@ also needs `PERF_START_GAME=true` and disabling the `perfWindows === 23`
 early-exit leftover). Compile `perry compile src/main.ts -o main
 --debug-symbols`, run with stdout redirected (batch — the game takes the
 screen). Logs from this audit: scratchpad `perf_mode0.log` / `perf_mode1.log`.
+
+
+## Round 3 (2026-07-12) — the cache had silently stopped working
+
+Re-measured after the AAA rounds landed (splat terrain, particles/decals, 7 enemy
+kinds, cloud deck, foliage wind, 40k grass). Title screen was **33.5 fps**, down
+from the 50.7 this document last recorded — and `shadow_pass` GPU was **6.9 ms**,
+back to where it had been *before* the static-cascade cache was ever built.
+
+**The cache was not slow. It was being defeated.** A cached, non-skinned caster
+whose transform changed since last frame stayed in the STATIC set with a *changed*
+content signature — which invalidates the cascade's cached depth. So every tree,
+wall and terrain tile re-rendered into all three cascades, every frame, because
+something small in the scene was moving.
+
+Fixed in the engine as **EN-043**: a caster that moves is *dynamic*, by definition.
+Movers now draw on top of the cached static depth instead of poisoning it.
+
+| | before | after |
+|---|---|---|
+| `shadow_pass` GPU | 6954 µs | **182 µs** (38×) |
+| title screen | 33.5 fps | **44.7 fps** |
+
+**Where the time goes now** (title, 4K output / TSR 0.5):
+
+| pass | GPU |
+|---|---|
+| `main_hdr_pass` | ~7.9 ms |
+| `material_pass` | ~1.9 ms |
+| `shadow_pass` | 0.18 ms |
+
+Toggling shadows off still buys 5.3 ms even though the shadow *pass* is now 0.18 ms
+— so that cost is PCF **sampling** in the fragment shaders, not map rendering. That
+is the next thing to look at, along with `main_hdr_pass`, which is now the single
+dominant pass.
+
+One measurement worth keeping in mind: before the fix, `rs0.25` ran no faster than
+`rs0.5`. The frame was not fragment-bound at render resolution at all — it was
+bound on fixed-rate work (the shadow re-render), which is exactly what EN-043 turned
+out to be.
+
+**A warning, twice earned.** Two "wins" this round were correctness losses in
+disguise, and both announced themselves the same way: *the number improved more than
+the change could justify*. Enabling swaying shadow casters measured 34 → 40 fps
+because it had silently deleted every shadow (EN-042). The first cut of EN-043
+measured 42 fps because a key collision made all 88 trees dynamic and dropped every
+shadow again. **On this renderer, always confirm a shadow/perf win with a
+screenshot.**

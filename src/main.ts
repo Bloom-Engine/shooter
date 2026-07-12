@@ -1621,7 +1621,7 @@ const PERFTEST = false;
 // player alive, and logs fps / worst-frame / alive-enemy count per 60-frame
 // window; the profiler turns on for the final third to get a combat per-pass
 // table.
-const PERF_MODE = 1;
+const PERF_MODE = 0;
 // false = stay on the title screen (stationary world backdrop â€” used for
 // external flicker captures); true = auto-start the run at frame 20.
 const PERF_START_GAME = false;
@@ -3835,6 +3835,12 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
+
+
+
+
 
 
 
