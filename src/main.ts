@@ -117,19 +117,25 @@ setSoundVolume(sfxPlayerDie[1], 0.8);
 // Per-kind alien vocals, kind order matches KIND_NAME (0=dretch ..
 // 4=tyrant = Unvanquished level0..level4). Flat arrays, index
 // kind*3+variant for deaths (Perry convention).
-const sfxAlienDie: any[] = new Array(15);
-const sfxAlienAttack: any[] = new Array(5);
-const sfxAlienPain: any[] = new Array(5);
-for (let k = 0; k < 5; k++) {
+// SH-042 — 7 kinds now. The basilisk and the advanced marauder are UPGRADE
+// classes of the mantis (level1) and marauder (level2), and in Unvanquished an
+// upgrade class shares its base class's voice. So their vocals map onto the base
+// class's files rather than needing two new sets of art.
+const SFX_KIND_VOICE = [0, 1, 2, 3, 4, 2, 3];
+const sfxAlienDie: any[] = new Array(21);     // 7 kinds x 3 variants
+const sfxAlienAttack: any[] = new Array(7);
+const sfxAlienPain: any[] = new Array(7);
+for (let k = 0; k < 7; k++) {
+  const voice = SFX_KIND_VOICE[k];
   for (let v = 0; v < 3; v++) {
-    const s = loadSound('assets/sounds/alien' + k + '_die' + (v + 1) + '.wav');
+    const s = loadSound('assets/sounds/alien' + voice + '_die' + (v + 1) + '.wav');
     setSoundVolume(s, 0.75);
     sfxAlienDie[k * 3 + v] = s;
   }
-  const a = loadSound('assets/sounds/alien' + k + '_attack.wav');
+  const a = loadSound('assets/sounds/alien' + voice + '_attack.wav');
   setSoundVolume(a, 0.55);
   sfxAlienAttack[k] = a;
-  const p = loadSound('assets/sounds/alien' + k + '_pain.wav');
+  const p = loadSound('assets/sounds/alien' + voice + '_pain.wav');
   setSoundVolume(p, 0.40);
   sfxAlienPain[k] = p;
 }
@@ -519,7 +525,10 @@ const mdlWeapons = [
   loadModel('assets/models/weapon_chaingun.glb'),
   loadModel('assets/models/weapon_cannon.glb'),
 ];
-const WEAPON_MUZZLE_Z = [0.62, 0.42, 0.78, 0.70];
+// Muzzle distance down the barrel, metres. These pair with the `length` column
+// in tools/convert-weapons.ts, which normalises each model to that length
+// precisely so these constants survive an art change.
+const WEAPON_MUZZLE_Z = [0.87, 0.59, 1.00, 0.95];
 const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 
 // EN-033 â€” the hand joint, so the weapon rides the animation instead of
@@ -960,14 +969,22 @@ const matMuzzleFlashMesh = genMeshCube(1, 1, 1);
 //   2 = marauder â€” medium all-round
 //   3 = dragoon  â€” heavier, slower, hits hard
 //   4 = tyrant   â€” boss tier; rare, big, tanky
-const KIND_COUNT = 5;
-const KIND_NAME  = ['DRETCH', 'MANTIS', 'MARAUDER', 'DRAGOON', 'TYRANT'];
+// SH-042 — 7 kinds. The two new ones are Unvanquished's UPGRADE classes: the
+// same rigs wearing `body_adv.skin`, which is how that game ships them. Both are
+// RANGED, which is the point: every previous kind could be handled by backing
+// up, and these two cannot, so cover and repositioning start to matter and the
+// whole encounter re-weights around them.
+const KIND_COUNT = 7;
+const KIND_NAME  = ['DRETCH', 'MANTIS', 'MARAUDER', 'DRAGOON', 'TYRANT',
+                    'ADV MARAUDER', 'ADV DRAGOON'];
 const mdlAliens  = [
   loadModel('assets/models/enemy_dretch.glb'),
   loadModel('assets/models/enemy_mantis.glb'),
   loadModel('assets/models/enemy_marauder.glb'),
   loadModel('assets/models/enemy_dragoon.glb'),
   loadModel('assets/models/enemy_tyrant.glb'),
+  loadModel('assets/models/enemy_adv_marauder.glb'),
+  loadModel('assets/models/enemy_adv_dragoon.glb'),
 ];
 // One animation handle PER KIND is enough for a single-clip sampler, because
 // the caller passes the time explicitly on every call. It is NOT enough for the
@@ -985,6 +1002,8 @@ const ALIEN_GLB = [
   'assets/models/enemy_marauder.glb',
   'assets/models/enemy_dragoon.glb',
   'assets/models/enemy_tyrant.glb',
+  'assets/models/enemy_adv_marauder.glb',
+  'assets/models/enemy_adv_dragoon.glb',
 ];
 // Per-kind handle, kept only for the load-time joint lookups below.
 const animAliens = [
@@ -993,6 +1012,8 @@ const animAliens = [
   loadModelAnimation(ALIEN_GLB[2]),
   loadModelAnimation(ALIEN_GLB[3]),
   loadModelAnimation(ALIEN_GLB[4]),
+  loadModelAnimation(ALIEN_GLB[5]),
+  loadModelAnimation(ALIEN_GLB[6]),
 ];
 // Animation indices â€” IQE declaration order. Dretch (and most others):
 // 0 stand, 1 attack, 4 die, 14 run, 20 walk. We map gameplay -> anim idx.
@@ -1001,23 +1022,26 @@ const animAliens = [
 // [14,...]/[1,...] tables played run_right on the dragoon, pain2 on the
 // tyrant, and stand1 as the mantis "attack". Verified against each GLB's
 // animation list (tools/inspect-glb.ts).
-const ANIM_WALK_IDX   = [14, 18, 14, 12, 15];   // 'run'
-const ANIM_ATTACK_IDX = [ 1,  4,  1,  6,  1];   // 'attack'
-const ANIM_DIE_IDX    = [ 4,  7,  4,  7,  5];   // 'die'
+// The upgrade classes share their BASE class's rig and clip layout — that is
+// what makes them upgrades rather than new models — so adv marauder reuses the
+// marauder's indices (col 2) and adv dragoon the dragoon's (col 3).
+const ANIM_WALK_IDX   = [14, 18, 14, 12, 15, 14, 12];   // 'run'
+const ANIM_ATTACK_IDX = [ 1,  4,  1,  6,  1,  1,  6];   // 'attack'
+const ANIM_DIE_IDX    = [ 4,  7,  4,  7,  5,  4,  7];   // 'die'
 // SH-030 â€” pain clips, for the flinch state. The IQE sources carry them and the
 // converter extracts every clip; indices verified per GLB with
 // tools/inspect-glb.ts. Falls back to the attack clip's neighbour if a kind
 // turns out not to have one, which is harmless (a short twitch).
-const ANIM_PAIN_IDX   = [ 2,  5,  2,  8,  3];
+const ANIM_PAIN_IDX   = [ 2,  5,  2,  8,  3,  2,  8];
 // EN-028 upper-body mask root, so an alien can bite WHILE closing instead of
 // stopping to bite. -1 = no such joint, and the attack stays full-body (i.e.
 // exactly today's behaviour) rather than breaking.
 const KIND_SPINE_JOINT = new Array<number>(KIND_COUNT);
-const KIND_IDLE_IDX    = [ 0,  0,  0,  0,  0];
+const KIND_IDLE_IDX    = [ 0,  0,  0,  0,  0,  0,  0];
 // Die-anim durations (max keyframe time per GLB). The engine WRAPS anim
 // time (t % duration), so death playback clamps just short of these to
 // freeze on the final collapsed pose instead of re-looping the fall.
-const ANIM_DIE_DUR    = [1.55, 1.567, 0.883, 1.8, 2.567];
+const ANIM_DIE_DUR    = [1.55, 1.567, 0.883, 1.8, 2.567, 0.883, 1.8];
 // Procedural motion parameters (cheap substitute for skeletal animation).
 // Each enemy has a phase accumulator â€” sinusoids on top give a bob + side-
 // sway while walking, and a forward-lunge while attacking.
@@ -1033,22 +1057,50 @@ const ATTACK_LUNGE_AMP = 0.25; // m forward during attack
 // made the later kinds monstrous (dragoon 36 m!). Scales now target
 // world heights â‰ˆ 0.65 / 1.4 / 1.8 / 2.1 / 3.0 m. Colliders unchanged
 // (they were deliberately generous).
-const KIND_SCALE = [0.88, 0.55, 0.39, 0.14, 0.57];
-const KIND_HX    = [1.0, 0.9, 1.2, 1.4, 1.8];
-const KIND_HY    = [1.0, 1.0, 1.2, 1.5, 2.0];
-const KIND_HZ    = [1.1, 1.0, 1.3, 1.6, 2.0];
-const KIND_Y_OFF = [1.0, 1.0, 1.2, 1.5, 2.0];
-const KIND_SPEED = [3.0, 4.5, 3.5, 2.5, 2.2];
-const KIND_HP    = [3,   4,   6,   10,  20];
-const KIND_DMG   = [12,  10,  16,  22,  35];
-const KIND_CD    = [0.9, 0.7, 0.9, 1.1, 1.3];
-const KIND_MELEE = [2.0, 2.0, 2.3, 2.6, 3.0];
+//                 dretch mantis maraud dragoon tyrant  ADV.MAR  ADV.DRAGOON
+const KIND_SCALE = [0.88, 0.55, 0.39, 0.14, 0.57,  0.41,    0.15];
+const KIND_HX    = [1.0,  0.9,  1.2,  1.4,  1.8,   1.2,     1.4];
+const KIND_HY    = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5];
+const KIND_HZ    = [1.1,  1.0,  1.3,  1.6,  2.0,   1.3,     1.6];
+const KIND_Y_OFF = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5];
+const KIND_SPEED = [3.0,  4.5,  3.5,  2.5,  2.2,   4.0,     2.4];
+const KIND_HP    = [3,    4,    6,    10,   20,    8,       14];
+const KIND_DMG   = [12,   10,   16,   22,   35,    14,      20];
+const KIND_CD    = [0.9,  0.7,  0.9,  1.1,  1.3,   0.9,     1.1];
+const KIND_MELEE = [2.0,  2.0,  2.3,  2.6,  3.0,   2.3,     2.6];
 const DRETCH_HIT_FLASH = 0.18;
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };
-// Ichor colour per kind â€” drives the blood decal tint (SH-033).
-const KIND_BLOOD_R = [0.55, 0.50, 0.62, 0.70, 0.45];
-const KIND_BLOOD_G = [0.95, 0.85, 0.55, 0.35, 0.90];
-const KIND_BLOOD_B = [0.35, 0.95, 0.85, 0.75, 0.30];
+// Ichor colour per kind — drives the blood decal tint (SH-033).
+const KIND_BLOOD_R = [0.55, 0.50, 0.62, 0.70, 0.45, 0.62, 0.70];
+const KIND_BLOOD_G = [0.95, 0.85, 0.55, 0.35, 0.90, 0.55, 0.35];
+const KIND_BLOOD_B = [0.35, 0.95, 0.85, 0.75, 0.30, 0.85, 0.75];
+
+const K_ADV_MARAUDER = 5;
+const K_ADV_DRAGOON  = 6;
+
+// SH-042 — RANGED behaviour, shared by both upgrade classes.
+//
+// This is the addition that actually changes the game. Every kind before these
+// two closes to melee, so every one of them is answered by backing up and
+// holding the trigger. A ranged enemy is not: it HOLDS a band and shoots you
+// there, which means standing in the open stops being free and the building and
+// the treeline become cover rather than scenery.
+//
+// It also gives the arena a reason to have a shape.
+//   1 = adv marauder (fast, light, chip damage)
+//   0 = adv dragoon  (slow, tanky, hits hard — the barb spitter)
+const KIND_RANGED = [0, 0, 0, 0, 0, 1, 1];
+// Band each holds. Closer than MIN and it backs off; further than MAX and it
+// closes. Inside the band it strafes.
+const RANGED_MIN = [0, 0, 0, 0, 0, 10.0, 13.0];
+const RANGED_MAX = [0, 0, 0, 0, 0, 17.0, 22.0];
+const RANGED_CD  = [0, 0, 0, 0, 0,  2.2,  3.0];   // seconds between volleys
+const RANGED_SHOTS  = [0, 0, 0, 0, 0, 3, 1];      // rounds per volley
+const RANGED_DMG    = [0, 0, 0, 0, 0, 6, 16];
+const RANGED_SPEED  = [0, 0, 0, 0, 0, 30.0, 22.0];
+const RANGED_SPREAD = [0, 0, 0, 0, 0, 0.05, 0.02];   // radians
+// Telegraph: a rooted wind-up before the volley, so it can be dodged and read.
+const RANGED_WINDUP = [0, 0, 0, 0, 0, 0.35, 0.6];
 
 // Resolve the spine joint per kind, once, at load. findJoint parses a STRING â€”
 // which is fine here (load time) and forbidden per-frame (perry-quirks #5).
@@ -1094,7 +1146,7 @@ const STAGGER_WINDOW = 1.0;
 const STAGGER_FRAC   = 0.15;   // % of max HP inside the window to stagger
 const STAGGER_TIME   = 0.60;
 // Which kinds flinch on any hit (light) vs need the stagger meter (heavy).
-const KIND_LIGHT = [1, 1, 1, 0, 0];
+const KIND_LIGHT = [1, 1, 1, 0, 0, 1, 1];
 const enAIState  = new Array<number>(MAX_ENEMIES);
 const enStateT   = new Array<number>(MAX_ENEMIES);   // seconds left in state
 const enOrbitDir = new Array<number>(MAX_ENEMIES);   // Â±1 â€” circle/flank side
@@ -1113,6 +1165,10 @@ const enAnimClip   = new Array<number>(MAX_ENEMIES);
 const enAttackLayer = new Array<number>(MAX_ENEMIES);
 // Tyrant footstep cadence.
 const enStepPhase  = new Array<number>(MAX_ENEMIES);
+// SH-042 — ranged: volley cooldown, and how many rounds are left in the burst.
+const enRangedCD   = new Array<number>(MAX_ENEMIES);
+const enBurst      = new Array<number>(MAX_ENEMIES);
+const enBurstT     = new Array<number>(MAX_ENEMIES);
 // Last frame's steering velocity, so the draw pass can match animation playback
 // rate to actual ground speed (SH-034 â€” the foot-slide fix).
 const vxLast = new Array<number>(MAX_ENEMIES);
@@ -1148,6 +1204,9 @@ for (let k = 0; k < KIND_COUNT; k++) {
     enAnimClip[i] = -1;
     enAttackLayer[i] = 0;
     enStepPhase[i] = 0;
+    enRangedCD[i] = 0;
+    enBurst[i] = 0;
+    enBurstT[i] = 0;
     vxLast[i] = 0;
     vzLast[i] = 0;
     enBody[i] = createBody(physics, shape, {
@@ -1323,6 +1382,35 @@ const pCharge = new Array<number>(MAX_PROJ);
 for (let i = 0; i < MAX_PROJ; i++) { pLife[i] = 0; pWeapon[i] = 0; pCharge[i] = 0; }
 let projNext = 0;
 
+// SH-042 — ENEMY projectiles. Deliberately a separate pool from the player's:
+// they travel slower and they are DODGEABLE, which is the whole design. A
+// hitscan ranged enemy would just be an unavoidable damage tax; a slow visible
+// bolt is a thing you can sidestep, and that is what makes the new kinds a
+// skill check rather than a nuisance.
+const MAX_EPROJ = 24;
+const eX = new Array<number>(MAX_EPROJ);
+const eY = new Array<number>(MAX_EPROJ);
+const eZ = new Array<number>(MAX_EPROJ);
+const eVX = new Array<number>(MAX_EPROJ);
+const eVY = new Array<number>(MAX_EPROJ);
+const eVZ = new Array<number>(MAX_EPROJ);
+const eLife = new Array<number>(MAX_EPROJ);
+const eDmg = new Array<number>(MAX_EPROJ);
+const eKind = new Array<number>(MAX_EPROJ);
+for (let i = 0; i < MAX_EPROJ; i++) { eLife[i] = 0; eDmg[i] = 0; eKind[i] = 0; }
+let eprojNext = 0;
+
+function spawnEnemyProjectile(x: number, y: number, z: number,
+                              vx: number, vy: number, vz: number,
+                              dmg: number, kind: number): void {
+  eX[eprojNext] = x; eY[eprojNext] = y; eZ[eprojNext] = z;
+  eVX[eprojNext] = vx; eVY[eprojNext] = vy; eVZ[eprojNext] = vz;
+  eLife[eprojNext] = 3.0;
+  eDmg[eprojNext] = dmg;
+  eKind[eprojNext] = kind;
+  eprojNext = (eprojNext + 1) % MAX_EPROJ;
+}
+
 function spawnProjectile(x: number, y: number, z: number,
                          vx: number, vy: number, vz: number,
                          weapon: number, charge: number): void {
@@ -1389,6 +1477,7 @@ function resetRun(): void {
   waveBreakTimer = WAVE_BREAK_DELAY;
   spawnTimer = 0;
   for (let i = 0; i < MAX_PROJ; i++) pLife[i] = 0;
+  for (let i = 0; i < MAX_EPROJ; i++) eLife[i] = 0;
   for (let i = 0; i < PICKUP_COUNT; i++) { pickupActive[i] = 1; pickupRespawnT[i] = 0; }
   despawnAllEnemies();
   SCORE.resetScore();
@@ -2466,7 +2555,7 @@ while (!windowShouldClose()) {
             enStateT[i] = 1.5 + Math.random();       // pounce cooldown
           }
         }
-      } else {
+      } else if (k === 4) {
         // TYRANT â€” heading-locked momentum. Speed builds only while the
         // player sits near its nose; hard turns bleed it off, so a
         // sidestep leaves 3+ tons wheeling around for another pass.
@@ -2485,6 +2574,82 @@ while (!windowShouldClose()) {
           vz = hdZ * KIND_SPEED[k] * enSpeedMul[i];
         }
         faceX = hdX; faceZ = hdZ;
+      } else {
+        // SH-042 — RANGED (adv marauder, adv dragoon).
+        //
+        // Hold a band and shoot from it. Closer than MIN it backs off, further
+        // than MAX it closes, and inside the band it strafes — so it is always
+        // moving laterally, which is what makes it hard to hit without leading
+        // and what stops the fight from becoming a staring contest.
+        //
+        // The volley is TELEGRAPHED: a rooted wind-up first (the attack clip
+        // plays, the thing stops moving), then the rounds. Without that, ranged
+        // damage arrives with no tell and reads as unfair rather than as
+        // something you failed to dodge.
+        const lo = RANGED_MIN[k];
+        const hi = RANGED_MAX[k];
+        const spd = KIND_SPEED[k];
+
+        if (enRangedCD[i] > 0) enRangedCD[i] = enRangedCD[i] - dt;
+
+        if (enAIState[i] === AI_WINDUP) {
+          // Rooted telegraph — the dodge window.
+          if (enStateT[i] <= 0) {
+            enAIState[i] = AI_CHARGE;                 // reuse as "firing"
+            enBurst[i] = RANGED_SHOTS[k];
+            enBurstT[i] = 0;
+          }
+        } else if (enAIState[i] === AI_CHARGE) {
+          // Firing the volley — still rooted, so the burst has a cost.
+          enBurstT[i] = enBurstT[i] - dt;
+          if (enBurstT[i] <= 0 && enBurst[i] > 0) {
+            enBurst[i] = enBurst[i] - 1;
+            enBurstT[i] = 0.14;
+
+            const muzY = enY[i] + KIND_Y_OFF[k] * 0.8;
+            const tx = pp.x - enX[i];
+            const ty = (pp.y + 0.9) - muzY;
+            const tz = pp.z - enZ[i];
+            const tl = Math.sqrt(tx * tx + ty * ty + tz * tz);
+            const sp = RANGED_SPREAD[k];
+            const jx = (Math.random() * 2 - 1) * sp;
+            const jy = (Math.random() * 2 - 1) * sp;
+            const jz = (Math.random() * 2 - 1) * sp;
+            const vsp = RANGED_SPEED[k];
+            spawnEnemyProjectile(
+              enX[i], muzY, enZ[i],
+              (tx / tl + jx) * vsp, (ty / tl + jy) * vsp, (tz / tl + jz) * vsp,
+              RANGED_DMG[k], k);
+            playSound3D(sfxAlienAttack[k], enX[i], muzY, enZ[i]);
+            VFX.emitMuzzle(enX[i], muzY, enZ[i], tx / tl, ty / tl, tz / tl, 0, 0);
+          }
+          if (enBurst[i] <= 0) {
+            enAIState[i] = AI_RECOVER;
+            enStateT[i] = 0.5;
+            enRangedCD[i] = RANGED_CD[k];
+          }
+        } else {
+          // Reposition: hold the band, strafing.
+          let radial = 0;
+          if (dist > hi) radial = 1;          // too far — close
+          else if (dist < lo) radial = -1;    // too close — back off
+          const tangX = -toPZ * enOrbitDir[i];
+          const tangZ =  toPX * enOrbitDir[i];
+          vx = (toPX * radial + tangX * 0.85) * spd;
+          vz = (toPZ * radial + tangZ * 0.85) * spd;
+
+          if (enStateT[i] <= 0) {
+            // Occasionally reverse the strafe so it is not a predictable circle.
+            enOrbitDir[i] = -enOrbitDir[i];
+            enStateT[i] = 1.5 + Math.random() * 2.0;
+          }
+          // In the band, with a clear-ish line and off cooldown -> telegraph.
+          if (enRangedCD[i] <= 0 && dist >= lo * 0.8 && dist <= hi * 1.15) {
+            enAIState[i] = AI_WINDUP;
+            enStateT[i] = RANGED_WINDUP[k];
+            playSound3D(sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);   // hiss/tell
+          }
+        }
       }
 
       // Separation â€” pack members shoulder each other apart instead of
@@ -2538,8 +2703,11 @@ while (!windowShouldClose()) {
         enHeading[i] = turnToward(enHeading[i], wantYaw, 7.0 * dt);
       }
 
-      // Melee â€” hit-and-run kinds break off after connecting.
-      if (dist <= KIND_MELEE[k] && enAttackCD[i] <= 0 &&
+      // Melee — hit-and-run kinds break off after connecting. Ranged kinds do
+      // NOT melee: if they did, the right answer to them would be to walk up and
+      // hug them, which is exactly the play they exist to punish.
+      if (KIND_RANGED[k] === 0 &&
+          dist <= KIND_MELEE[k] && enAttackCD[i] <= 0 &&
           enAIState[i] !== AI_WINDUP && enAIState[i] !== AI_FLINCH) {
         playerHP = playerHP - KIND_DMG[k];
         damageFlashT = 0.5;
@@ -2676,17 +2844,19 @@ while (!windowShouldClose()) {
     // Two enemies dead ahead, respawned if killed, so there's always something
     // to shoot at and to bleed on the ground.
     if (testFrame === 30 || (testFrame > 30 && (testFrame % 240) === 0)) {
+      // The two NEW kinds (adv marauder, adv dragoon) — the ranged ones.
       for (let s = 0; s < 2; s++) {
-        const slot = s * BODIES_PER_KIND;          // dretch, mantis
+        const slot = (K_ADV_MARAUDER + s) * BODIES_PER_KIND;
         const k = enKind[slot];
-        enX[slot] = -3 + s * 6;
-        enZ[slot] = 14;
+        enX[slot] = -6 + s * 12;
+        enZ[slot] = 6;                             // in their ranged band
         enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
-        enHP[slot] = KIND_HP[k] * 6;               // tanky, so the fight lasts
+        enHP[slot] = KIND_HP[k] * 8;               // tanky, so the fight lasts
         enAlive[slot] = 1;
         enDying[slot] = 0;
         enAnimClip[slot] = -1;
-        enAttackCD[slot] = 999;                    // don't let them hit back
+        enAttackCD[slot] = 0;                      // let them SHOOT — that's the point
+        enRangedCD[slot] = 0.5;
         enHeading[slot] = Math.PI;
         setBodyPosition(enBody[slot],
           vec3(enX[slot], enY[slot] + KIND_Y_OFF[k], enZ[slot]), true);
@@ -2696,7 +2866,7 @@ while (!windowShouldClose()) {
     // isn't three-quarters reload animation.
     if (testFrame > 35) {
       CAM[0] = 0;
-      CAM[1] = 0.62;              // above the canopy, looking down at the fight
+      CAM[1] = 0.20;              // level-ish: see the ranged enemies downrange
       forceFire = true;
       WPN.addAmmo(WPN.currentWeapon(), 3);
     }
@@ -2903,6 +3073,78 @@ while (!windowShouldClose()) {
       pLife[i] = pLife[i] - dt;
     }
   }
+  // ---- SH-042: enemy projectiles ----------------------------------------
+  // Segment-raycast like the player's, so a fast bolt can't tunnel a wall — and
+  // so it can be BLOCKED by the world, which is what turns the building and the
+  // treeline into cover.
+  for (let i = 0; i < MAX_EPROJ; i++) {
+    if (eLife[i] <= 0) continue;
+    eVY[i] = eVY[i] - 3.0 * dt;            // slight droop: it reads as a lob
+    const ox = eX[i], oy = eY[i], oz = eZ[i];
+    const nx2 = ox + eVX[i] * dt;
+    const ny2 = oy + eVY[i] * dt;
+    const nz2 = oz + eVZ[i] * dt;
+    const sx2 = nx2 - ox, sy2 = ny2 - oy, sz2 = nz2 - oz;
+    const seg = Math.sqrt(sx2 * sx2 + sy2 * sy2 + sz2 * sz2);
+    const inv2 = seg > 0 ? 1 / seg : 0;
+
+    // Does it reach the player this step? Point-segment distance against the
+    // capsule, which is cheaper and fairer than raycasting at a moving target.
+    const ppE = playerPosition();
+    const rx = ppE.x - ox, ry = (ppE.y + 0.2) - oy, rz = ppE.z - oz;
+    const t = Math.max(0, Math.min(seg, rx * sx2 * inv2 + ry * sy2 * inv2 + rz * sz2 * inv2));
+    const cxp = ox + sx2 * inv2 * t, cyp = oy + sy2 * inv2 * t, czp = oz + sz2 * inv2 * t;
+    const dxp = ppE.x - cxp, dyp = (ppE.y + 0.2) - cyp, dzp = ppE.z - czp;
+    const hitPlayer = (dxp * dxp + dyp * dyp + dzp * dzp) < 0.55 * 0.55;
+
+    if (hitPlayer && playing) {
+      playerHP = playerHP - eDmg[i];
+      damageFlashT = 0.5;
+      FEEL.addTrauma(0.25);
+      FEEL.damageFlash(1);
+      MIX.duckMusicOnDamage();
+      gamepadRumble(0.45, 0.3, 0.15);
+      playSound3D(sfxImpactFlesh, cxp, cyp, czp);
+      VFX.emitImpactHard(cxp, cyp, czp, -sx2 * inv2, -sy2 * inv2, -sz2 * inv2,
+                         Math.random() * 6.28);
+      // Where did it come from? Same arc the melee hits drive.
+      const ang = Math.atan2(-sx2 * inv2, sz2 * inv2);
+      let rel2 = ang - CAM[0];
+      while (rel2 > Math.PI) rel2 = rel2 - Math.PI * 2;
+      while (rel2 < -Math.PI) rel2 = rel2 + Math.PI * 2;
+      lastHitAngle = rel2;
+      lastHitT = 1.4;
+      if (playerHP <= 0) {
+        playerHP = 0;
+        if (!gameOver) {
+          playSound(sfxPlayerDie[0]);
+          FEEL.addTrauma(1.0);
+          SCORE.commitRun(0);
+          SET.saveSettings();
+        }
+        gameOver = true;
+      } else {
+        playSound(sfxPlayerPain[i & 1]);
+      }
+      eLife[i] = 0;
+      continue;
+    }
+
+    const hitW = raycast(physics, vec3(ox, oy, oz),
+                         vec3(sx2 * inv2, sy2 * inv2, sz2 * inv2),
+                         seg, 1 << Layer.NON_MOVING);
+    if (hitW) {
+      const nw = hitW.normal;
+      VFX.emitImpactHard(hitW.point.x, hitW.point.y, hitW.point.z,
+                         nw.x, nw.y, nw.z, Math.random() * 6.28);
+      eLife[i] = 0;
+      continue;
+    }
+
+    eX[i] = nx2; eY[i] = ny2; eZ[i] = nz2;
+    eLife[i] = eLife[i] - dt;
+  }
+
   if (muzzleFlashT > 0) muzzleFlashT = muzzleFlashT - dt;
   if (damageFlashT > 0) damageFlashT = damageFlashT - dt;
   if (lastHitT > 0) lastHitT = lastHitT - dtReal;
@@ -3299,7 +3541,24 @@ while (!windowShouldClose()) {
       }
     }
   }
-  // SH-033 â€” particles + decals. One update + one instanced draw per system,
+  // SH-042 — enemy bolts. Hot acid-green / violet so they read as INCOMING at a
+  // glance and stay distinct from the player's cool-cyan blaster plasma: in a
+  // crowded frame you have to be able to tell whose shot is whose.
+  for (let i = 0; i < MAX_EPROJ; i++) {
+    if (eLife[i] <= 0) continue;
+    const adv = eKind[i] === K_ADV_DRAGOON;
+    if (matMuzzleFlash > 0) {
+      const col = adv
+        ? { r: 200, g: 120, b: 255, a: 255 }    // dragoon barb — violet
+        : { r: 150, g: 255, b: 120, a: 255 };   // marauder zap — acid green
+      drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+        vec3(eX[i], eY[i], eZ[i]), adv ? 0.34 : 0.24, col);
+    }
+    addPointLight(eX[i], eY[i], eZ[i], 4,
+      adv ? 0.7 : 0.5, adv ? 0.4 : 1.0, adv ? 1.0 : 0.4, 1.6);
+  }
+
+  // SH-033 — particles + decals. One update + one instanced draw per system,
   // last in the 3D pass so the additive particles composite over everything and
   // the depth-tested decals have a full depth buffer to fade against.
   VFX.updateAndDrawVfx(dtReal);
@@ -3680,4 +3939,6 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
 

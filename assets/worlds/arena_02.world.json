@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "name": "Arena 02 — Outdoor plaza",
+  "name": "Arena 02 \u00e2\u20ac\u201d Outdoor plaza",
   "id": "arena_02",
   "bounds": {
     "min": [
@@ -17608,7 +17608,7 @@
       ],
       "userData": {
         "kind": "wave_config",
-        "waves": "[{\"count\":4,\"enemy\":\"dretch,dretch,mantis,dretch\"},{\"count\":7,\"enemy\":\"mantis,dretch,marauder,mantis,dretch,marauder,mantis\"},{\"count\":11,\"enemy\":\"marauder,dragoon,mantis,marauder,dragoon,dretch,marauder,mantis,dragoon,marauder,tyrant\"}]"
+        "waves": "[{\"count\": 4, \"enemy\": \"dretch,dretch,mantis,dretch\"}, {\"count\": 7, \"enemy\": \"mantis,dretch,marauder,adv_marauder,mantis,dretch,marauder\"}, {\"count\": 11, \"enemy\": \"marauder,adv_marauder,dragoon,adv_dragoon,mantis,adv_marauder,marauder,dragoon,dretch,adv_dragoon,tyrant\"}]"
       }
     },
     {

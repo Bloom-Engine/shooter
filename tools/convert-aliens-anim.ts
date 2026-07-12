@@ -25,15 +25,40 @@ const OUT_DIR  = 'assets/models';
 const CACHE    = 'tools/.cache';
 const MAX_INFLUENCES = 4;
 
-interface AlienSpec { name: string; dir: string }
+/// `skin` selects one of the class's `.skin` files, which remap the IQE's
+/// per-submesh materials onto a different texture set. That is how Unvanquished
+/// ships its UPGRADE classes: the advanced marauder is the level2 rig wearing
+/// `body_adv.skin` (its own `level2_adv_*` textures), not a separate model. So
+/// two new enemies cost two rows here and no new art.
+interface AlienSpec { name: string; dir: string; skin?: string }
 const ALIENS: AlienSpec[] = [
-  { name: 'enemy_dretch',   dir: 'level0' },
-  { name: 'enemy_mantis',   dir: 'level1' },
-  { name: 'enemy_marauder', dir: 'level2' },
-  { name: 'enemy_dragoon',  dir: 'level3' },
-  { name: 'enemy_tyrant',   dir: 'level4' },
-  { name: 'player_bsuit',   dir: 'human_bsuit' },   // 3rd-person player model
+  { name: 'enemy_dretch',       dir: 'level0' },
+  { name: 'enemy_mantis',       dir: 'level1' },
+  { name: 'enemy_marauder',     dir: 'level2' },
+  { name: 'enemy_dragoon',      dir: 'level3' },
+  { name: 'enemy_tyrant',       dir: 'level4' },
+  // SH-042 — the two upgrade classes.
+  { name: 'enemy_adv_marauder', dir: 'level2', skin: 'body_adv.skin' },
+  { name: 'enemy_adv_dragoon',  dir: 'level3', skin: 'body_adv.skin' },
+  { name: 'player_bsuit',       dir: 'human_bsuit' },   // 3rd-person player model
 ];
+
+/// Parse a `.skin` file: lines of `submeshIndex,models/players/<class>/<tex>`.
+/// Returns index -> texture basename. Whitespace is inconsistent across the
+/// source files (level3's has a space after the comma), hence the trims.
+function parseSkin(path: string): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const raw of readFileSync(path, 'utf8').split('\n')) {
+    const line = raw.trim();
+    if (line.length === 0 || line.startsWith('//')) continue;
+    const comma = line.indexOf(',');
+    if (comma < 0) continue;
+    const idx = parseInt(line.slice(0, comma).trim(), 10);
+    const tex = line.slice(comma + 1).trim();
+    if (!Number.isNaN(idx) && tex.length > 0) out.set(idx, tex);
+  }
+  return out;
+}
 
 // ===========================================================================
 // IQE parsing
@@ -622,12 +647,35 @@ for (let i = 0; i < ALIENS.length; i++) {
               ' anims:', parsed.anims.length);
 
   const iqeDir = dirname(iqePath);
+
+  // SH-042 — an upgrade class is the base rig wearing a different skin, so the
+  // submesh -> texture mapping comes from the .skin file rather than from the
+  // IQE's own material names.
+  let skinMap: Map<number, string> | null = null;
+  if (a.skin) {
+    const skinPath = iqeDir + '/' + a.skin;
+    if (!existsSync(skinPath)) {
+      console.warn('  [skip] skin not found:', skinPath);
+      continue;
+    }
+    skinMap = parseSkin(skinPath);
+    // NB: `.map(basename)` would pass the array index as basename's `ext` arg.
+    console.log('  skin:', a.skin, '->',
+                [...skinMap.values()].map((t) => basename(t)).join(', '));
+  }
+
   const mats: { material: string; imgBytes: Uint8Array }[] = [];
   for (let s = 0; s < parsed.subs.length; s++) {
     const sub = parsed.subs[s];
     if (mats.some(m => m.material === sub.material)) continue;
-    const texSrc = resolveTexture(iqeDir, sub.material);
-    const cachePath = CACHE + '/' + a.name + '_' + basename(sub.material) + '.png';
+    // The skin remaps by SUBMESH INDEX. Fall back to the IQE's own material
+    // name when a skin has no entry for this submesh (level3's adv skin only
+    // lists one of the two).
+    const wanted = skinMap !== null && skinMap.has(s)
+      ? (skinMap.get(s) as string)
+      : sub.material;
+    const texSrc = resolveTexture(iqeDir, wanted);
+    const cachePath = CACHE + '/' + a.name + '_' + basename(wanted) + '.png';
     mats.push({ material: sub.material, imgBytes: resizeTexture(texSrc, cachePath) });
   }
 

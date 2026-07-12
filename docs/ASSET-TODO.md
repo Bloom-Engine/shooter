@@ -33,8 +33,8 @@ today, it just sounds/looks better once you replace them.
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| M1 | Weapon models (rifle, blaster, chaingun, lucifer cannon) | 🟡 | **Done procedurally** — `tools/build-weapons.ts` generates 4 GLBs with real silhouettes and documented muzzle points, and the game rides the skeleton's `tag_weapon` socket. The cubes are gone. Replacing them with the Unvanquished originals needs the `res-weapons_src.dpkdir` submodule (D1); the converter pattern already exists. |
-| M2 | New enemy kinds: basilisk + advanced marauder | 🔵 | **Blocked on D1.** `tools/convert-aliens-anim.ts` already handles the format; it is a matter of running it with the two extra source paths once the vendor clone exists. The ranged marauder in particular would re-weight every arena — it is the single biggest gameplay addition still on the table. |
+| M1 | Weapon models (rifle, blaster, chaingun, lucifer cannon) | ✅ | **Real Unvanquished art.** `tools/convert-weapons.ts` (new) converts the MD3 third-person meshes with their textures. NB `<weapon>_hand.md3` is a trap — it parses fine and has zero surfaces, because it is a tag-only attachment model; the mesh is `tpweapon.md3` (and `chaingun_thirdperson.md3` for the odd one out). |
+| M2 | Two new enemy kinds | ✅ | **Advanced marauder + advanced dragoon** — Unvanquished's upgrade classes, which are the base rigs wearing `body_adv.skin`. `convert-aliens-anim.ts` now honours `.skin` files, so they cost two table rows and no new art. Both are RANGED, which is the point (see SH-042). |
 
 ## Textures
 
@@ -48,7 +48,7 @@ today, it just sounds/looks better once you replace them.
 
 | # | Question | Why it needs you |
 |---|---|---|
-| D1 | Clone the `vendor/unvanquished` submodules on this box? | Unblocks M2 (2 new enemy kinds, including the first *ranged* enemy) and upgrades M1 to the real weapon art. It is a multi-GB clone, so I did not pull it unasked. Commands are in `README.md`. |
+| ~~D1~~ | ~~Clone the `vendor/unvanquished` submodules?~~ | ✅ **Done.** Shallow-cloned the superproject and initialised only `res-players`, `res-weapons`, `res-legacy` (skipping the maps): ~1.1 GB, and `vendor/` is gitignored so none of it enters the repo. This unblocked M1 and M2. |
 | D2 | Ship target: 60 fps at 4K, or 60 fps at 1440p? | The 4K TSR+composite tail is ~5.4 ms of fixed cost. Combat currently sits at ~32 fps at 4K on the 760M iGPU; the VFX round did not measurably move it. This is still the last lever. |
 | D3 | Is GPLv3 still the licence you want? | Only binding while Unvanquished assets ship. If the procedural stand-ins ever fully replace them, the project could relicense. |
 

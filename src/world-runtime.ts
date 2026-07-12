@@ -366,7 +366,11 @@ for (let i = 0; i < PICKUP_COUNT; i++) {
 // where `enemy` may be a comma-separated sequence so one wave can mix kinds.
 // Expanded here into two flat arrays, once, so the wave director never parses.
 
-const ENEMY_KIND_NAMES = ['dretch', 'mantis', 'marauder', 'dragoon', 'tyrant'];
+// SH-042 — order IS the kind index (main.ts's KIND_NAME / KIND_* tables index
+// by it). The last two are Unvanquished's upgrade classes, and they are the
+// game's only RANGED enemies.
+const ENEMY_KIND_NAMES = ['dretch', 'mantis', 'marauder', 'dragoon', 'tyrant',
+                          'adv_marauder', 'adv_dragoon'];
 
 const waveEnts = bucket('wave_config');
 let planCount = 0;
