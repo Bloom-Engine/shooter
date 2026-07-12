@@ -22,49 +22,18 @@ today, it just sounds/looks better once you replace them.
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| A1 | Footstep SFX — grass ×4, dirt ×4, stone ×4 | 🔵 | Sonniss GDC bundle (already a documented source in `assets/sounds/SOURCES.md`) has these. Drop as `assets/sounds/step_grass1..4.wav` etc. Code (SH-003) already looks for exactly these names and falls back silently. |
-| A2 | Weapon tail layers — rifle, blaster, chaingun, cannon | 🔵 | The "crack-BOOM" body+tail split (SH-035). Name them `<weapon>_tail.wav`; the mixer routes them to the reverb send automatically. |
-| A3 | Wind / leaf-rustle ambience loop (10–20 s, CC0) | 🔵 | freesound.org / Sonniss. `assets/sounds/ambient_wind.wav`. SH-001 wires volume to `wind.amp` the moment it exists. |
-| A4 | Music stems: calm + combat loops, and 3 stingers (wave-clear, death, victory) | 🔵 | SH-036 crossfades two stems. Today it reuses `game.wav` for both, so the intensity system is inert until real stems land. |
-| A5 | Reload SFX (start/finish) per weapon | 🔵 | `rifle_reload_start.wav` / `_finish.wav`. |
-| A6 | UI click / hover SFX | 🔵 | Menus (SH-038) are silent without them. |
+| A1 | Footstep SFX — grass ×4, dirt ×4, heavy ×1 | 🟡 | **Synthesised stand-ins shipped** (`bun tools/gen-sfx.ts`). A step is an *impact* plus a *scuff*: grass is nearly all scuff (bright, grainy), dirt is mostly impact (low thud + grit), the tyrant footfall is a 48 Hz body with debris on top. They are audible and they sit right in the mix — but they are synthesis, not recordings. Replace with the Sonniss GDC bundle (a documented source in `SOURCES.md`) as a straight file drop: same names, no code change. |
+| A2 | Weapon tail layers — rifle, blaster, chaingun, cannon | 🟡 | **Synthesised stand-ins shipped.** The "BOOM" half of crack-BOOM: band-limited decaying noise + a low body, routed to the reverb send by the mixer. Cannon runs 2.4 s and is still audible when the next shot lands. Real recordings would be better; the *system* is no longer silent. |
+| A3 | Wind / leaf-rustle ambience loop | 🟡 | **Synthesised stand-in shipped** (16 s, seamless — the tail is cross-faded over the head). SH-001 is now wired: three 3D sources placed on the forest's own centroids (computed from the world file, so moving the trees in the editor moves the sound), volume from distance **and from the live wind amplitude**, so the rustle swells with the same vector that bends the grass. |
+| A4 | Music stems: calm + combat loops, and 3 stingers | 🔵 | **The one thing I can't fake.** Everything else here I could synthesise; music I cannot. SH-036's crossfade is live but inert — it reuses `ambient.ogg` for both intensities, so clearing a wave changes nothing you can hear. This is the highest-value item left on this list. |
+| A5 | Reload SFX (start / finish) | 🟡 | **Synthesised stand-ins shipped** — noise clack + two metallic partials; start is lower (mag out), finish is higher and harder (seated). |
+| A6 | UI click / hover SFX | 🟡 | **Synthesised stand-ins shipped** — soft sine blips. Kept deliberately dull: they fire on every menu move, and anything with a sharp transient becomes torture inside a minute. |
 
-## Models
-
-| # | Item | Status | Notes |
-|---|---|---|---|
-| M1 | Weapon models (rifle, blaster, chaingun, lucifer cannon) | ✅ | **Real Unvanquished art.** `tools/convert-weapons.ts` (new) converts the MD3 third-person meshes with their textures. NB `<weapon>_hand.md3` is a trap — it parses fine and has zero surfaces, because it is a tag-only attachment model; the mesh is `tpweapon.md3` (and `chaingun_thirdperson.md3` for the odd one out). |
-| M2 | Two new enemy kinds | ✅ | **Advanced marauder + advanced dragoon** — Unvanquished's upgrade classes, which are the base rigs wearing `body_adv.skin`. `convert-aliens-anim.ts` now honours `.skin` files, so they cost two table rows and no new art. Both are RANGED, which is the point (see SH-042). |
-
-## Textures
-
-| # | Item | Status | Notes |
-|---|---|---|---|
-| T1 | 4× terrain PBR sets (grass_lush / grass_dry / dirt / rock_cliff), 1024² tileable, CC0 | 🔵 | SH-009, not started. `forrest_ground_01` is already vendored. The engine side is ready: `createTextureArrayFromFiles()` now exists precisely for this. |
-| T2 | Particle textures (smoke, spark, droplet, flash, dust, shell) | 🟡 | **Generated procedurally** (`tools/build-vfx-textures.ts`) as one PNG per effect — they are texture-array *layers*, not an atlas, so there is no UV math and no bleed. Hand-authored or photographic art is a drop-in file swap. |
-| T3 | Decal textures (bullet hole, scorch, blood splat, crater) | 🟡 | Same. The splat in particular would benefit from real art. |
-
-## Decisions for you
-
-| # | Question | Why it needs you |
-|---|---|---|
-| ~~D1~~ | ~~Clone the `vendor/unvanquished` submodules?~~ | ✅ **Done.** Shallow-cloned the superproject and initialised only `res-players`, `res-weapons`, `res-legacy` (skipping the maps): ~1.1 GB, and `vendor/` is gitignored so none of it enters the repo. This unblocked M1 and M2. |
-| D2 | Ship target: 60 fps at 4K, or 60 fps at 1440p? | The 4K TSR+composite tail is ~5.4 ms of fixed cost. Combat currently sits at ~32 fps at 4K on the 760M iGPU; the VFX round did not measurably move it. This is still the last lever. |
-| D3 | Is GPLv3 still the licence you want? | Only binding while Unvanquished assets ship. If the procedural stand-ins ever fully replace them, the project could relicense. |
-
----
-
-## What is NOT blocked on you
-
-For completeness, the things still open that are purely software and need no
-asset — i.e. what I would pick up next:
-
-- **EN-025 ragdolls + SH-031** — Jolt already ships the solver; it has no FFI.
-  This is the biggest remaining *feel* item.
-- **SH-040 level select** — `world-runtime.ts` still hardcodes `arena_02`.
-  Un-hardcoding it is small; authoring 2 more arenas in the editor is the work.
-- **SH-009 splat terrain** — the last big pure-visual gap. Engine is ready.
-- **EN-038** — `takeScreenshot()` does nothing on Windows, so every
-  screenshot-based harness has been silently capturing nothing.
-- **SH-025** — `main.ts` is still ~3,800 lines. The new systems went into their
-  own modules, but the loop itself has not been split.
+> **What "synthesised stand-in" means here.** `tools/gen-sfx.ts` generates these
+> from noise, filters and decaying sines — deterministically, so re-running it
+> reproduces byte-identical files instead of a fresh set of near-misses in every
+> diff. They exist because the *code* for footsteps, tails, reload and UI sound had
+> been shipped and silent for weeks: `optional()` probed for a file, found nothing,
+> and fell back to no sound. A system that looks done and makes no noise is the
+> worst state for a feature to sit in. These make it audible today and cost nothing
+> to replace tomorrow.

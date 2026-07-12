@@ -57,6 +57,23 @@ let sfxUiSelect: Sound = NO_SOUND;
 // Weapon tails, indexed by weapon id (see weapons.ts).
 const weaponTail = new Array<Sound>(4);
 
+// SH-001 — wind-coupled ambience. The grass, the canopies and the cloud deck all
+// move on the same wind vector; the audio was a static loop. This ties a 3D
+// leaf-rustle bed to the forest itself, and its volume to the wind that is
+// bending it.
+//
+// playSound3D is fire-and-forget (no loop flag), so each source retriggers on a
+// timer slightly SHORTER than the clip — a gap between repeats is audible, an
+// overlap is not.
+const WIND_SOURCES  = 3;
+const WIND_CLIP_LEN = 16.0;
+const WIND_RETRIG   = 15.2;
+const windSrcX = new Array<number>(WIND_SOURCES);
+const windSrcZ = new Array<number>(WIND_SOURCES);
+const windSrcT = new Array<number>(WIND_SOURCES);
+let sfxWind: Sound = NO_SOUND;
+let windAmpRef = 0.10;   // the setWind() amplitude this bed was balanced against
+
 //   0 stride accumulator  1 last surface  2 reverb wet (current)
 //   3 music intensity (0 calm, 1 combat)  4 intensity blend
 const S = [0, 0, 0, 0, 0];
@@ -73,6 +90,8 @@ export function initAudioMix(): void {
   sfxReloadEnd   = optional('assets/sounds/reload_end.wav',   0.45, BUS_SFX, 0.1);
   sfxUiMove      = optional('assets/sounds/ui_move.wav',   0.35, BUS_UI, 0);
   sfxUiSelect    = optional('assets/sounds/ui_select.wav', 0.45, BUS_UI, 0);
+
+  sfxWind = optional('assets/sounds/ambient_wind.wav', 0.55, BUS_SFX, 0.25);
 
   weaponTail[0] = optional('assets/sounds/rifle_tail.wav',   0.5, BUS_SFX, 1.0);
   weaponTail[1] = optional('assets/sounds/blaster_tail.wav', 0.5, BUS_SFX, 1.0);
@@ -196,3 +215,73 @@ export function updateMusicIntensity(dt: number, enemiesAlive: number, waveActiv
 }
 
 export function musicIntensity(): number { return S[4]; }
+
+
+/// SH-001 — place the leaf-rustle bed on the forest.
+///
+/// Takes the tree positions and reduces them to a few centroids rather than one
+/// emitter per tree: 88 looping 3D voices would be absurd, and the ear cannot
+/// localise a rustle that precisely anyway. Sources are seeded by splitting the
+/// forest on its own bounding box, so they land where the trees actually are
+/// instead of on a hardcoded rectangle — move the forest in the editor and the
+/// sound moves with it.
+export function initWindAmbience(
+  xs: number[], zs: number[], n: number, windAmp: number,
+): void {
+  windAmpRef = windAmp > 1e-4 ? windAmp : 0.10;
+  if (n <= 0) {
+    for (let i = 0; i < WIND_SOURCES; i++) { windSrcX[i] = 0; windSrcZ[i] = 0; windSrcT[i] = 1e9; }
+    return;
+  }
+  // Bucket the trees into WIND_SOURCES bands along their long axis, and take the
+  // mean of each band. Cheap, stable, and it tracks the shape of the treeline.
+  let minX = xs[0]; let maxX = xs[0]; let minZ = zs[0]; let maxZ = zs[0];
+  for (let i = 1; i < n; i++) {
+    if (xs[i] < minX) minX = xs[i];
+    if (xs[i] > maxX) maxX = xs[i];
+    if (zs[i] < minZ) minZ = zs[i];
+    if (zs[i] > maxZ) maxZ = zs[i];
+  }
+  const alongX = (maxX - minX) >= (maxZ - minZ);
+  const lo = alongX ? minX : minZ;
+  const hi = alongX ? maxX : maxZ;
+  const span = Math.max(1e-3, hi - lo);
+  for (let b = 0; b < WIND_SOURCES; b++) {
+    let sx = 0; let sz = 0; let c = 0;
+    for (let i = 0; i < n; i++) {
+      const v = alongX ? xs[i] : zs[i];
+      const band = Math.min(WIND_SOURCES - 1, Math.floor(((v - lo) / span) * WIND_SOURCES));
+      if (band !== b) continue;
+      sx += xs[i]; sz += zs[i]; c++;
+    }
+    windSrcX[b] = c > 0 ? sx / c : (minX + maxX) * 0.5;
+    windSrcZ[b] = c > 0 ? sz / c : (minZ + maxZ) * 0.5;
+    // Stagger the retrigger timers so the three sources never restart together —
+    // that would land as one audible "breath" across the whole treeline.
+    windSrcT[b] = (b * WIND_CLIP_LEN) / WIND_SOURCES;
+  }
+}
+
+/// Per-frame: retrigger each forest source, with volume from distance and from
+/// the CURRENT wind amplitude. Crank setWind()'s amplitude and the trees lean
+/// harder and the rustle swells with them.
+export function updateWindAmbience(
+  dt: number, px: number, pz: number, windAmp: number,
+): void {
+  if (sfxWind.handle === 0) return;
+  const amp = windAmp / windAmpRef;
+  for (let i = 0; i < WIND_SOURCES; i++) {
+    windSrcT[i] -= dt;
+    if (windSrcT[i] > 0) continue;
+    windSrcT[i] = WIND_RETRIG;
+    const dx = px - windSrcX[i];
+    const dz = pz - windSrcZ[i];
+    const d = Math.sqrt(dx * dx + dz * dz);
+    // The ticket's falloff: full near the trees, gone by 40 m in the open field.
+    let near = (40.0 - d) / 15.0;
+    if (near > 1) near = 1;
+    if (near <= 0.02) continue;
+    setSoundVolume(sfxWind, 0.55 * amp * near);
+    playSound3D(sfxWind, windSrcX[i], 3.0, windSrcZ[i]);
+  }
+}

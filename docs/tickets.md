@@ -25,7 +25,7 @@ or a design decision
 |---|---|---|---|
 | 0 | Architecture | SH-025, SH-005, SH-026 | ✅ **CLOSED** — enemy system extracted to `src/enemies.ts` |
 | 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped, incl. SH-031 ragdolls (EN-025) |
-| 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
+| 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ SH-001/003/035 shipped (synthesised stand-ins); SH-036 needs real music stems |
 | 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select and SH-042 (4 weapons + 7 enemy kinds, 2 of them RANGED) |
 | 4 | Visual backlog | ✅ **CLOSED** — SH-007/009/010/011/013/014/020 shipped; SH-023/024 won't-do (reasoned) | splat terrain, coherent cloud deck (EN-040), hierarchical foliage wind (EN-041), 40k grass |
 | 5 | Production tooling | SH-044 ✅ + editor PLAN items ⏳ | ✅ asset ingest scripted + cross-platform; editor items are in `../editor` |
@@ -184,7 +184,7 @@ harness still runs when its flag is flipped.
 
 ---
 
-## SH-005 — Inline WGSL fallback strings auto-generated 🟢 *(kept; scope grown)*
+## SH-005 — Inline WGSL fallback strings auto-generated ✅ *(shipped — materials load from `assets/materials/*.wgsl`; no inline WGSL left in game source)*
 
 **Why:** `main.ts` carries inline copies of **three** shaders now —
 `GRASS_INSTANCED_WGSL`, the ~130-line water WGSL, and the glass WGSL
@@ -203,7 +203,7 @@ strings remain in game source.
 
 ---
 
-## SH-026 — Dead-weight sweep 🟢
+## SH-026 — Dead-weight sweep ✅ *(shipped; `tree.wgsl` also removed with SH-007)*
 
 **Why:** the repo ships things the game never uses, and the loop
 carries scaffolding.
@@ -232,7 +232,7 @@ is what makes 30 seconds of footage read as AAA.
 
 ---
 
-## SH-027 — Real weapon models 🔴 *(asset conversion; v2 gated on EN-033)*
+## SH-027 — Real weapon models ✅ *(shipped — Unvanquished MD3 → glTF; v2 hand-bone attach still gated on EN-033)*
 
 **Why:** both weapons are **grey `drawCube` primitives**
 (`main.ts:2795-2836`). This is the single most visible "placeholder"
@@ -263,7 +263,7 @@ documented in README).
 
 ---
 
-## SH-028 — Weapon mechanics: reload, spread, recoil, aim 🟢
+## SH-028 — Weapon mechanics: reload, spread, recoil, aim ✅ *(shipped — `src/weapons.ts`)*
 
 **Why:** `R` refills the mag instantly, the rifle raycast is
 pixel-perfect down camera-forward with zero spread
@@ -297,7 +297,7 @@ gun; all tunables live in the stat table.
 
 ---
 
-## SH-029 — Camera & screen feedback 🟢
+## SH-029 — Camera & screen feedback ✅ *(shipped — `src/feel.ts`: trauma shake, hit-stop, flinch)*
 
 **Why:** no camera shake, no FOV kick, no damage flinch, no hit-stop
 anywhere — fixed FOV 70 and a red edge vignette are the entire
@@ -328,7 +328,7 @@ sliders; motion-sensitive players can zero the shake.
 
 ---
 
-## SH-030 — Enemy hit reactions 🟢 *(polish pass gated on EN-028)*
+## SH-030 — Enemy hit reactions ✅ *(shipped — flinch + stagger meter; EN-028 crossfades landed)*
 
 **Why:** shooting an enemy produces only a 0.18 s red tint flash
 (`main.ts:2876-2882`). No flinch, no stagger — damage feedback is the
@@ -399,7 +399,7 @@ through the heightfield; frame cost < 0.5 ms with 4 active ragdolls.
 
 ---
 
-## SH-032 — Movement expansion: sprint + dodge 🟢 *(absorbs SH-008)*
+## SH-032 — Movement expansion: sprint + dodge ✅ *(shipped — `src/player.ts`)*
 
 **Why:** the player walks at one speed and jumps. Enemy AI (mantis
 darts, dragoon pounces) is already more mobile than the player —
@@ -422,7 +422,7 @@ readable on the HUD.
 
 ---
 
-## SH-033 — Combat VFX suite 🟡 *(gated on EN-026 particles + EN-027 decals; absorbs SH-006)*
+## SH-033 — Combat VFX suite ✅ *(shipped — EN-026 particles + EN-027 decals landed; `src/vfx.ts`)*
 
 **Why:** the game has a 16-slot spark pool and a muzzle puff — no
 blood, no tracers, no shells, no impact variety, no dust, and the
@@ -461,7 +461,7 @@ sizes.
 
 ---
 
-## SH-034 — Locomotion & animation blending 🟡 *(part gated on EN-028)*
+## SH-034 — Locomotion & animation blending ✅ *(shipped — EN-028 mixer landed: crossfades, upper-body attack mask, speed-synced walk)*
 
 **Why:** every animation change is a hard swap; enemies play walk at
 a fixed rate regardless of actual velocity (foot-sliding); the player
@@ -493,7 +493,7 @@ pounce trajectory matches its authored animation.
 
 ---
 
-## SH-003 — Footstep audio (positional) 🔴 *(kept; extended)*
+## SH-003 — Footstep audio (positional) ✅ *(shipped 2026-07-12 — synthesised stand-ins; see ASSET-TODO A1)*
 
 **Why:** motion is silent except water wading. Footsteps are the
 cheapest presence signal in games.
@@ -518,7 +518,7 @@ audio sources).
 
 ---
 
-## SH-001 — Wind-coupled ambient audio 🔴 *(kept)*
+## SH-001 — Wind-coupled ambient audio ✅ *(shipped 2026-07-12 — 3 forest-centroid sources, volume from the live wind amplitude)*
 
 **Why:** grass, canopies, and cloud shadows all move on the wind UBO;
 audio is a static loop. A 3D leaf-rustle bed scaled by `wind.amp`
@@ -535,7 +535,7 @@ when `wind.amp` is cranked.
 
 ---
 
-## SH-035 — Weapon audio & mix depth 🟡 *(gated on EN-029)*
+## SH-035 — Weapon audio & mix depth ✅ *(code shipped — EN-029 buses/reverb/ducking landed; layered tails still asset-blocked)*
 
 **Why:** weapon shots are single one-shot samples on a flat mix. The
 "crack-BOOM" that makes AAA guns feel powerful is a close-mic body
@@ -562,7 +562,7 @@ damage audibly ducks the music; no render-thread glitches.
 
 ---
 
-## SH-036 — Dynamic music intensity 🔴
+## SH-036 — Dynamic music intensity 🔴 *(code live; genuinely blocked on real music — the ONE asset I could not synthesise. ASSET-TODO A4)*
 
 **Why:** one looping combat track from the first frame to the last
 flattens the pacing the wave director already creates.
@@ -593,7 +593,7 @@ SH-041/SH-042 fill them.
 
 ---
 
-## SH-037 — Settings & persistence foundation 🟢
+## SH-037 — Settings & persistence foundation ✅ *(shipped — `src/settings.ts`)*
 
 **Why:** nothing persists — no settings, no saves, every tunable is a
 compile-time constant. Every later ticket (menus, gamepad, meta
@@ -617,7 +617,7 @@ the file — clean defaults; no per-frame file or parse work.
 
 ---
 
-## SH-038 — Front-end, pause & settings menus 🟡 *(gated on EN-030; IM interim possible)*
+## SH-038 — Front-end, pause & settings menus ✅ *(shipped — `src/menu.ts`)*
 
 **Why:** there is no pause, no settings UI, and the title screen is
 "press anything." Two states exist in the whole game
@@ -649,7 +649,7 @@ input methods; dying no longer dead-ends into a keyboard-only prompt.
 
 ---
 
-## SH-039 — Gamepad support 🟡 *(gated on EN-031 verification)*
+## SH-039 — Gamepad support ✅ *(shipped — EN-031: XInput polling was already wired; rumble added)*
 
 **Why:** input is keyboard/mouse + touch only. The engine FFI surface
 already exists (`bloom_is_gamepad_available`, `bloom_get_gamepad_axis`,
@@ -676,7 +676,7 @@ touching the keyboard, on Windows and iPhone (BT controller).
 
 ---
 
-## SH-040 — Level pipeline & selection 🟢
+## SH-040 — Level pipeline & selection ✅ *(shipped — arena manifest + level select)*
 
 **Why:** `world-runtime.ts:23` hardcodes `arena_02`; `arena_01` is a
 stale 8-entity v1 file; there is no way to ship more than one level.
@@ -703,7 +703,7 @@ requires zero game-code changes — world file + manifest entry only.
 
 ---
 
-## SH-041 — Meta loop: scoring, report, unlocks 🟢
+## SH-041 — Meta loop: scoring, report, unlocks ✅ *(shipped — `src/score.ts`)*
 
 **Why:** win/lose → restart with no numbers is a tech-demo loop.
 Score pressure is the cheapest replayability system for an arena
@@ -727,7 +727,7 @@ unlock gate works end-to-end.
 
 ---
 
-## SH-042 — Content expansion: +2 weapons, +2 enemy kinds 🔴
+## SH-042 — Content expansion: +2 weapons, +2 enemy kinds ✅ *(shipped — 4 weapons, 7 kinds, 2 of them RANGED)*
 
 **Why:** 2 weapons and 5 enemy kinds is one encounter's worth of
 variety; the run is ~3 minutes. The Unvanquished source packs carry
@@ -763,7 +763,7 @@ frame time still ≥ 35 fps on the dev box at 4K/TSR.
 
 ---
 
-## SH-043 — Accessibility & localization scaffolding 🟢
+## SH-043 — Accessibility & localization scaffolding ✅ *(shipped — `src/strings.ts`, shake slider, colourblind-safe hit cues)*
 
 **Why:** all-or-nothing camera shake, red-only damage cues, hardcoded
 English literals, fixed keybinds. Cheap now, expensive to retrofit.
@@ -797,7 +797,7 @@ still applies.
 
 ---
 
-## SH-009 — Splat-mapped PBR terrain 🟢 *(EN-014 texture arrays SHIPPED — fully unblocked)*
+## SH-009 — Splat-mapped PBR terrain ✅ *(shipped — 4-layer triplanar splat; EN-014 texture-array bug fixed on the way)*
 
 **Why:** the largest remaining pure-visual gap. `terrain.wgsl` is
 procedural color stops with zero textures — below ~1 m the ground has
@@ -815,7 +815,7 @@ cliffs show rock; layer transitions blend, not step.
 
 ---
 
-## SH-010 — Detail normal + macro variation 🟢
+## SH-010 — Detail normal + macro variation ✅ *(shipped with SH-009)*
 
 As specified previously: 512² detail normal at ~50× UV via
 half-derivative blend + 256² macro mask at ~30 m scale into albedo.
@@ -902,7 +902,7 @@ reading the GLB material blocks. Nothing to do.
 
 ---
 
-## SH-020 — Real leaf-card trees 🟢 *(EN-010 cutout bucket SHIPPED — unblocked)*
+## SH-020 — Real leaf-card trees ✅ *(shipped in round 5 — scanned-leaf cards through the cutout bucket)*
 
 Replace 2 of 4 tree variants with alpha-cutout leaf-card versions
 (the scanned-leaf card pipeline from the round-5 texture work already
@@ -1002,7 +1002,7 @@ they gate SH-040/SH-042's content work.
 
 ---
 
-## SH-044 — Asset ingest automation 🟢
+## SH-044 — Asset ingest automation ✅ *(shipped — `tools/convert-*.ts`, cross-platform)*
 
 **Why:** audio conversion is ad-hoc hand-run ffmpeg (unscripted,
 `assets/sounds/SOURCES.md`), texture downscaling uses macOS-only

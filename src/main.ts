@@ -245,7 +245,10 @@ setSunShafts(0.18, 0.90, 1.0, 0.95, 0.7);
 //   dirX / dirZ â€” wind direction in the XZ plane (need not be unit)
 //   amp         â€” peak displacement at full tip weight (~0.10 m for grass)
 //   freq        â€” Hz; ~1 = lazy breeze, ~3 = gusty
-setWind(0.85, 0.50, 0.10, 1.6);
+// One number for the whole scene's wind: the grass sway, the tree bend (EN-041),
+// the cloud drift (EN-040) and the leaf-rustle bed (SH-001) all read it.
+const WIND_AMP = 0.10;
+setWind(0.85, 0.50, WIND_AMP, 1.6);
 // EN-040 â€” opt the world into the cloud deck the sky is already drawing, so a
 // shadow crossing the field has a cloud above it. Before this, the sky, the
 // grass and the terrain each carried a private noise field: the ground darkened
@@ -610,6 +613,10 @@ if (!vfxOk) console.log('[vfx] disabled - shaders or textures failed to load');
 
 // Round 2 â€” audio mix (buses, reverb, footsteps, music intensity).
 MIX.initAudioMix();
+// SH-001 — put the leaf-rustle bed on the actual forest. The centroids come from
+// the tree positions in the world file, so moving the forest in the editor moves
+// the sound with it.
+MIX.initWindAmbience(W.FOREST_X, W.FOREST_Z, W.FOREST_COUNT, WIND_AMP);
 
 // Weapons: stat table + state.
 WPN.initWeapons();
@@ -2119,6 +2126,7 @@ while (!windowShouldClose()) {
     const near = Math.max(bdx / 12, bdz / 10);
     const enclosure = near < 1 ? (1 - near) : 0;
     MIX.updateReverbZone(dtReal, enclosure);
+    MIX.updateWindAmbience(dtReal, pp.x, pp.z, WIND_AMP);
   }
 
   // Smooth orbit camera follow after physics step.
