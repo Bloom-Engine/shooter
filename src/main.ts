@@ -49,6 +49,7 @@ import {
   createTextureArrayFromFiles, setMaterialTextureArray,
   TEXTURE_ARRAY_ALBEDO, TEXTURE_ARRAY_NORMAL, TEXTURE_ARRAY_MR,
   TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
+  createRagdoll, activateRagdoll, pushRagdoll, updateRagdoll, releaseRagdoll,
 } from 'bloom/models';
 import { initInput, readInput, drawTouchControls, MOBILE, aimAssistScale } from './input';
 import {
@@ -1169,6 +1170,16 @@ const enStepPhase  = new Array<number>(MAX_ENEMIES);
 const enRangedCD   = new Array<number>(MAX_ENEMIES);
 const enBurst      = new Array<number>(MAX_ENEMIES);
 const enBurstT     = new Array<number>(MAX_ENEMIES);
+// SH-031 / EN-025 — one ragdoll slot per enemy slot, pooled and reused. A slot
+// is cheap; the bodies it holds are not, so they are released when the corpse
+// goes away.
+const enRagdoll    = new Array<number>(MAX_ENEMIES);
+const enRagActive  = new Array<number>(MAX_ENEMIES);
+// The killing shot, kept so the corpse is thrown along it.
+const enDeathDX    = new Array<number>(MAX_ENEMIES);
+const enDeathDY    = new Array<number>(MAX_ENEMIES);
+const enDeathDZ    = new Array<number>(MAX_ENEMIES);
+const enDeathImp   = new Array<number>(MAX_ENEMIES);
 // Last frame's steering velocity, so the draw pass can match animation playback
 // rate to actual ground speed (SH-034 â€” the foot-slide fix).
 const vxLast = new Array<number>(MAX_ENEMIES);
@@ -1207,6 +1218,8 @@ for (let k = 0; k < KIND_COUNT; k++) {
     enRangedCD[i] = 0;
     enBurst[i] = 0;
     enBurstT[i] = 0;
+    enRagdoll[i] = createRagdoll();
+    enRagActive[i] = 0;
     vxLast[i] = 0;
     vzLast[i] = 0;
     enBody[i] = createBody(physics, shape, {
@@ -1441,6 +1454,14 @@ for (let i = 0; i < PICKUP_COUNT; i++) { pickupActive[i] = 1; pickupRespawnT[i] 
 
 function despawnAllEnemies(): void {
   for (let i = 0; i < MAX_ENEMIES; i++) {
+    // SH-031 — release any live ragdoll before wiping the slot, or its bodies
+    // stay in the physics world forever. A restart is exactly the moment such a
+    // leak would go unnoticed.
+    if (enRagActive[i] === 1 && enRagdoll[i] > 0) {
+      releaseRagdoll(enRagdoll[i]);
+      enRagdoll[i] = createRagdoll();
+    }
+    enRagActive[i] = 0;
     enAlive[i] = 0;
     enHP[i] = 0;
     enAttackCD[i] = 0;
@@ -1518,6 +1539,11 @@ function damageEnemy(i: number, dmg: number,
     // Freeze the AI heading â€” a dragoon killed mid-charge collapses along its
     // charge line rather than snapping around toward the player.
     enDeathYaw[i] = enHeading[i];
+    // SH-031 — remember the killing shot so the ragdoll is thrown along it.
+    enDeathDX[i] = dirX;
+    enDeathDY[i] = dirY;
+    enDeathDZ[i] = dirZ;
+    enDeathImp[i] = dmg;
     setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
     playSound3D(sfxAlienDie[k * 3 + (i % 3)], enX[i], enY[i] + 1, enZ[i]);
 
@@ -2845,13 +2871,14 @@ while (!windowShouldClose()) {
     // to shoot at and to bleed on the ground.
     if (testFrame === 30 || (testFrame > 30 && (testFrame % 240) === 0)) {
       // The two NEW kinds (adv marauder, adv dragoon) — the ranged ones.
+      // Melee kinds, close in, so they die fast and we can watch them fall.
       for (let s = 0; s < 2; s++) {
-        const slot = (K_ADV_MARAUDER + s) * BODIES_PER_KIND;
+        const slot = (1 + s) * BODIES_PER_KIND;    // mantis, marauder
         const k = enKind[slot];
-        enX[slot] = -6 + s * 12;
-        enZ[slot] = 6;                             // in their ranged band
+        enX[slot] = -3 + s * 6;
+        enZ[slot] = 15;                            // close, in front of the player
         enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
-        enHP[slot] = KIND_HP[k] * 8;               // tanky, so the fight lasts
+        enHP[slot] = KIND_HP[k];                   // killable — we want corpses
         enAlive[slot] = 1;
         enDying[slot] = 0;
         enAnimClip[slot] = -1;
@@ -2866,7 +2893,7 @@ while (!windowShouldClose()) {
     // isn't three-quarters reload animation.
     if (testFrame > 35) {
       CAM[0] = 0;
-      CAM[1] = 0.20;              // level-ish: see the ranged enemies downrange
+      CAM[1] = 0.38;              // see the corpses land
       forceFire = true;
       WPN.addAmmo(WPN.currentWeapon(), 3);
     }
@@ -3472,27 +3499,80 @@ while (!windowShouldClose()) {
   // short of the real clip duration), then sink the corpse into the
   // ground and free the slot. Replaces the old teleport-to-y=-100
   // despawn that made kills feel like the enemy just vanished.
+  // SH-031 / EN-025 - death is now ANIMATION -> RAGDOLL.
+  //
+  // The handoff point is the whole design. Going straight to physics on the
+  // frame of death throws away the authored "mortal blow" - the recoil that
+  // tells you what killed it - and the corpse just goes limp like a dropped
+  // coat. Playing the clip out in FULL and then switching is worse still: the
+  // body snaps from a canned final pose into a physical one, and you see the
+  // seam.
+  //
+  // So: play the first ~0.22 s of the die clip (the blow lands, the thing
+  // reels), then hand the CURRENT pose to the ragdoll and let go. The bodies are
+  // seeded from that exact pose, so there is nothing to blend - physics simply
+  // continues the motion the animator started.
+  const RAG_HANDOFF = 0.22;
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enDying[i] !== 1) continue;
     enDeathT[i] = enDeathT[i] + dt;
     const k = enKind[i];
-    const dur = ANIM_DIE_DUR[k];
-    const sink = enDeathT[i] > dur + 0.6 ? (enDeathT[i] - dur - 0.6) * 0.9 : 0;
-    // Now that each slot owns its animation handle, death is just a NON-LOOPING
-    // clip on the mixer: it plays once and clamps on the final collapsed pose,
-    // instead of the old trick of clamping the time just short of the duration
-    // to stop the engine wrapping it back to a standing start.
-    if (enAnimClip[i] !== ANIM_DIE_IDX[k]) {
-      animPlay(enAnim[i], ANIM_DIE_IDX[k], 0.08, 1.0, false);
-      enAnimClip[i] = ANIM_DIE_IDX[k];
-      animSetLayer(enAnim[i], -1, 0, -1, 1, false);   // drop any attack layer
-    }
-    animUpdate(enAnim[i], dt, KIND_SCALE[k],
-      enX[i], enY[i] - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
-    drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], WHITE);
-    if (enDeathT[i] > dur + 2.0) {
-      enDying[i] = 0;
-      enAnimClip[i] = -1;    // so the next enemy in this slot re-triggers
+
+    if (enRagActive[i] === 0) {
+      // --- still animating the blow
+      if (enAnimClip[i] !== ANIM_DIE_IDX[k]) {
+        animPlay(enAnim[i], ANIM_DIE_IDX[k], 0.06, 1.0, false);
+        enAnimClip[i] = ANIM_DIE_IDX[k];
+        animSetLayer(enAnim[i], -1, 0, -1, 1, false);   // drop the attack layer
+      }
+      const yaw = Math.PI / 2 - enDeathYaw[i];
+      animUpdate(enAnim[i], dt, KIND_SCALE[k], enX[i], enY[i], enZ[i], yaw);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], WHITE);
+
+      if (enDeathT[i] >= RAG_HANDOFF && enRagdoll[i] > 0) {
+        // The transform passed here MUST be the one we just drew with: it is the
+        // bridge between model space and world space, and the engine freezes it.
+        const ok = activateRagdoll(enRagdoll[i], enAnim[i], physics,
+                                   KIND_SCALE[k], enX[i], enY[i], enZ[i], yaw);
+        if (ok) {
+          enRagActive[i] = 1;
+          // Throw it along the killing shot. Scaled by damage, so a rifle round
+          // nudges and a cannon hit launches - and divided by the thing's own
+          // heft, because a tyrant should not fly like a dretch.
+          const heft = 1 + KIND_HP[k] * 0.35;
+          const imp = (2.0 + enDeathImp[i] * 1.6) / heft;
+          pushRagdoll(enRagdoll[i], enDeathDX[i], enDeathDY[i] * 0.4 + 0.35,
+                      enDeathDZ[i], imp * 40);
+        } else {
+          enRagActive[i] = 2;   // no skeleton to simulate - use the old corpse
+        }
+      }
+    } else if (enRagActive[i] === 1) {
+      // --- physics owns the pose now. No animUpdate: the ragdoll writes the
+      // joint matrices directly.
+      const age = updateRagdoll(enRagdoll[i], enAnim[i], dt);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], WHITE);
+      // Settle, then free. Releasing matters: a pooled ragdoll that is never
+      // released leaks bodies into the physics world - a slow, invisible death.
+      if (age > 8.0) {
+        releaseRagdoll(enRagdoll[i]);
+        enRagdoll[i] = createRagdoll();      // fresh slot for the next occupant
+        enRagActive[i] = 0;
+        enDying[i] = 0;
+        enAnimClip[i] = -1;
+      }
+    } else {
+      // --- fallback: no skeleton, so the old clamp-and-sink corpse.
+      const dur = ANIM_DIE_DUR[k];
+      const sink = enDeathT[i] > dur + 0.6 ? (enDeathT[i] - dur - 0.6) * 0.9 : 0;
+      animUpdate(enAnim[i], dt, KIND_SCALE[k],
+        enX[i], enY[i] - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], WHITE);
+      if (enDeathT[i] > dur + 2.0) {
+        enDying[i] = 0;
+        enRagActive[i] = 0;
+        enAnimClip[i] = -1;
+      }
     }
   }
   // Pickups â€” bobbing cubes, color-coded per kind.
@@ -3939,6 +4019,8 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
 
 
 

@@ -24,7 +24,7 @@ or a design decision
 | Round | Theme | Tickets | Status |
 |---|---|---|---|
 | 0 | Architecture | SH-025, SH-005, SH-026 | ✅ SH-005 + SH-026 done; SH-025 partial (see note) |
-| 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped (SH-031 ragdolls pending EN-025) |
+| 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped, incl. SH-031 ragdolls (EN-025) |
 | 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
 | 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select and SH-042 (4 weapons + 7 enemy kinds, 2 of them RANGED) |
 | 4 | Visual backlog | SH-009, SH-010 ✅ · SH-011, SH-013, SH-014, SH-020, SH-023, SH-024, SH-007 ⏳ | ✅ splat terrain (the big one) shipped; foliage/water polish open |
