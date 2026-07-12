@@ -23,7 +23,7 @@ or a design decision
 
 | Round | Theme | Tickets | Status |
 |---|---|---|---|
-| 0 | Architecture | SH-025, SH-005, SH-026 | ✅ SH-005 + SH-026 done; SH-025 partial (see note) |
+| 0 | Architecture | SH-025, SH-005, SH-026 | ✅ **CLOSED** — enemy system extracted to `src/enemies.ts` |
 | 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped, incl. SH-031 ragdolls (EN-025) |
 | 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
 | 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select and SH-042 (4 weapons + 7 enemy kinds, 2 of them RANGED) |
@@ -95,7 +95,36 @@ inline.
 
 ---
 
-## SH-025 — Split `main.ts` into modules 🟢 *(partially done)*
+## SH-025 — Split `main.ts` into modules ✅ *(enemy system extracted 2026-07-12)*
+
+> **The enemy system now lives in `src/enemies.ts`** — seven kinds, their stat
+> lines, animation-clip indices, ranged bands, AI constants, and the ~40 flat
+> per-slot state arrays. `main.ts` is down to 3,849 lines from 4,088 despite this
+> session adding ragdolls, a cloud deck and hierarchical wind.
+>
+> **Exported by NAME, not behind a namespace object.** main.ts has ~500 references
+> to these arrays across the AI block, the damage path and the draw pass. Named
+> imports mean the extraction moved declarations and touched **not one call site** —
+> the difference between a refactor you can verify and one you can only hope about.
+> It compiled first try.
+>
+> **The one real trap:** an imported module's body runs *before* the importer's, so
+> `loadModel()` at `enemies.ts` module scope fired before `main.ts` had called
+> `initWindow()` — the engine panicked with `Engine not initialized`. Everything
+> that touches the engine had to move into `initEnemyPool(physics)`, which main.ts
+> calls at the point the old inline block used to sit. Worth remembering for any
+> future extraction: **data can live at module scope; engine calls cannot.**
+>
+> Verified behaviourally, not just by compiling: the `AITEST` harness logged
+> enemies spawning, closing on the player (56.8 → 51.0 → 39.8 → 34.3 → 28.7 m) and
+> cycling their state machines (mantis approach → orbit → recover), with the
+> corpse, wave and score HUD all live.
+>
+> The AI block itself stays in the game loop. It reads player state and writes
+> projectiles, VFX, audio and score, so extracting it is a dependency-injection
+> design, not code motion — and the state boundary above is what makes that
+> tractable later. The remaining `main.ts` is the loop and its wiring, which is
+> what a main file should be.
 
 > **Status 2026-07-12.** Everything NEW went into its own module — `feel.ts`,
 > `vfx.ts`, `weapons.ts`, `menu.ts`, `settings.ts`, `score.ts`, `audio-mix.ts`,
