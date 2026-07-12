@@ -19,10 +19,12 @@ import {
 import * as SET from './settings';
 import * as MIX from './audio-mix';
 import * as FEEL from './feel';
+import { ARENAS, ARENA_COUNT, ARENA_INDEX, selectArena } from './world-runtime';
 
 export const MENU_NONE     = 0;
 export const MENU_PAUSE    = 1;
 export const MENU_SETTINGS = 2;
+export const MENU_LEVELS   = 3;
 
 // Row kinds.
 const ROW_ACTION = 0;
@@ -37,13 +39,16 @@ export const ACT_NONE     = 0;
 export const ACT_RESUME   = 1;
 export const ACT_RESTART  = 2;
 export const ACT_QUIT     = 3;
+/// A level was chosen. The choice is already written; the game relaunches into
+/// it (the world's colliders/scatters/GI proxies are all built at startup).
+export const ACT_LEVEL    = 4;
 const A = [ACT_NONE];
 
 // --- row tables --------------------------------------------------------------
 // Kept as parallel flat arrays (Perry convention). `settingIdx` is the index
 // into settings.ts for slider/toggle rows.
-const PAUSE_LABELS = ['RESUME', 'SETTINGS', 'RESTART RUN', 'QUIT'];
-const PAUSE_COUNT = 4;
+const PAUSE_LABELS = ['RESUME', 'SETTINGS', 'LEVEL SELECT', 'RESTART RUN', 'QUIT'];
+const PAUSE_COUNT = 5;
 
 const SET_LABELS: string[] = [
   'MASTER VOLUME', 'MUSIC VOLUME', 'SFX VOLUME',
@@ -89,7 +94,9 @@ export function closeMenu(): void {
 }
 
 function rowCount(): number {
-  return S[0] === MENU_PAUSE ? PAUSE_COUNT : SET_COUNT_ROWS;
+  if (S[0] === MENU_PAUSE) return PAUSE_COUNT;
+  if (S[0] === MENU_LEVELS) return ARENA_COUNT + 1;   // + BACK
+  return SET_COUNT_ROWS;
 }
 
 /// Adjust the selected row. `dir` is -1 / +1 (left/right or a click on the bar).
@@ -129,8 +136,19 @@ function confirm(): void {
     MIX.uiSelect();
     if (S[1] === 0) { A[0] = ACT_RESUME; closeMenu(); }
     else if (S[1] === 1) { S[0] = MENU_SETTINGS; S[1] = 0; }
-    else if (S[1] === 2) { A[0] = ACT_RESTART; closeMenu(); }
-    else if (S[1] === 3) { A[0] = ACT_QUIT; }
+    else if (S[1] === 2) { S[0] = MENU_LEVELS; S[1] = 0; }
+    else if (S[1] === 3) { A[0] = ACT_RESTART; closeMenu(); }
+    else if (S[1] === 4) { A[0] = ACT_QUIT; }
+    return;
+  }
+  if (S[0] === MENU_LEVELS) {
+    MIX.uiSelect();
+    if (S[1] >= ARENA_COUNT) { S[0] = MENU_PAUSE; S[1] = 0; return; }
+    // Picking a level writes the choice and asks the game to restart into it.
+    // A mid-run swap would mean tearing down every collider, scatter and GI
+    // proxy the world built at startup — see selectArena().
+    selectArena(ARENAS[S[1]].id);
+    A[0] = ACT_LEVEL;
     return;
   }
   if (S[0] === MENU_SETTINGS) {
@@ -166,6 +184,7 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
   if (isKeyPressed(Key.ENTER) || isKeyPressed(Key.SPACE)) confirm();
   if (isKeyPressed(Key.ESCAPE)) {
     if (S[0] === MENU_SETTINGS) { SET.saveSettings(); S[0] = MENU_PAUSE; S[1] = 0; }
+    else if (S[0] === MENU_LEVELS) { S[0] = MENU_PAUSE; S[1] = 0; }
     else { A[0] = ACT_RESUME; closeMenu(); }
   }
 
@@ -246,7 +265,9 @@ export function drawMenu(sw: number, sh: number): void {
   // merely hidden — the player should still see the fight they paused.
   drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: 170 });
 
-  const title = S[0] === MENU_PAUSE ? 'PAUSED' : 'SETTINGS';
+  let title = 'PAUSED';
+  if (S[0] === MENU_SETTINGS) title = 'SETTINGS';
+  if (S[0] === MENU_LEVELS)   title = 'SELECT ARENA';
   const ts = 44;
   const tw = measureText(title, ts);
   drawText(title, (sw - tw) / 2, sh * 0.5 - 200, ts, { r: 255, g: 240, b: 210, a: 255 });
@@ -265,8 +286,29 @@ export function drawMenu(sw: number, sh: number): void {
       ? { r: 255, g: 225, b: 150, a: 255 }
       : { r: 200, g: 200, b: 205, a: 220 };
 
-    const label = S[0] === MENU_PAUSE ? PAUSE_LABELS[i] : SET_LABELS[i];
+    let label = '';
+    if (S[0] === MENU_PAUSE) {
+      label = PAUSE_LABELS[i];
+    } else if (S[0] === MENU_LEVELS) {
+      label = i < ARENA_COUNT ? ARENAS[i].name : 'BACK';
+    } else {
+      label = SET_LABELS[i];
+    }
     drawText(label, x0, ry + 8, 24, col);
+
+    if (S[0] === MENU_LEVELS && i < ARENA_COUNT) {
+      // Mark the arena you are actually in, and show its best score — the two
+      // things you want to know before picking.
+      const isCur = i === ARENA_INDEX;
+      const best = SET.bestScore(i);
+      const info = (isCur ? 'CURRENT   ' : '') + (best > 0 ? 'BEST ' + best : '');
+      if (info.length > 0) {
+        const iw = measureText(info, 16);
+        drawText(info, x0 + rowW - iw, ry + 12, 16,
+          { r: 180, g: 175, b: 160, a: 200 });
+      }
+      continue;
+    }
 
     if (S[0] !== MENU_SETTINGS) continue;
     const kind = SET_KINDS[i];

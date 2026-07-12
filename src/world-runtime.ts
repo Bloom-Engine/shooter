@@ -19,8 +19,75 @@
 //     never on a per-frame path.
 
 import { loadWorld, createEmptyWorld, WorldData, EntityData } from 'bloom/world';
+import { readFile, fileExists } from 'bloom/core';
 
-const WORLD_PATH = 'assets/worlds/arena_02.world.json';
+// SH-040 — the level is no longer hardcoded.
+//
+// This module used to pin `arena_02` in a const, which meant the game could
+// only ever ship one level no matter how many the editor produced. The whole
+// world pipeline (runtime loadWorld, editor round-trip, per-world wave plans in
+// `wave_config`) already supported N levels; only the game pretended otherwise.
+//
+// The arena list is a manifest so adding a level is a JSON edit, not a code
+// change — and the runtime resolves it at MODULE LOAD, before anything reads a
+// world array, because every export below is derived from it.
+//
+// Selection order: `level.txt` (written by the menu's level select) → the
+// manifest's `default` → arena_02. Kept as a plain text file rather than a
+// field in settings.json so that a corrupt settings file can never strand the
+// player in a level that will not load.
+
+const MANIFEST_PATH = 'assets/worlds/arenas.json';
+const SELECTED_PATH = 'level.txt';
+
+export interface ArenaEntry { id: string; name: string; path: string; }
+
+function loadManifest(): ArenaEntry[] {
+  if (!fileExists(MANIFEST_PATH)) {
+    // No manifest — fall back to the one arena we know shipped.
+    const one: ArenaEntry[] = new Array<ArenaEntry>(1);
+    one[0] = { id: 'arena_02', name: 'Outdoor Plaza',
+               path: 'assets/worlds/arena_02.world.json' };
+    return one;
+  }
+  const txt = readFile(MANIFEST_PATH);
+  const obj: any = JSON.parse(txt);
+  const arr: any = obj['arenas'];
+  const n: number = arr.length;
+  const out: ArenaEntry[] = new Array<ArenaEntry>(n);
+  for (let i = 0; i < n; i++) {
+    const a: any = arr[i];
+    out[i] = { id: a['id'] as string, name: a['name'] as string, path: a['path'] as string };
+  }
+  return out;
+}
+
+export const ARENAS: ArenaEntry[] = loadManifest();
+export const ARENA_COUNT = ARENAS.length;
+
+function pickArena(): number {
+  if (fileExists(SELECTED_PATH)) {
+    const want = readFile(SELECTED_PATH).trim();
+    for (let i = 0; i < ARENA_COUNT; i++) {
+      if (ARENAS[i].id === want) return i;
+    }
+  }
+  return 0;
+}
+
+export const ARENA_INDEX = pickArena();
+const WORLD_PATH = ARENAS[ARENA_INDEX].path;
+
+/// Called by the level-select UI. Writes the choice and returns true; the game
+/// re-reads it on the next launch (the world's colliders, scatters and GI
+/// proxies are all built at startup, so a mid-run swap would mean tearing all
+/// of that down — EN-032's async load is the ticket that makes it seamless).
+export function selectArena(id: string): void {
+  writeFileRaw(SELECTED_PATH, id);
+}
+
+// Small local wrapper so the import list above stays honest about what it uses.
+import { writeFile as writeFileRaw } from 'bloom/core';
 
 // loadWorld throws on a missing file, bad JSON, or failed validation. Catch it
 // here so a broken world file reports itself and yields an empty arena, rather

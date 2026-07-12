@@ -1186,6 +1186,12 @@ let gameWon = false;
 // ground"). Clamps to the grid edge outside the covered area.
 function terrainHeightAt(x: number, z: number): number {
   const n = T.TERRAIN_SAMPLE_COUNT;
+  // A world with no terrain block (a pre-schema-v2 file, or one authored
+  // without sculpting) would otherwise index an empty array and hand back NaN —
+  // which then propagates into every enemy position and every scatter, and
+  // shows up as the entire game silently vanishing rather than as an error.
+  // Flat ground is a survivable answer; NaN is not.
+  if (n < 2) return 0;
   const fx = (x - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
   const fz = (z - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
   const cx = fx < 0 ? 0 : (fx > n - 1.001 ? n - 1.001 : fx);
@@ -1312,6 +1318,8 @@ let muzzleZ = 0;
 // the same confirmation everyone else does (the enemy's red tint alone does
 // not survive a red-green deficiency).
 let hitMarkT = 0;
+// SH-040 — seconds left on the "restart to load the new arena" notice.
+let levelChangeT = 0;
 // Phase 7 / Round-3 â€” seconds until the next wading splat may fire.
 // Splatting every moving frame overwhelmed the field's 3.2%/frame decay
 // (steady state ~19Ã— over max â€” a stuck white smear); one splat per
@@ -1910,6 +1918,13 @@ while (!windowShouldClose()) {
       if (cursorLocked) disableCursor();
     } else if (act === 3) {               // ACT_QUIT
       break;
+    } else if (act === 4) {               // ACT_LEVEL — chosen, needs a relaunch
+      // The whole world (colliders, heightfield, 20k grass instances, 267 GI
+      // proxies, the forest's trunk bodies) is built once at startup, so
+      // swapping levels in place means tearing all of it down. Until EN-032's
+      // async load makes that seamless, be honest: the choice is saved and the
+      // next launch is in it.
+      levelChangeT = 4.0;
     }
   }
 
@@ -2920,6 +2935,7 @@ while (!windowShouldClose()) {
   if (damageFlashT > 0) damageFlashT = damageFlashT - dt;
   if (lastHitT > 0) lastHitT = lastHitT - dtReal;
   if (hitMarkT > 0) hitMarkT = hitMarkT - dtReal;
+  if (levelChangeT > 0) levelChangeT = levelChangeT - dtReal;
   if (waveBonusT > 0) waveBonusT = waveBonusT - dtReal;
   if (unlockBannerT > 0) unlockBannerT = unlockBannerT - dtReal;
   for (let i = 0; i < SPARK_MAX; i++) {
@@ -3534,10 +3550,16 @@ while (!windowShouldClose()) {
     const title = 'BLOOM SHOOTER';
     const tw = measureText(title, 54);
     drawText(title, (sw - tw) / 2, 170, 54, { r: 236, g: 226, b: 178, a: 255 });
+    // Which arena you are about to drop into (SH-040) — pick a different one
+    // from the pause menu.
+    const an = W.ARENAS[W.ARENA_INDEX].name;
+    const anw = measureText(an, 20);
+    drawText(an, (sw - anw) / 2, 232, 20, { r: 200, g: 190, b: 150, a: 210 });
+
     const sub = MOBILE ? 'tap to start' : 'press any key';
     const subw = measureText(sub, 22);
     const pulse = Math.floor(175 + Math.sin(getTime() * 3.0) * 70);
-    drawText(sub, (sw - subw) / 2, 244, 22, { r: 225, g: 225, b: 225, a: pulse });
+    drawText(sub, (sw - subw) / 2, 268, 22, { r: 225, g: 225, b: 225, a: pulse });
     if (isAnyInputPressed()) {
       gameState = 1;
       stopMusic(musicMenu);
@@ -3577,7 +3599,18 @@ while (!windowShouldClose()) {
     drawText(sub, (sw - sww) / 2, sh * 0.28 + 206, 22, { r: 220, g: 220, b: 220, a: 230 });
   }
 
-  // SH-038 â€” the pause / settings menu draws LAST so it sits over the HUD.
+  // SH-040 — level chosen, but it loads on the next launch. Say so plainly
+  // rather than letting the player wonder why nothing happened.
+  if (levelChangeT > 0) {
+    const a = Math.floor(Math.min(1, levelChangeT / 0.5) * 240);
+    const msg = 'ARENA SET - RESTART THE GAME TO PLAY IT';
+    const mw = measureText(msg, 22);
+    drawRect((sw - mw) / 2 - 16, sh * 0.16 - 8, mw + 32, 40,
+             { r: 10, g: 10, b: 14, a: Math.floor(a * 0.8) });
+    drawText(msg, (sw - mw) / 2, sh * 0.16, 22, { r: 255, g: 215, b: 120, a: a });
+  }
+
+  // SH-038 — the pause / settings menu draws LAST so it sits over the HUD.
   drawMenu(sw, sh);
 
   // Diagnostic HUD â€” helps verify input is reaching the game. The desktop
