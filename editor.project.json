@@ -4,5 +4,6 @@
   "modelsDir": "assets/models",
   "prefabsDir": "assets/prefabs",
   "worldsDir": "assets/worlds",
-  "defaultWorld": "arena_02.world.json"
+  "defaultWorld": "arena_02.world.json",
+  "playCommand": "main.exe"
 }

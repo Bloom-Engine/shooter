@@ -38,3 +38,6 @@ screenshot_*.png
 
 # Editor scratch state (recent projects, layout)
 .bloom-editor/
+
+# Play-in-editor scratch level (editor writes it, game loads it, nobody commits it)
+assets/worlds/__playtest.world.json

@@ -76,7 +76,22 @@ function pickArena(): number {
 }
 
 export const ARENA_INDEX = pickArena();
-const WORLD_PATH = ARENAS[ARENA_INDEX].path;
+
+/// `--world <path>` overrides the manifest entirely.
+///
+/// This is what "play-in-editor" is built on: the editor saves the level you are
+/// looking at to a scratch file and launches the game pointed straight at it. A
+/// level you can only test by adding it to a manifest first is a level you will not
+/// test often enough.
+function worldFromArgs(): string {
+  const n = process.argv.length;
+  for (let i = 0; i < n - 1; i++) {
+    if (process.argv[i] === '--world') return process.argv[i + 1];
+  }
+  return '';
+}
+const ARG_WORLD = worldFromArgs();
+const WORLD_PATH = ARG_WORLD.length > 0 ? ARG_WORLD : ARENAS[ARENA_INDEX].path;
 
 /// Called by the level-select UI. Writes the choice and returns true; the game
 /// re-reads it on the next launch (the world's colliders, scatters and GI

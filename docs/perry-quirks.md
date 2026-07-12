@@ -169,3 +169,43 @@ with a reachable `throw` in scope. For quirk #5: return a
 `"1.23|4.56\n"`-style blob from any FFI and `split`+`parseFloat` it
 every frame — on a broken runtime this AVs within a minute (see
 engine `docs/tickets.md` § EN-020 for the validated repro numbers).
+
+
+---
+
+## 6. `JSON.stringify` corrupts a large object graph that came from `JSON.parse`
+
+**Found:** 2026-07-12, engine EN-047. **The editor could not save. Saving a world
+emptied it, and reported success.**
+
+Minimal repro — no engine code, no FFI:
+
+```ts
+const text = readFile('assets/worlds/arena_02.world.json');  // 324 KB — writes back fine
+const o    = JSON.parse(text);                                // fine
+const re   = JSON.stringify(o, null, 2);
+// -> `re` contains 5,296 characters above U+00FF, in a document whose source is
+//    almost pure ASCII. It is garbage.
+```
+
+The corruption is **invisible from TypeScript** — `re.length` looks plausible. It
+only surfaces when the string crosses the FFI: `str_from_header` fails its UTF-8
+check, returns `""`, and `bloom_write_file` used to write a **zero-byte file and
+return success**.
+
+**Ruled out one at a time:** size (a *fresh* 1 MB world-shaped object stringifies and
+writes perfectly), floats, `null`s, `Record` keys, non-ASCII, and a manual deep clone
+of the parsed graph. It is specifically the graph that came from `JSON.parse`.
+
+**Rule: never `JSON.stringify` anything you are going to persist.** Hand-serialise by
+literal key and build the document by concatenation — the discipline `settings.ts`
+already used and `engine/src/world/serialize.ts` now does. Concatenated strings cross
+the FFI reliably; probes confirm it up to at least 1 MB.
+
+`JSON.parse(JSON.stringify(x))` as a deep-clone idiom is a **landmine at scale**. It
+is safe at prefab sizes and it must not be used on a world.
+
+## 7. `child_process.spawn` compiles and does nothing
+
+Returns a child with an undefined pid; no process is started. Use the engine's
+`launchProcess()` (EN-048).
