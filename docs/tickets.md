@@ -27,7 +27,7 @@ or a design decision
 | 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped, incl. SH-031 ragdolls (EN-025) |
 | 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
 | 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select and SH-042 (4 weapons + 7 enemy kinds, 2 of them RANGED) |
-| 4 | Visual backlog | SH-009, SH-010 ✅ · SH-011, SH-013, SH-014, SH-020, SH-023, SH-024, SH-007 ⏳ | ✅ splat terrain (the big one) shipped; foliage/water polish open |
+| 4 | Visual backlog | SH-009, SH-010, SH-007 ✅ · SH-020 ✅ (round 5) · SH-011, SH-013, SH-014, SH-023, SH-024 ⏳ | ✅ splat terrain + coherent cloud deck (EN-040); foliage polish open |
 | 5 | Production tooling | SH-044 ✅ + editor PLAN items ⏳ | ✅ asset ingest scripted + cross-platform; editor items are in `../editor` |
 
 > **Round-1 results (2026-07-12):** see [`docs/aaa-round-1.md`](aaa-round-1.md).
@@ -44,6 +44,17 @@ or a design decision
 > never fires on Windows — every screenshot harness has been capturing
 > nothing) and EN-039 (immediate draws can't pitch, so the gun can't tilt with
 > the aim).
+>
+> **EN-038's evidence is void (2026-07-12).** It concluded `takeScreenshot()` was
+> dead *because its unconditional `eprintln!` never printed*. That inference does
+> not hold: on this box **no `eprintln!` from post-init engine code reaches a
+> redirected stderr at all**. Verified by putting a print in `bloom_begin_drawing`
+> — which must run 60x a second for the game to render at all — and getting
+> nothing, while a `std::fs::write` from the very same place fired fine. Only the
+> two init-time lines ever appear. So `takeScreenshot` may have been firing all
+> along and failing for another reason; EN-038 needs re-diagnosing with a
+> file-write probe, not a print. **Any past Windows debugging that concluded "the
+> FFI is never reached" from a missing log line is suspect for the same reason.**
 
 **Engine gates** (details in engine `docs/tickets.md`):
 
@@ -316,7 +327,25 @@ sustained fire staggers a dragoon mid-telegraph; no stun-lock.
 
 ---
 
-## SH-031 — Ragdoll deaths 🟡 *(gated on EN-025)*
+## SH-031 — Ragdoll deaths ✅ *(shipped 2026-07-12; EN-025 landed)*
+
+> **Shipped.** The handoff point turned out to be the whole design. Going
+> straight to physics on the death frame throws away the authored mortal blow
+> and the enemy goes limp like a dropped coat; playing the clip out in full and
+> *then* switching shows a visible snap from the canned final pose into a
+> physical one. Shipping value: **0.22 s** — the blow lands, the thing reels,
+> and physics picks up the motion the animator started.
+>
+> Corpses are thrown along the killing shot, scaled by damage and divided by the
+> kind's heft. Ragdolls are pooled per enemy slot and released on settle (8 s)
+> and on run restart — an unreleased ragdoll leaks bodies into the physics world,
+> and a restart is exactly where that would go unnoticed. Kinds with no usable
+> skeleton fall back to the old clip-and-sink corpse.
+>
+> The joint limits were the tuning: the first pass used generous ones (±1.2 rad)
+> and the bodies settled into a **puddle** rather than a body. ±0.8 bend / ±0.25
+> twist + 0.75 angular damping + chunkier capsules (0.38 × bone length) is what
+> made them read as corpses.
 
 **Why:** deaths play one clip, clamp the last frame, then the corpse
 sinks through the floor (`main.ts:2885-2901`). Ragdoll handoff is the
@@ -815,11 +844,30 @@ Only matters at > 500 trees — keep last.
 
 ---
 
-## SH-007 — Drifting clouds 🟢 *(EN-005 procedural sky SHIPPED — blocker cleared, low priority)*
+## SH-007 — Drifting clouds ✅ *(shipped 2026-07-12 as EN-040)*
 
-The Hillaire sky has no clouds; a slow scrolling cloud layer (noise
-or panorama sample) in the sky pass restores the "alive sky" the
-cloud-shadow ground layer already implies.
+> **Shipped — and the ticket had it backwards.** The premise was "the sky has no
+> clouds, but the ground already has cloud shadows." By the time we got here the
+> engine HAD grown a procedural cloud layer, so the real defect was that the two
+> had never been reconciled:
+>
+> - the sky's puffs were fBm on a plane pinned to the **camera**, so they slid
+>   along with the player instead of hanging over the world;
+> - the ground's shadow was a **different** noise field entirely, drifting ~80x
+>   faster (20 m/s against the sky's 0.25);
+> - and only the materials carrying a private copy of the ground function
+>   darkened at all — grass and terrain each had one, and the **forest standing in
+>   that grass had none**. A cloud shadow crossed the field and ignored the trees.
+>
+> Now there is one field (`common/clouds.wgsl`), in world space, shared by the sky
+> that draws the clouds and the ground that takes their shadow. Look up at a
+> cloud, and the shadow you are standing in is its shadow.
+>
+> Deck height and feature scale are **coupled** — sky puff size = `(deck − eye) ×
+> scale` — so they are not free knobs. `setCloudShadows(0.45, 150, 0.008, 6)` is
+> the pair that keeps the sky reading as it always has while making the shadows
+> arena-scale. The dead `tree.wgsl` (superseded by the leaf-card cached path in
+> round 5) was deleted rather than ported.
 
 ---
 

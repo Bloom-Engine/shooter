@@ -27,6 +27,7 @@ import {
   beginMode2DRaw,
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
+  setCloudShadows,
   setTaaEnabled, setRenderScale,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
@@ -221,6 +222,21 @@ setSunShafts(0.18, 0.90, 1.0, 0.95, 0.7);
 //   amp         â€” peak displacement at full tip weight (~0.10 m for grass)
 //   freq        â€” Hz; ~1 = lazy breeze, ~3 = gusty
 setWind(0.85, 0.50, 0.10, 1.6);
+// EN-040 â€” opt the world into the cloud deck the sky is already drawing, so a
+// shadow crossing the field has a cloud above it. Before this, the sky, the
+// grass and the terrain each carried a private noise field: the ground darkened
+// under clouds that were not there, drifting ~80x faster than the ones that
+// were, and the forest standing in that grass ignored the whole business.
+//
+// Strength 0.45 = a shadowed surface keeps a bit over half its direct sun. The
+// deck drifts downwind of setWind() above, so the clouds travel the way the
+// grass is leaning. Deck height and feature scale are deliberately NOT free
+// knobs â€” they set the size of the cloud and of its shadow at the same time.
+// Deck at 150 m with 125 m puffs: the two are COUPLED (sky puff size =
+// (deck - eye) x scale), so this pair is what keeps the sky reading the way it
+// always has while making the shadows arena-scale -- one or two crossing the
+// field rather than one blanket over all of it.
+setCloudShadows(0.45, 150, 0.008, 6);
 // TAA + TSR reconstruction. Setting the scale explicitly opts out of the
 // legacy TAA coupling (which would otherwise silently halve the internal
 // resolution). 0.5 at 4K output = 1920Ã—1080 internal, reconstructed to
@@ -4019,6 +4035,11 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
+
+
+
 
 
 

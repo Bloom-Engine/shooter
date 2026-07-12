@@ -20,6 +20,7 @@
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
 #include "common/shadows.wgsl"
+#include "common/clouds.wgsl"
 
 struct TerrainParams {
   // Per-layer tint, so the palette stays tunable without regenerating art.
@@ -190,9 +191,11 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let sun_dir = normalize(view.sun_dir.xyz);
   let n_dot_l = max(dot(nrm, sun_dir), 0.0);
 
-  // Cloud shadows — large-scale scrolling noise, drifting with the wind.
-  let cp = p.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
-  let cloud = mix(0.55, 1.0, smoothstep(0.35, 0.78, fbm2(cp)));
+  // Cloud shadows — from the engine's shared deck (common/clouds.wgsl), the
+  // same field the sky pass draws its puffs from. This used to be a private
+  // fbm2 scroll: it darkened the ground under clouds that were not in the sky
+  // above it, and it drifted ~80x faster than the ones that were.
+  let cloud = cloud_shadow_at(p, sun_dir, frame.wind.xy, frame.time, frame.cloud);
 
   // Shadow receive uses the GEOMETRIC normal: the normal-offset bias is a
   // surface-position correction, and feeding it a texture-perturbed normal

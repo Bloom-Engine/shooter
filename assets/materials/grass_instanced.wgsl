@@ -20,6 +20,7 @@
 
 #include "material_abi.wgsl"
 #include "common/shadows.wgsl"
+#include "common/clouds.wgsl"
 #include "common/pbr.wgsl"
 
 struct GrassParams {
@@ -122,21 +123,6 @@ fn vs_main(in: InstancedVertexInput) -> VsOut {
   return out;
 }
 
-// Drifting cloud-shadow noise — same as terrain.wgsl / tree.wgsl
-// so all ground materials share the same overcast pattern.
-fn cloud_shadow(world_xz: vec2<f32>, t: f32) -> f32 {
-  let p = world_xz * 0.025 + vec2<f32>(t * 0.5, t * 0.15);
-  let i = floor(p);
-  let f = fract(p);
-  let h00 = fract(sin(dot(i,                       vec2<f32>(127.1, 311.7))) * 43758.5453);
-  let h10 = fract(sin(dot(i + vec2<f32>(1.0, 0.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
-  let h01 = fract(sin(dot(i + vec2<f32>(0.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
-  let h11 = fract(sin(dot(i + vec2<f32>(1.0, 1.0), vec2<f32>(127.1, 311.7))) * 43758.5453);
-  let u  = f * f * (3.0 - 2.0 * f);
-  let nz = mix(mix(h00, h10, u.x), mix(h01, h11, u.x), u.y);
-  return mix(0.55, 1.0, smoothstep(0.35, 0.78, nz));
-}
-
 @fragment
 fn fs_main(in: VsOut) -> OpaqueOut {
   let n = normalize(in.world_normal);
@@ -155,7 +141,13 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let trans = pow(back, 2.0) * pow(view_align, 1.5);
 
   // Cloud + cascade sun shadow (EN-016).
-  let cloud  = cloud_shadow(in.world_pos.xz, frame.time);
+  //
+  // The cloud term now comes from the engine's shared deck (common/clouds.wgsl)
+  // — the same field the sky pass draws its puffs from — instead of the private
+  // fast-scrolling noise that used to live here. The old one darkened the grass
+  // under clouds that were not there, while the terrain the grass grows out of
+  // and the trees standing in it ignored the whole business.
+  let cloud  = cloud_shadow_at(in.world_pos, l, frame.wind.xy, frame.time, frame.cloud);
   let shadow = sample_sun_shadow(in.world_pos);
   let direct = view.sun_color.rgb * direct_w * cloud * shadow;
 
