@@ -35,3 +35,6 @@ main.pdb
 
 # F12 native screenshots (debug captures)
 screenshot_*.png
+
+# Editor scratch state (recent projects, layout)
+.bloom-editor/
