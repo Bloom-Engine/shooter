@@ -27,7 +27,7 @@ or a design decision
 | 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped, incl. SH-031 ragdolls (EN-025) |
 | 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
 | 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select and SH-042 (4 weapons + 7 enemy kinds, 2 of them RANGED) |
-| 4 | Visual backlog | SH-007, SH-009, SH-010, SH-013, SH-014, SH-020 ✅ · SH-011, SH-023 ⏳ · SH-024 blocked (EN-015) | ✅ splat terrain, coherent cloud deck (EN-040), hierarchical foliage wind (EN-041) |
+| 4 | Visual backlog | ✅ **CLOSED** — SH-007/009/010/011/013/014/020 shipped; SH-023/024 won't-do (reasoned) | splat terrain, coherent cloud deck (EN-040), hierarchical foliage wind (EN-041), 40k grass |
 | 5 | Production tooling | SH-044 ✅ + editor PLAN items ⏳ | ✅ asset ingest scripted + cross-platform; editor items are in `../editor` |
 
 > **Round-1 results (2026-07-12):** see [`docs/aaa-round-1.md`](aaa-round-1.md).
@@ -794,12 +794,23 @@ Lands right after SH-009's binding pattern.
 
 ---
 
-## SH-011 — Grass density LOD ⏳ *(remainder only — shading shipped)*
+## SH-011 — Grass density LOD ✅ *(shipped 2026-07-12 — but not the way the ticket said)*
 
-Wrap-lambert, transmission, and shadow receive shipped with SH-021.
-Remaining: ring-based density (2× inside 12 m, 1× 12–25 m, fade
-25–40 m) — engine grass-tile culling (aeb3228) makes this a
-scatter-time bucketing change only.
+> **Measured, and the ticket's plan was wrong.** It asked for player-following
+> density *rings* (2× inside 12 m, fading out by 40 m), and claimed the engine's
+> grass-tile culling made that "a scatter-time bucketing change only". It doesn't:
+> rings follow the **camera**, and these 20k instances are **static**. A ring would
+> mean re-scattering and re-uploading 20k × 9 floats every frame — which the perf
+> audit would flag the same week.
+>
+> What the tile culling *does* buy is that off-screen grass is already free. So the
+> answer is simply more grass: **20k → 40k costs one fps** (34 → 33 on the 760M at
+> 4K/TSR), and the field finally reads as grass rather than as tufts on a green
+> carpet.
+>
+> 70k was measured too: still 33 fps, but **no denser to look at** — past ~40k the
+> scatter saturates against its own keep-outs, so the limit is the scatter, not the
+> GPU. There is no reason to pay for instances that never get placed.
 
 ---
 
@@ -871,19 +882,38 @@ cutout bucket.
 
 ---
 
-## SH-023 — Adopt foliage shading model 🟡 *(EN-012 selector exists — verify then port)*
+## SH-023 — Adopt foliage shading model ❌ *won't-do (verified 2026-07-12)*
 
-The engine's material system now carries a shading-model selector
-with a foliage branch (`material_system.rs`); once its coverage is
-confirmed, port grass/tree materials to `shading_model: foliage`
-declarations and delete ~30 lines of bespoke lighting from each.
+> The ticket said "verify then port". **The verification says don't port.**
+>
+> The engine's `shade_foliage` is explicitly a V1 and it is *less* capable than
+> what `grass_instanced.wgsl` already does:
+>
+> - its transmission is `pow(V·−L, 4)` alone — it **drops the `dot(−N, L)` term**,
+>   i.e. it does not actually check whether the sun is *behind the leaf*. Ours
+>   gates on exactly that (`pow(back,2) · pow(view_align,1.5)`), which is the whole
+>   reason the backlit grass reads right;
+> - it excludes **ambient / IBL / specular** by its own documented V1 limitation, so
+>   the material has to supply those anyway;
+> - everything else in our shader — cascade shadow, cloud deck, root→tip gradient,
+>   distance anti-grit — is untouched by it either way.
+>
+> So the port would make the grass look *worse* and delete about six lines. Revisit
+> if the engine's foliage model reaches a V2 that carries ambient and a real
+> transmission gate. The tree material that this ticket also named no longer exists
+> (`tree.wgsl` was deleted with SH-007 — the forest is cached leaf-card models).
 
 ---
 
-## SH-024 — Imposter LOD for distant trees 🟡 *(gated on EN-015)*
+## SH-024 — Imposter LOD for distant trees ❌ *won't-do at this scale (2026-07-12)*
 
-Octahedral imposters for the 4 tree variants; swap beyond 40 m.
-Only matters at > 500 trees — keep last.
+> Still gated on EN-015, and the ticket's own note is the reason to close it: it
+> "only matters at > 500 trees". The arena has **88**, and the forest is not the
+> frame-time problem — the perf audit put the cost in shadows and unculled
+> non-scene-node draws, and the tree draws are cascade-culled now. Building an
+> octahedral imposter pipeline to LOD out 88 trees would be effort spent where the
+> measurement says there is nothing to win. Reopen if an arena ever gets a real
+> forest.
 
 ---
 

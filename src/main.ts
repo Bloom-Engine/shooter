@@ -781,7 +781,21 @@ function moistureNoise(x: number, z: number): number {
 // scale, tint.rgba). Same RNG / heightmap / rejection logic as the
 // old baked-mesh path; deterministic given the seed so screenshot
 // diffs stay stable.
-const GRASS_INSTANCE_COUNT_MAX = 20000;
+// SH-011 - density LOD, measured. 20k -> 40k costs ONE fps (34 -> 33): the
+// engine's grass-tile culling (aeb3228) already throws away everything off-screen,
+// so near-field density is close to free and the field finally reads as grass
+// rather than as tufts on a green carpet.
+//
+// The ticket asked for player-following density RINGS. That does not work here:
+// the rings follow the camera but these instances are STATIC, so a ring would mean
+// re-scattering and re-uploading 20k x 9 floats every frame -- which the perf audit
+// would flag the same day. Raising the uniform density gets the same look for a
+// one-off cost.
+//
+// 70k was also measured: still 33 fps, but no denser to look at. Past ~40k the
+// scatter saturates against its keep-outs, so the limit here is the scatter, not
+// the GPU. No reason to pay for instances that never get placed.
+const GRASS_INSTANCE_COUNT_MAX = 40000;
 const GRASS_INSTANCE_FLOATS    = 9;
 const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
 let GRASS_INSTANCE_COUNT = 0;
@@ -4054,6 +4068,8 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
 
 
 
