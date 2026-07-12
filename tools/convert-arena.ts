@@ -4,11 +4,12 @@
 // surface reads as "industrial hallway" instead of stretched-to-fit.
 //
 // Source textures are pulled from the Unvanquished tex-tech_src pack and
-// downscaled to 512×512 via `sips`.
+// downscaled to 512×512 via ffmpeg.
 //
 // Run with:  bun tools/convert-arena.ts   (from the shooter repo root)
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { resizeMax } from './imgutil';
 import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
 
@@ -106,8 +107,7 @@ function align4(n: number): number { return (n + 3) & ~3; }
 
 function resizeTexture(src: string, cachePath: string): Uint8Array {
   mkdirSync(dirname(cachePath), { recursive: true });
-  execSync(`sips --resampleHeightWidthMax ${TEX_MAX} "${src}" --out "${cachePath}"`,
-           { stdio: 'pipe' });
+  resizeMax(src, cachePath, TEX_MAX);
   return new Uint8Array(readFileSync(cachePath));
 }
 

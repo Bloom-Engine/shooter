@@ -5,7 +5,8 @@
   "scripts": {
     "convert": "bun tools/convert-assets.ts",
     "props": "bun tools/build-props.ts && bun tools/build-terrain.ts",
-    "assets": "bun tools/build-props.ts && bun tools/build-terrain.ts",
+    "assets": "bun tools/build-props.ts && bun tools/build-terrain.ts && bun tools/build-weapons.ts && bun tools/build-vfx-textures.ts && bun tools/build-terrain-textures.ts",
+    "audio": "bun tools/convert-audio.ts",
     "build": "perry compile src/main.ts -o main",
     "dev": "perry compile src/main.ts -o main && ./main"
   },

@@ -20,6 +20,7 @@
 // Run with:  bun tools/build-props.ts   (from the shooter repo root)
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { resizeMax } from './imgutil';
 import { execSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { encodePng, decodePng, leafTexture, barkTexture, grassBladeTexture, flowerTexture,
@@ -439,8 +440,7 @@ function resolveTexture(key: string): Uint8Array {
   }
   mkdirSync(CACHE, { recursive: true });
   const cache = CACHE + '/prop_tex_' + key + '.png';
-  execSync(`sips --resampleHeightWidthMax ${TEX_MAX} "${spec.srcPath}" --out "${cache}"`,
-           { stdio: 'pipe' });
+  resizeMax(spec.srcPath, cache, TEX_MAX);
   return new Uint8Array(readFileSync(cache));
 }
 
@@ -963,7 +963,7 @@ function writeGlb(outPath: string, mesh: Mesh): void {
 
 // The tree is fully procedural (leaf + bark textures generated here), so it
 // always regenerates. The remaining props bake Unvanquished tex-tech sources
-// (vendor/, gitignored) via macOS `sips`; only regenerate those when the source
+// (vendor/, gitignored) via ffmpeg (SH-044; was macOS-only `sips`); only regenerate those when the source
 // tree is present, so a tree-only rebuild on a fresh/Windows checkout doesn't
 // strip the committed textures from the other props.
 // All props build unconditionally now: stone/wood/metal/floor have procedural
@@ -1012,7 +1012,6 @@ function makeCalibRig(): Mesh {
 writeGlb('assets/models/prop_tree.glb',      makeTree(90187, 3.0, 1.0,  'leaf'));   // sycamore
 writeGlb('assets/models/prop_tree2.glb',     makeTree(41627, 3.9, 0.85, 'leaf2'));  // robinia
 writeGlb('assets/models/prop_tree3.glb',     makeTree(77321, 2.5, 1.3,  'leaf3'));  // sycamore mix
-writeGlb('assets/models/calib_rig.glb',      makeCalibRig());
 writeGlb('assets/models/prop_grasstuft.glb', makeGrassTuft());
 writeGlb('assets/models/prop_flower.glb',    makeFlowerTuft());
 writeGlb('assets/models/prop_crate.glb',     makeCrate());
@@ -1022,4 +1021,16 @@ writeGlb('assets/models/prop_chair.glb',     makeChair());
 writeGlb('assets/models/prop_bed.glb',       makeBed());
 writeGlb('assets/models/building_wall.glb',  makeBuildingWall());
 writeGlb('assets/models/building_floor.glb', makeBuildingFloor());
-writeGlb('assets/models/house.glb',          makeHouse('assets/worlds/arena_02.world.json'));
+
+// SH-026 — `house.glb` (1.4 MB, 45 prims / 45 materials) and `calib_rig.glb`
+// (593 KB) are no longer emitted. Nothing in the game loads them: the building
+// is drawn from the world's collider boxes through the stone material, and the
+// calibration rig was a one-off for the round-2 lighting work.
+//
+// Deleting the FILES alone would not have been enough — this tool would simply
+// re-create them on the next run and leave the tree dirty. Dead output has to
+// stop being produced, not just be swept up.
+//
+// `makeHouse()` / `makeCalibRig()` are kept below: makeHouse still documents how
+// to bake the world's building-tagged boxes into one GLB, which is the obvious
+// starting point if the building ever needs to become a real authored mesh.

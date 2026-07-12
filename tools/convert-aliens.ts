@@ -2,7 +2,7 @@
 //
 // Parses each IQE, splits into sub-meshes per material, writes a glTF 2.0
 // .glb with one primitive per sub-mesh. Diffuse textures are downscaled
-// via macOS `sips` and embedded. Y-up axis swap + triangle rewind are
+// via ffmpeg (SH-044; was macOS-only `sips`) and embedded. Y-up axis swap + triangle rewind are
 // applied to convert from Quake's Z-up to glTF's Y-up.
 //
 // Static T-pose only — skinning, bones, and animation are ignored.
@@ -10,6 +10,7 @@
 // Run with:  bun tools/convert-aliens.ts   (from the shooter repo root)
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { resizeMax } from './imgutil';
 import { execSync } from 'node:child_process';
 import { basename, dirname } from 'node:path';
 
@@ -131,8 +132,7 @@ function resolveTexture(iqeDir: string, material: string): string {
 
 function resizeTexture(src: string, cachePath: string): Buffer {
   mkdirSync(dirname(cachePath), { recursive: true });
-  execSync(`sips --resampleHeightWidthMax ${TEX_MAX} "${src}" --out "${cachePath}"`,
-           { stdio: 'pipe' });
+  resizeMax(src, cachePath, TEX_MAX);
   return readFileSync(cachePath);
 }
 

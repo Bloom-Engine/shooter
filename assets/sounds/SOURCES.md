@@ -1,9 +1,20 @@
 # Sound sources
 
 All files converted to 16-bit mono 44.1 kHz WAV (the engine's `parse_wav`
-decodes 8/16-bit PCM only). Conversion: ffmpeg, no processing beyond
-downmix/bit-depth (`tools` has no audio step — regenerate by hand if
-sources change).
+decodes 8/16-bit PCM only). Mono because anything positional must not carry
+baked-in panning that would fight `playSound3D`'s listener.
+
+**Conversion is scripted (SH-044):**
+
+```
+bun tools/convert-audio.ts           # convert whatever is missing
+bun tools/convert-audio.ts --force   # re-cut everything
+bun tools/convert-audio.ts --list    # show what is missing and from where
+```
+
+The manifest inside that tool IS the mapping — the table below mirrors it for
+reading. It used to say "regenerate by hand if sources change", which meant the
+42-file set was unreproducible: the flags lived in someone's shell history.
 
 ## Unvanquished legacy assets (GPL-compatible, same line as our models)
 
