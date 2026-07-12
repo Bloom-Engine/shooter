@@ -37,3 +37,47 @@ today, it just sounds/looks better once you replace them.
 > and fell back to no sound. A system that looks done and makes no noise is the
 > worst state for a feature to sit in. These make it audible today and cost nothing
 > to replace tomorrow.
+
+## Models
+
+| # | Item | Status | Notes |
+|---|---|---|---|
+| M1 | Weapon models (rifle, blaster, chaingun, lucifer cannon) | ✅ | **Real Unvanquished art.** `tools/convert-weapons.ts` converts the MD3 third-person meshes with their textures. NB `<weapon>_hand.md3` is a trap — it parses fine and has zero surfaces, because it is a tag-only attachment model; the mesh is `tpweapon.md3` (and `chaingun_thirdperson.md3` for the odd one out). |
+| M2 | Two new enemy kinds | ✅ | **Advanced marauder + advanced dragoon** — Unvanquished's upgrade classes, which are the base rigs wearing `body_adv.skin`. `convert-aliens-anim.ts` honours `.skin` files, so they cost two table rows and no new art. Both are RANGED, which is the point (SH-042). |
+| M3 | A third arena | 🔵 | **Not an art job — an authoring job, in the editor.** SH-040's pipeline is done and the level select is live, but only `arena_01` and `arena_02` exist and SH-040 asked for three. A new arena is world-file + one manifest line; no game code changes. It is also the acceptance test for the whole editor pipeline. |
+
+## Textures
+
+| # | Item | Status | Notes |
+|---|---|---|---|
+| T1 | 4× terrain PBR sets (grass / dry grass / dirt / rock) | 🟡 | **Generated procedurally** (`tools/build-terrain-textures.ts`). SH-009's splat terrain is shipped and reads as real material at range; the layers are synthesised, not photographed. Real CC0 sets (Poly Haven) are a drop-in file swap. Note the tuning trap recorded in the generator: the first pass came out saturated emerald and undid round-4's de-cartoonification — keep them olive. |
+| T2 | Particle textures (smoke, spark, droplet, flash, dust, shell) | 🟡 | **Generated procedurally** (`tools/build-vfx-textures.ts`) as one PNG per effect — texture-array *layers*, not an atlas, so no UV math and no bleed. Hand-authored or photographic art is a file swap. |
+| T3 | Decal textures (bullet hole, scorch, blood splat, crater) | 🟡 | Same. The blood splat in particular would benefit from real art. |
+
+## Decisions for you
+
+| # | Question | Why it needs you |
+|---|---|---|
+| ~~D1~~ | ~~Clone the `vendor/unvanquished` submodules?~~ | ✅ **Done.** Shallow-cloned and initialised only `res-players`, `res-weapons`, `res-legacy`. Unblocked M1 and M2. |
+| ~~D2~~ | ~~Ship target: 60 fps at 4K, or 60 fps at 1440p?~~ | ✅ **Answered by making it not our decision.** Engine EN-046 added an output-scale knob and SH-045 put it in the settings screen. The player picks: native 4K ≈ 53 fps in combat, or **0.8 → a locked 60**. |
+| **D4** | **Default display resolution: 1.0 or 0.8?** | The one live question. It currently ships at **1.0** — the game looks its best out of the box and the slider is right there — which means a fresh install runs ~53 fps in combat when 0.8 would give a locked 60. Defaulting to 0.8 is entirely defensible; I did not want to quietly downscale your display without asking. One line. |
+| D3 | Is GPLv3 still the licence you want? | Only binding while Unvanquished assets ship. If the procedural stand-ins ever fully replace them, the project could relicense. |
+
+---
+
+## What is NOT blocked on you
+
+Purely-software work still open — i.e. what I would pick up next, in order:
+
+- **Editor: prefab authoring UI** (`../editor/PLAN.md` §E). `prefab-tool.ts` is fully
+  written — create/save/add-child — with **zero UI entry points**, and the shooter has
+  zero prefabs. Biggest content-throughput multiplier available.
+- **Editor: terrain painting** (PLAN §D). SH-009's splat weights are authored nowhere.
+- **Editor: play-in-editor** — save to a temp world, shell out to the game with that
+  path. SH-040 already made the world path a parameter, so this is cheap.
+- **EN-038** — `takeScreenshot()` writes no file on Windows. Its original *diagnosis*
+  is void (see docs/tickets.md), so it needs re-diagnosing with a file-write probe,
+  not a print.
+- **EN-039** — immediate-mode draws cannot pitch, so the gun cannot tilt with the aim.
+- **EN-033** — bone-socket query, for SH-027's v2 weapon attach (weapon rides the hand
+  bone through walk/run/attack instead of a fixed offset).
