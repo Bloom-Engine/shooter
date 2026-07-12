@@ -397,6 +397,10 @@ for (let i = 0; i < treeVariants.length; i++) setModelFoliageWind(treeVariants[i
 setFoliageShadowMotion(FOLIAGE_SHADOW_MOTION);
 // All tree GLBs are 4 primitives: trunk + 2 branch stubs + leaf cards.
 const TREE_GLB_PARTS = 4;
+// Front-to-back draw order for the forest (see the draw loop). Flat arrays,
+// Perry convention — allocated once, rewritten each frame.
+const FOREST_D = new Array<number>(W.FOREST_COUNT);
+const FOREST_ORD = new Array<number>(W.FOREST_COUNT);
 
 // The forest, read from the world file. Each tree is an entity (kind
 // `prop_tree`), so it can be moved, retinted, deleted, or added in the editor â€”
@@ -3099,7 +3103,37 @@ while (!windowShouldClose()) {
   // gives dappled shadows, and the planar probe reflects them in
   // the river. Per-tree yaw + subtle whole-model hue jitter keep
   // the three variants from reading as copy-paste.
+  //
+  // DRAWN FRONT-TO-BACK. This is worth 5 ms and it is not obvious why.
+  //
+  // The canopies are alpha-CUTOUT, and a shader with `discard` cannot early-Z
+  // *write* — so the GPU shades every leaf fragment before it knows whether the
+  // pixel survives. It can still early-Z *test*, though. Draw the near trees first
+  // and their depth is already in the buffer when the far ones come through, so the
+  // far leaves get rejected before they ever run the 5-target MRT fragment shader.
+  // Draw them in world order (as we did) and the rejection never happens: the
+  // canopies overlap several deep and every layer pays in full.
+  //
+  // 88 elements, insertion sort, once a frame — the cost is nothing and the win is
+  // most of main_hdr_pass.
   for (let i = 0; i < FOREST_COUNT; i++) {
+    const dx = FOREST_X[i] - CAM[2];
+    const dz = FOREST_Z[i] - CAM[4];
+    FOREST_D[i] = dx * dx + dz * dz;
+    FOREST_ORD[i] = i;
+  }
+  for (let a = 1; a < FOREST_COUNT; a++) {
+    const key = FOREST_ORD[a];
+    const kd = FOREST_D[key];
+    let b = a - 1;
+    while (b >= 0 && FOREST_D[FOREST_ORD[b]] > kd) {
+      FOREST_ORD[b + 1] = FOREST_ORD[b];
+      b--;
+    }
+    FOREST_ORD[b + 1] = key;
+  }
+  for (let n = 0; n < FOREST_COUNT; n++) {
+    const i = FOREST_ORD[n];
     const pos = vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]);
     const v = treeVariants[FOREST_VAR[i]];
     const tint = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
@@ -3835,6 +3869,14 @@ while (!windowShouldClose()) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
+
+
+
+
+
+
 
 
 

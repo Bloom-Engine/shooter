@@ -296,3 +296,43 @@ because it had silently deleted every shadow (EN-042). The first cut of EN-043
 measured 42 fps because a key collision made all 88 trees dynamic and dropped every
 shadow again. **On this renderer, always confirm a shadow/perf win with a
 screenshot.**
+
+
+### Round 3, part 2 — the forest was the whole frame
+
+With the shadow cache fixed (EN-043) the title sat at 44.7 fps. Bisecting by simply
+not drawing the forest was decisive:
+
+| | with forest | forest off |
+|---|---|---|
+| `main_hdr_pass` GPU | 7.4 ms | **1.8 ms** |
+| title screen | 46.7 fps | **60.0 (vsync cap)** |
+
+**88 trees were the entire remaining frame.** And not for the reason you would
+guess: they are only **880 triangles each** (77k total — nothing), and `rs0.25`
+(a *quarter* of the pixels) ran no faster than `rs0.5`. It was neither geometry
+volume nor plain pixel count. It was **overdraw that could not be rejected**: the
+scene shader can `discard` for alpha-cutout leaves, and a discarding shader cannot
+early-Z write, so every overlapping leaf card shaded the full 5-target MRT and threw
+it away.
+
+Two fixes, in order of cost:
+
+1. **Draw the forest front-to-back** (game side, ~20 lines). A discarding shader
+   still early-Z *tests*, so the near trees' depth rejects the far ones' leaves —
+   but only if the near trees are drawn first. In world order, that never happened.
+   **main_hdr 7.43 → 6.11 ms, title 46.7 → 49.9 fps.**
+2. **Depth prepass** (engine EN-044). Prime depth, then draw with depth writes OFF
+   so the hardware can early-Z reject. **main_hdr → 2.14 ms, title → 56.6 fps.**
+
+## Round 3 totals
+
+| | before | after |
+|---|---|---|
+| `shadow_pass` GPU | 6954 µs | **142 µs** |
+| `main_hdr_pass` GPU | 7430 µs | **2144 µs** |
+| title screen | **33.5 fps** | **56.6 fps** |
+| gameplay | ~33 fps | ~40 fps |
+
+Remaining, for a future round: `material_pass` (1.9 ms — terrain/grass/water), and
+the fixed 4K output tail (TSR + composite), which is why `rs0.25` buys nothing.
