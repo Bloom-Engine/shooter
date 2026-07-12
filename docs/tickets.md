@@ -23,12 +23,12 @@ or a design decision
 
 | Round | Theme | Tickets | Status |
 |---|---|---|---|
-| 0 | Architecture (prereq for everything) | SH-025, SH-005, SH-026 | ⏳ not done — see note |
+| 0 | Architecture | SH-025, SH-005, SH-026 | ✅ SH-005 + SH-026 done; SH-025 partial (see note) |
 | 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped (SH-031 ragdolls pending EN-025) |
 | 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ code shipped; asset-blocked |
-| 3 | Game structure & content | SH-037..SH-043 | ✅ mostly; SH-040 + 2 enemy kinds open |
-| 4 | Visual backlog (kept from the UE5-tier roadmap) | SH-009, SH-010, SH-011, SH-013, SH-014, SH-020, SH-023, SH-024, SH-007 | ⏳ not started |
-| 5 | Production tooling | SH-044 + editor PLAN items | ⏳ not started |
+| 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select; 2 enemy kinds asset-blocked |
+| 4 | Visual backlog | SH-009, SH-010 ✅ · SH-011, SH-013, SH-014, SH-020, SH-023, SH-024, SH-007 ⏳ | ✅ splat terrain (the big one) shipped; foliage/water polish open |
+| 5 | Production tooling | SH-044 ✅ + editor PLAN items ⏳ | ✅ asset ingest scripted + cross-platform; editor items are in `../editor` |
 
 > **Round-1 results (2026-07-12):** see [`docs/aaa-round-1.md`](aaa-round-1.md).
 > Round 0 was deliberately deferred: the new systems went into their own modules
@@ -84,7 +84,25 @@ inline.
 
 ---
 
-## SH-025 — Split `main.ts` into modules 🟢
+## SH-025 — Split `main.ts` into modules 🟢 *(partially done)*
+
+> **Status 2026-07-12.** Everything NEW went into its own module — `feel.ts`,
+> `vfx.ts`, `weapons.ts`, `menu.ts`, `settings.ts`, `score.ts`, `audio-mix.ts`,
+> `terrain.ts` — and the ~600 lines of inline WGSL are gone (SH-005), so
+> `main.ts` came down from 4,024 to ~3,460 lines despite the round adding a
+> large amount of behaviour.
+>
+> What remains is the **enemy system** (kind tables, pool, per-kind AI state
+> machines, damage, draw) and the game loop itself. That extraction is a
+> mechanical rename across ~300 array references, and it deserves to be its own
+> change with its own verification pass rather than being bolted onto the tail
+> of a feature round — the risk of quietly breaking a verified game is real and
+> the payoff is maintainability, not behaviour.
+>
+> The original *motivation* — "gameplay work multiplies LOC, do this first so
+> the feel round doesn't collide" — is now moot: the feel round is landed. What
+> is left is the ordinary case for good structure, and it should be scheduled as
+> such.
 
 **Why:** `main.ts` is ~3,200 LOC: audio setup, physics colliders,
 water/grass/glass/building mesh+material construction, enemy tables +

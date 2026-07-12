@@ -67,6 +67,7 @@ import { initMenus, menuOpen, openPause, closeMenu, updateMenu, drawMenu, MENU_N
 // Terrain comes from the same world file as everything else now; `T` is kept as
 // an alias so the height-sampling call sites read the same as they always have.
 import * as T from './world-runtime';
+import { terrainHeightAt } from './terrain';
 
 // Borderless fullscreen at the monitor's native resolution (the engine
 // resizes its swapchain + all render targets on the WM_SIZE this triggers).
@@ -1179,35 +1180,6 @@ let waveBreakTimer = WAVE_BREAK_DELAY;
 let spawnTimer = 0;
 let gameWon = false;
 
-// Bilinear terrain height at a world XZ, sampled from the same
-// heightfield grid the Jolt collider uses. Enemies are kinematic and
-// steered in XZ only â€” without this they kept their spawn height and
-// walked straight INTO hills (attacking the player "from inside the
-// ground"). Clamps to the grid edge outside the covered area.
-function terrainHeightAt(x: number, z: number): number {
-  const n = T.TERRAIN_SAMPLE_COUNT;
-  // A world with no terrain block (a pre-schema-v2 file, or one authored
-  // without sculpting) would otherwise index an empty array and hand back NaN —
-  // which then propagates into every enemy position and every scatter, and
-  // shows up as the entire game silently vanishing rather than as an error.
-  // Flat ground is a survivable answer; NaN is not.
-  if (n < 2) return 0;
-  const fx = (x - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
-  const fz = (z - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
-  const cx = fx < 0 ? 0 : (fx > n - 1.001 ? n - 1.001 : fx);
-  const cz = fz < 0 ? 0 : (fz > n - 1.001 ? n - 1.001 : fz);
-  const x0 = Math.floor(cx);
-  const z0 = Math.floor(cz);
-  const tx = cx - x0;
-  const tz = cz - z0;
-  const h00 = T.TERRAIN_HEIGHTS[z0 * n + x0];
-  const h10 = T.TERRAIN_HEIGHTS[z0 * n + x0 + 1];
-  const h01 = T.TERRAIN_HEIGHTS[(z0 + 1) * n + x0];
-  const h11 = T.TERRAIN_HEIGHTS[(z0 + 1) * n + x0 + 1];
-  const h0 = h00 + (h10 - h00) * tx;
-  const h1 = h01 + (h11 - h01) * tx;
-  return T.TERRAIN_ORIGIN_Y + h0 + (h1 - h0) * tz;
-}
 
 // Shortest-arc turn toward a target yaw, clamped to maxStep radians.
 // Keeps enemy headings continuous so models wheel around instead of
