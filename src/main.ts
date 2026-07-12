@@ -89,7 +89,7 @@ import * as WPN from './weapons';
 import * as MIX from './audio-mix';
 import * as SET from './settings';
 import * as SCORE from './score';
-import { initMenus, menuOpen, openPause, closeMenu, updateMenu, drawMenu, MENU_NONE } from './menu';
+import { initMenus, menuOpen, openPause, closeMenu, updateMenu, drawMenu, MENU_NONE, applyGraphicsSettings } from './menu';
 // Terrain comes from the same world file as everything else now; `T` is kept as
 // an alias so the height-sampling call sites read the same as they always have.
 import * as T from './world-runtime';
@@ -321,6 +321,19 @@ if (MOBILE) {
   // only sees when looking near the sun. Strength 0 is off.
   setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
 }
+
+// The player's graphics choices win over every default above.
+//
+// This is the last word on purpose: everything before it is what WE think the
+// game should look like on this class of hardware, and this line is where the
+// person actually looking at the screen overrules us. On a 4K display the two
+// resolution sliders are worth more than every other setting combined, and they
+// trade sharpness against frame rate in opposite directions — which of those a
+// player wants is not something a game gets to decide for them.
+//
+// (MOBILE keeps its own profile: a phone has no settings screen and no headroom
+// to give away.)
+if (!MOBILE) applyGraphicsSettings();
 
 // Static box colliders â€” invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -3870,6 +3883,9 @@ while (!windowShouldClose() && !aitestDone) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+
+
 
 
 

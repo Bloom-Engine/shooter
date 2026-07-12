@@ -28,7 +28,27 @@ export const SET_AIM_TOGGLE = 9;   // 0 = hold, 1 = toggle
 export const SET_SPRINT_TOGGLE = 10;
 export const SET_COLORBLIND = 11;  // 0/1 — shape+flash cues instead of colour only
 export const SET_CAPTIONS   = 12;  // 0/1 — telegraph captions
-export const SET_COUNT      = 13;
+// --- Graphics. The player's call, not ours. ---------------------------------
+//
+// On a 4K display the two scale knobs below are worth more than everything else
+// here put together, and they trade off against DIFFERENT things — so the game
+// has no business deciding for the person looking at the screen.
+//
+// SET_OUTPUT_SCALE shrinks the SWAPCHAIN. It is the only knob that touches the
+// fixed cost of the TSR upscale + final composite (measured 3.1 ms + 2.4 ms at
+// 4K), which the render scale does not affect at all. Costs overall sharpness,
+// HUD included.
+//
+// SET_RENDER_SCALE shrinks the G-BUFFER and everything drawn at render
+// resolution; TSR reconstructs up to the swapchain. Costs scene detail, but the
+// HUD and the final image stay at full output resolution.
+export const SET_OUTPUT_SCALE = 13;   // 0.5 .. 1.0 of native
+export const SET_SHADOWS    = 14;  // 0/1
+export const SET_SSAO       = 15;  // 0/1 — ambient occlusion
+export const SET_SSR        = 16;  // 0/1 — screen-space reflections
+export const SET_SSGI       = 17;  // 0/1 — global illumination
+export const SET_BLOOM      = 18;  // 0/1
+export const SET_COUNT      = 19;
 
 const V = new Array<number>(SET_COUNT);
 
@@ -51,6 +71,12 @@ function defaults(): void {
   V[SET_SPRINT_TOGGLE] = 0;
   V[SET_COLORBLIND] = 0;
   V[SET_CAPTIONS]   = 0;
+  V[SET_OUTPUT_SCALE] = 1.0;   // native — a fresh install shows the game at its best
+  V[SET_SHADOWS]    = 1;
+  V[SET_SSAO]       = 1;
+  V[SET_SSR]        = 1;
+  V[SET_SSGI]       = 1;
+  V[SET_BLOOM]      = 1;
   for (let i = 0; i < MAX_ARENAS; i++) best[i] = 0;
   M[0] = 0;
 }
@@ -83,8 +109,38 @@ function num(o: any, key: string, fallback: number): number {
 export function loadSettings(): void {
   defaults();
   if (!fileExists(PATH)) return;
-  const text = readFile(PATH);
+  let text = readFile(PATH);
   if (text === null || text === undefined || text.length < 2) return;
+
+  // A corrupt settings.json must not brick the game — and the comment above only
+  // became TRUE with this block. On Perry, `JSON.parse` on malformed input ABORTS
+  // the process; there is no exception to catch. So the file has to be vetted
+  // before it is handed over.
+  //
+  // The realistic corruption is a BOM. Anything that writes this file with a
+  // Windows text editor — or PowerShell's `Set-Content -Encoding utf8`, which
+  // silently prepends U+FEFF — kills the game on the next launch with
+  // "JSON parse error: expected value at line 1 column 1". The second is a
+  // truncated file, from a crash or a full disk mid-write.
+  //
+  // This is not a JSON validator and does not pretend to be. It converts the two
+  // corruptions that actually happen into a clean fall back to defaults.
+  let a0 = 0;
+  while (a0 < text.length) {
+    const c = text.charCodeAt(a0);
+    if (c === 0xfeff || c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) { a0 = a0 + 1; continue; }
+    break;
+  }
+  let b0 = text.length - 1;
+  while (b0 > a0) {
+    const c = text.charCodeAt(b0);
+    if (c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d) { b0 = b0 - 1; continue; }
+    break;
+  }
+  if (b0 <= a0) return;
+  text = text.substring(a0, b0 + 1);
+  // Must be a whole JSON object: starts with '{', ends with '}'.
+  if (text.charCodeAt(0) !== 0x7b || text.charCodeAt(text.length - 1) !== 0x7d) return;
 
   const o: any = JSON.parse(text);
   if (o === null || o === undefined) return;
@@ -104,6 +160,12 @@ export function loadSettings(): void {
   const vd: any = o['video'];
   V[SET_FOV]          = num(vd, 'fov',         V[SET_FOV]);
   V[SET_RENDER_SCALE] = num(vd, 'renderScale', V[SET_RENDER_SCALE]);
+  V[SET_OUTPUT_SCALE] = num(vd, 'outputScale', V[SET_OUTPUT_SCALE]);
+  V[SET_SHADOWS] = num(vd, 'shadows', V[SET_SHADOWS]);
+  V[SET_SSAO]    = num(vd, 'ssao', V[SET_SSAO]);
+  V[SET_SSR]     = num(vd, 'ssr', V[SET_SSR]);
+  V[SET_SSGI]    = num(vd, 'ssgi', V[SET_SSGI]);
+  V[SET_BLOOM]   = num(vd, 'bloom', V[SET_BLOOM]);
 
   const ac: any = o['access'];
   V[SET_SHAKE]      = num(ac, 'shake',      V[SET_SHAKE]);
@@ -130,7 +192,13 @@ export function saveSettings(): void {
         + ', "aimToggle": ' + V[SET_AIM_TOGGLE]
         + ', "sprintToggle": ' + V[SET_SPRINT_TOGGLE] + ' },\n';
   s = s + '  "video": { "fov": ' + V[SET_FOV]
-        + ', "renderScale": ' + V[SET_RENDER_SCALE] + ' },\n';
+        + ', "renderScale": ' + V[SET_RENDER_SCALE]
+        + ', "outputScale": ' + V[SET_OUTPUT_SCALE]
+        + ', "shadows": ' + V[SET_SHADOWS]
+        + ', "ssao": ' + V[SET_SSAO]
+        + ', "ssr": ' + V[SET_SSR]
+        + ', "ssgi": ' + V[SET_SSGI]
+        + ', "bloom": ' + V[SET_BLOOM] + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]
         + ', "colorblind": ' + V[SET_COLORBLIND]
         + ', "captions": ' + V[SET_CAPTIONS] + ' },\n';

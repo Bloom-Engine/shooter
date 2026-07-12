@@ -1025,3 +1025,41 @@ SH-042's content push multiplies all three frictions.
 **Acceptance:** fresh clone + vendor submodules + one command
 reproduces `assets/` byte-comparable (or documented-diff) on Windows
 and macOS; adding a new SFX is a manifest line, not a shell history.
+
+
+---
+
+## SH-045 — Graphics settings are the player's, not ours ✅ *(shipped 2026-07-12)*
+
+The game hardcoded its own graphics config and shipped `SET_RENDER_SCALE` in
+`settings.json` **without ever putting it in the menu**. Meanwhile, on a 4K display,
+the single most consequential decision about how this game feels — a sharp image or a
+locked frame rate — was being made by a constant in `main.ts`.
+
+The settings screen now carries a graphics block, and it comes **first**:
+
+| row | what it actually costs |
+|---|---|
+| **DISPLAY RESOLUTION** (engine EN-046) | the swapchain. The only knob that touches the fixed 4K tail (TSR upscale + final composite = 5.4 ms). **0.8 turns ~53 fps gameplay into a locked 60.** Costs overall sharpness, HUD included. |
+| **RENDER RESOLUTION** | the G-buffer; TSR reconstructs back up to the display. Costs scene detail; the HUD and the final image stay sharp. |
+| SHADOWS / AMBIENT OCCLUSION / REFLECTIONS / GLOBAL ILLUMINATION / BLOOM | ~0.1–0.6 ms each |
+
+Two resolution sliders rather than one "quality" number, because they trade against
+**different** things and a single number would have to lie about one of them. Both
+apply live, both persist, and `applyGraphicsSettings()` runs at boot *after* the
+hardcoded defaults, so the player's choice is the last word. (MOBILE keeps its own
+profile: a phone has no settings screen and no headroom to give away.)
+
+**Bug found and fixed on the way: a corrupt `settings.json` bricked the game.**
+SH-037 promised "missing/corrupt file → defaults, never a crash". It did not deliver:
+Perry's `JSON.parse` *aborts the process* on malformed input — there is no exception
+to catch — so the guard has to happen before the parse. The realistic corruption is a
+**BOM**: anything that writes the file with a Windows text editor (or PowerShell's
+`Set-Content -Encoding utf8`) prepends U+FEFF, and the game dies on next launch with
+`JSON parse error: expected value at line 1 column 1`. Which is exactly how this was
+found. The loader now strips leading BOM/whitespace and requires a whole `{...}`
+object before parsing.
+
+**Also fixed:** the menu title was nailed to `sh * 0.5 - 200` while the list is
+centred — so adding rows grew the list upward straight through it. The title is
+anchored to the top of the list now.

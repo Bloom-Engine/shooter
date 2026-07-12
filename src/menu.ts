@@ -16,6 +16,10 @@ import {
   isMouseButtonPressed, getMouseX, getMouseY,
   isGamepadAvailable, isGamepadButtonPressed, getGamepadAxis,
 } from 'bloom';
+import {
+  setOutputScale, setRenderScale, setShadowsEnabled,
+  setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
+} from 'bloom/core';
 import * as SET from './settings';
 import * as MIX from './audio-mix';
 import * as FEEL from './feel';
@@ -50,7 +54,17 @@ const A = [ACT_NONE];
 const PAUSE_LABELS = ['RESUME', 'SETTINGS', 'LEVEL SELECT', 'RESTART RUN', 'QUIT'];
 const PAUSE_COUNT = 5;
 
+// GRAPHICS rows come first: on a 4K display they are the difference between a
+// locked frame rate and a pretty one, and which of those a player wants is not
+// something this game gets to decide for them.
+//
+// DISPLAY RESOLUTION is the swapchain — the one knob that touches the fixed cost
+// of the upscale and the final composite. RENDER RESOLUTION is the G-buffer, which
+// TSR then reconstructs back up to the display. They cost different things, so
+// both are here rather than hidden behind one "quality" number that lies.
 const SET_LABELS: string[] = [
+  'DISPLAY RESOLUTION', 'RENDER RESOLUTION',
+  'SHADOWS', 'AMBIENT OCCLUSION', 'REFLECTIONS', 'GLOBAL ILLUMINATION', 'BLOOM',
   'MASTER VOLUME', 'MUSIC VOLUME', 'SFX VOLUME',
   'LOOK SENSITIVITY', 'PAD SENSITIVITY', 'INVERT Y',
   'FIELD OF VIEW', 'CAMERA SHAKE',
@@ -59,6 +73,8 @@ const SET_LABELS: string[] = [
   'BACK',
 ];
 const SET_KINDS: number[] = [
+  ROW_SLIDER, ROW_SLIDER,
+  ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE,
   ROW_SLIDER, ROW_SLIDER, ROW_SLIDER,
   ROW_SLIDER, ROW_SLIDER, ROW_TOGGLE,
   ROW_SLIDER, ROW_SLIDER,
@@ -67,6 +83,8 @@ const SET_KINDS: number[] = [
   ROW_ACTION,
 ];
 const SET_IDX: number[] = [
+  SET.SET_OUTPUT_SCALE, SET.SET_RENDER_SCALE,
+  SET.SET_SHADOWS, SET.SET_SSAO, SET.SET_SSR, SET.SET_SSGI, SET.SET_BLOOM,
   SET.SET_MASTER_VOL, SET.SET_MUSIC_VOL, SET.SET_SFX_VOL,
   SET.SET_SENS, SET.SET_PAD_SENS, SET.SET_INVERT_Y,
   SET.SET_FOV, SET.SET_SHAKE,
@@ -75,10 +93,33 @@ const SET_IDX: number[] = [
   -1,
 ];
 // min / max / step per row (ignored for toggles and actions).
-const SET_MIN:  number[] = [0, 0, 0, 0.2, 0.2, 0, 60, 0, 0, 0, 0, 0, 0];
-const SET_MAX:  number[] = [1, 1, 1, 3.0, 3.0, 1, 100, 1, 1, 1, 1, 1, 0];
-const SET_STEP: number[] = [0.05, 0.05, 0.05, 0.1, 0.1, 1, 5, 0.1, 1, 1, 1, 1, 0];
-const SET_COUNT_ROWS = 13;
+// The two resolution sliders bottom out at 0.5: below that TSR has too little to
+// reconstruct from and the image stops being worth the frames.
+const SET_MIN:  number[] = [
+  0.5, 0.5,
+  0, 0, 0, 0, 0,
+  0, 0, 0,
+  0.2, 0.2, 0,
+  60, 0,
+  0, 0,
+  0, 0, 0];
+const SET_MAX:  number[] = [
+  1.0, 1.0,
+  1, 1, 1, 1, 1,
+  1, 1, 1,
+  3.0, 3.0, 1,
+  100, 1,
+  1, 1,
+  1, 1, 0];
+const SET_STEP: number[] = [
+  0.05, 0.05,
+  1, 1, 1, 1, 1,
+  0.05, 0.05, 0.05,
+  0.1, 0.1, 1,
+  5, 0.1,
+  1, 1,
+  1, 1, 0];
+const SET_COUNT_ROWS = 20;
 
 export function initMenus(): void {
   S[0] = MENU_NONE; S[1] = 0; S[2] = 0;
@@ -128,7 +169,34 @@ function applyLive(idx: number): void {
     MIX.applyVolumes();
   } else if (idx === SET.SET_SHAKE) {
     FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
+  } else if (idx === SET.SET_OUTPUT_SCALE) {
+    setOutputScale(SET.get(SET.SET_OUTPUT_SCALE));
+  } else if (idx === SET.SET_RENDER_SCALE) {
+    setRenderScale(SET.get(SET.SET_RENDER_SCALE));
+  } else if (idx === SET.SET_SHADOWS) {
+    setShadowsEnabled(SET.get(SET.SET_SHADOWS) !== 0);
+  } else if (idx === SET.SET_SSAO) {
+    setSsaoEnabled(SET.get(SET.SET_SSAO) !== 0);
+  } else if (idx === SET.SET_SSR) {
+    setSsrEnabled(SET.get(SET.SET_SSR) !== 0);
+  } else if (idx === SET.SET_SSGI) {
+    setSsgiEnabled(SET.get(SET.SET_SSGI) !== 0);
+  } else if (idx === SET.SET_BLOOM) {
+    setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
   }
+}
+
+/// Push every graphics setting into the engine. Called at boot, after settings
+/// load, so what the player chose last time is what they get this time — a
+/// settings screen that does not survive a restart is a lie.
+export function applyGraphicsSettings(): void {
+  setOutputScale(SET.get(SET.SET_OUTPUT_SCALE));
+  setRenderScale(SET.get(SET.SET_RENDER_SCALE));
+  setShadowsEnabled(SET.get(SET.SET_SHADOWS) !== 0);
+  setSsaoEnabled(SET.get(SET.SET_SSAO) !== 0);
+  setSsrEnabled(SET.get(SET.SET_SSR) !== 0);
+  setSsgiEnabled(SET.get(SET.SET_SSGI) !== 0);
+  setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
 }
 
 function confirm(): void {
@@ -265,16 +333,19 @@ export function drawMenu(sw: number, sh: number): void {
   // merely hidden — the player should still see the fight they paused.
   drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: 170 });
 
+  const geo = layout(sw, sh);
+  const x0 = geo[0], y0 = geo[1], rowW = geo[2], rowH = geo[3];
+  const n = rowCount();
+
   let title = 'PAUSED';
   if (S[0] === MENU_SETTINGS) title = 'SETTINGS';
   if (S[0] === MENU_LEVELS)   title = 'SELECT ARENA';
   const ts = 44;
   const tw = measureText(title, ts);
-  drawText(title, (sw - tw) / 2, sh * 0.5 - 200, ts, { r: 255, g: 240, b: 210, a: 255 });
-
-  const geo = layout(sw, sh);
-  const x0 = geo[0], y0 = geo[1], rowW = geo[2], rowH = geo[3];
-  const n = rowCount();
+  // Anchored to the TOP OF THE LIST, not to a fixed offset from screen centre. The
+  // list is centred, so it grows upward as rows are added — and the graphics rows
+  // pushed it straight through a title that was nailed to `sh * 0.5 - 200`.
+  drawText(title, (sw - tw) / 2, y0 - 70, ts, { r: 255, g: 240, b: 210, a: 255 });
 
   for (let i = 0; i < n; i++) {
     const ry = y0 + i * rowH;
