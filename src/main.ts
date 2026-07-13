@@ -32,6 +32,7 @@ import {
   setCloudShadows,
   setTaaEnabled, setRenderScale,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
+  setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
   setManualExposure, gamepadRumble, readFile,
 } from 'bloom/core';
@@ -1631,6 +1632,12 @@ let perfOverlayOn = false;
 // docs/shadow-cascade-and-ssao-fixes.md). Kept as a standing debug aid.
 let dbgSsgi = true;
 let dbgSsao = true;
+// F9 cycles path tracing: 0 off -> 1 progressive -> 2 realtime -> 0.
+// Progressive accumulates while the camera is still (stand still and the
+// image converges); realtime is the denoised gameplay mode. No-op on
+// devices without hardware ray query.
+let dbgPtMode = 0;
+const ptSupported = isPathTracingSupported();
 let dbgSsr = true;
 let dbgShadow = true;
 disableCursor();
@@ -1927,6 +1934,10 @@ while (!windowShouldClose() && !aitestDone) {
   if (isKeyPressed(Key.F6)) { dbgSsao = !dbgSsao; setSsaoEnabled(dbgSsao); }
   if (isKeyPressed(Key.F7)) { dbgSsr = !dbgSsr; setSsrEnabled(dbgSsr); }
   if (isKeyPressed(Key.F8)) { dbgShadow = !dbgShadow; setShadowsEnabled(dbgShadow); }
+  if (isKeyPressed(Key.F9) && ptSupported) {
+    dbgPtMode = (dbgPtMode + 1) % 3;
+    setPathTracing(dbgPtMode);
+  }
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
@@ -3750,8 +3761,9 @@ while (!windowShouldClose() && !aitestDone) {
     const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
       + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
       + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
-      + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off');
-    drawRect(6, 6, 620, 30, { r: 0, g: 0, b: 0, a: 170 });
+      + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
+      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT')));
+    drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
     drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
   }
 
