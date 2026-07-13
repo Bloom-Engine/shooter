@@ -562,7 +562,7 @@ damage audibly ducks the music; no render-thread glitches.
 
 ---
 
-## SH-036 — Dynamic music intensity 🟡 *(fully wired 2026-07-13; the only thing missing is the audio itself — ASSET-TODO A4)*
+## SH-036 — Dynamic music intensity ✅ *(shipped 2026-07-13 — real music, mastered and looping)*
 
 **Why:** one looping combat track from the first frame to the last
 flattens the pacing the wave director already creates.
