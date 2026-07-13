@@ -41,3 +41,5 @@ screenshot_*.png
 
 # Play-in-editor scratch level (editor writes it, game loads it, nobody commits it)
 assets/worlds/__playtest.world.json
+# tools/paint-test-world.ts fixture
+assets/worlds/__painttest.world.json

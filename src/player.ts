@@ -54,7 +54,8 @@ export function playerSpeed(): number { return P[5]; }
 export function isDodging(): boolean { return P[0] > 0; }
 export function isSprinting(): boolean { return P[6] !== 0; }
 export function dodgeCooldownFrac(): number {
-  return P[1] > 0 ? P[1] / DODGE_COOLDOWN : 0;
+  if (P[1] > 0) return P[1] / DODGE_COOLDOWN;
+  return 0;
 }
 
 /// Begin a dodge in the given (already-normalised) horizontal direction.

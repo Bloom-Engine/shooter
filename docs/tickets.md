@@ -813,6 +813,28 @@ terrain-paint mode (Round 5) so the weights become authorable.
 **Acceptance:** ground reads as real material at all distances;
 cliffs show rock; layer transitions blend, not step.
 
+**Weights are now AUTHORABLE (2026-07-13).** The four weights were computed
+procedurally in the fragment shader — slope for rock, a moisture FBM for the
+dry/lush grass split, distance to a hardcoded river line for dirt — and
+`TerrainLayer.weights` was written by nothing and read by nothing. The editor's
+paint brush (PLAN §D) now writes them, and they arrive here as one RGBA8 texel per
+terrain cell, mixed **over** the procedural blend by coverage (= the sum of the four
+weights).
+
+That layering is the whole trick: a cell nobody painted has zero coverage and keeps
+the procedural look *exactly*, so both shipped arenas render unchanged. Erasing in
+the editor lowers coverage rather than zeroing the ground, so paint fades back into
+the procedural blend instead of leaving a bald patch.
+
+Layer order is the ABI and it is the **world file's**, not ours: if a world authors
+`terrain.layers`, layer i's `textureRef` becomes array slice i and its weights become
+splat channel i (normal map found by the `_albedo.png` → `_normal.png` convention).
+No layers = the built-in four. Cap is 4 — the shader has four tints and four samples.
+
+The splat map rides the MR array slot; SH-010's detail normal moved to slice 4 of the
+normal array to free it (all five normal maps are 512², and there are only three
+array slots — EN-014). Transport is EN-049 `createTextureArrayFromTexels`.
+
 ---
 
 ## SH-010 — Detail normal + macro variation ✅ *(shipped with SH-009)*

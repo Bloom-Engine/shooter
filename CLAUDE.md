@@ -139,8 +139,8 @@ What lives in the world file:
 - **Engine concepts, first-class**: `environment` (sky/sun/ambient/fog),
   `lights` (schema v2 — point lights are engine-universal, so they are
   not `userData`), `water`, `rivers`, `terrain` (the authored
-  heightmap: physics, enemy ground-following, and the scatters all read
-  it directly).
+  heightmap *and* its splat `layers`: physics, enemy ground-following,
+  the scatters and now the ground textures all read it directly).
 - **Game concepts, in `userData.kind`**: `player_spawn`, `collider_box`,
   `static_mesh` (optional box collider + tag-driven paint category),
   `prop_tree` (the forest — 88 real entities, each movable), 
@@ -151,13 +151,24 @@ What lives in the world file:
 Adding a new kind = bucket it in `src/world-runtime.ts` and consume the
 array in `main.ts`. Nothing to regenerate.
 
+**Terrain painting.** `terrain.layers` is a splat map: layer i's `weights`
+(one per grid cell) become channel i of an RGBA8 texture, and `terrain.wgsl`
+mixes it OVER its procedural slope/moisture/riverbed blend by *coverage* (the
+sum of the four weights). A cell nobody painted has zero coverage and keeps the
+procedural look exactly — which is why both arenas were unaffected when this
+landed. Erasing lowers coverage, so paint fades back into the procedural blend
+rather than leaving a bald patch. Layer order is the ABI and it is the world
+file's: `textureRef` → array slice, weights → splat channel, 4 max. Paint in the
+editor, hit Play, and it is there — no bake step.
+
 ### What is still derived rather than authored
 
 - **The terrain's visual mesh** (`assets/models/terrain_hills.glb`) is
   built from `world.terrain` by `bun tools/build-terrain.ts`, which also
   adds the horizon "skirt" outside the arena. Sculpt in the editor →
   save → re-run that one command → the visuals follow. Physics and
-  height queries need no rebuild; they read the world file.
+  height queries need no rebuild; they read the world file. **Painting
+  needs no rebuild either** — the splat is uploaded at load.
 - **The grass** (20k instances) is scattered at startup. Its keep-out
   shapes — water, building footprint — are *derived from the world data*
   (`W.keepOut`), not hardcoded rectangles as before: move the river in

@@ -1,5 +1,5 @@
 # f12-shot.ps1 — run the game, PostMessage F12 at T seconds, collect the engine's own 4K screenshot.
-param([int]$At = 26)
+param([int]$At = 26, [string]$World = '')
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Microsoft.VisualBasic
 Add-Type @'
@@ -16,7 +16,13 @@ Set-Location $proj
 $before = @(Get-ChildItem "$proj\screenshot_*.png" -ErrorAction SilentlyContinue | ForEach-Object Name)
 Get-Process main -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 400
-$game = Start-Process "$proj\main.exe" -WorkingDirectory $proj -PassThru -RedirectStandardError "$proj\_run_err.txt"
+$gameArgs = @()
+if ($World -ne '') { $gameArgs = @('--world', $World) }
+if ($gameArgs.Count -gt 0) {
+  $game = Start-Process "$proj\main.exe" -ArgumentList $gameArgs -WorkingDirectory $proj -PassThru -RedirectStandardError "$proj\_run_err.txt"
+} else {
+  $game = Start-Process "$proj\main.exe" -WorkingDirectory $proj -PassThru -RedirectStandardError "$proj\_run_err.txt"
+}
 Start-Sleep -Seconds $At
 if ($game.HasExited) { Write-Host "GAME EXITED code=$($game.ExitCode)"; exit 1 }
 $game.Refresh()

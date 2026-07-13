@@ -48,7 +48,7 @@ import {
 import {
   animPlay, animSetLayer, animUpdate, animFinished, animClipDuration,
   findJoint, jointWorld,
-  createTextureArrayFromFiles, setMaterialTextureArray,
+  createTextureArrayFromFiles, createTextureArrayFromTexels, setMaterialTextureArray,
   TEXTURE_ARRAY_ALBEDO, TEXTURE_ARRAY_NORMAL, TEXTURE_ARRAY_MR,
   TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
   createRagdoll, activateRagdoll, pushRagdoll, updateRagdoll, releaseRagdoll,
@@ -500,31 +500,59 @@ const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opa
 // 1x1 stub array hardcoded, silently unbinding the art (engine EN-014). That is
 // fixed, but binding first is still the honest order.
 {
-  const albedoArr = createTextureArrayFromFiles([
+  // The four albedo/normal pairs. The world file may name them (PLAN §D — the
+  // editor's paint tool writes `terrain.layers`), in which case ITS order is the
+  // ABI and the splat channels line up with it. A world with no layers — which
+  // is both shipped arenas — falls back to the built-in set, and the terrain
+  // looks exactly as it did before any of this existed.
+  //
+  // The normal map is found by convention: <name>_albedo.png -> <name>_normal.png.
+  // A layer whose normal is missing gets a flat one; the array just needs the
+  // slice to exist.
+  const authored = W.TERRAIN_SPLAT_COUNT > 0;
+  const albedoPaths = new Array<string>(4);
+  const normalPaths = new Array<string>(5);
+  const fallback = [
     'assets/textures/terrain_grass_lush_albedo.png',
     'assets/textures/terrain_grass_dry_albedo.png',
     'assets/textures/terrain_dirt_albedo.png',
     'assets/textures/terrain_rock_albedo.png',
-  ], TEX_ARRAY_FORMAT_SRGB, 4);
+  ];
+  for (let i = 0; i < 4; i++) {
+    const p = (authored && i < W.TERRAIN_SPLAT_COUNT) ? W.TERRAIN_SPLAT_TEX[i] : fallback[i];
+    albedoPaths[i] = p;
+    normalPaths[i] = replaceSuffix(p, '_albedo.png', '_normal.png');
+  }
+  // SH-010's detail normal rides slice 4 of the normal array. It used to occupy
+  // the MR slot, which the splat map now needs — there are only three (EN-014).
+  normalPaths[4] = 'assets/textures/terrain_detail_normal.png';
+
+  const albedoArr = createTextureArrayFromFiles(albedoPaths, TEX_ARRAY_FORMAT_SRGB, 4);
   // Normals MUST be linear — sRGB-decoding an encoded normal corrupts it.
-  const normalArr = createTextureArrayFromFiles([
-    'assets/textures/terrain_grass_lush_normal.png',
-    'assets/textures/terrain_grass_dry_normal.png',
-    'assets/textures/terrain_dirt_normal.png',
-    'assets/textures/terrain_rock_normal.png',
-  ], TEX_ARRAY_FORMAT_LINEAR, 4);
-  // SH-010 — the shared detail normal rides the MR slot; nothing else wants it.
-  const detailArr = createTextureArrayFromFiles([
-    'assets/textures/terrain_detail_normal.png',
-  ], TEX_ARRAY_FORMAT_LINEAR, 4);
+  const normalArr = createTextureArrayFromFiles(normalPaths, TEX_ARRAY_FORMAT_LINEAR, 4);
+
+  // The splat map: one RGBA8 texel per terrain cell, built once at load from the
+  // painted weights. Linear, no mips — it is data, not a picture, and a mip
+  // chain would bleed one layer's coverage into its neighbour's at distance.
+  const splatArr = createTextureArrayFromTexels(
+    W.TERRAIN_SPLAT_DATA, W.TERRAIN_SPLAT_TEXELS,
+    W.TERRAIN_SPLAT_W, W.TERRAIN_SPLAT_H, 1,
+    TEX_ARRAY_FORMAT_LINEAR, 1,
+  );
 
   if (matTerrain > 0 && albedoArr > 0) {
     setMaterialTextureArray(matTerrain, TEXTURE_ARRAY_ALBEDO, albedoArr);
     setMaterialTextureArray(matTerrain, TEXTURE_ARRAY_NORMAL, normalArr);
-    setMaterialTextureArray(matTerrain, TEXTURE_ARRAY_MR, detailArr);
+    setMaterialTextureArray(matTerrain, TEXTURE_ARRAY_MR, splatArr);
   } else {
     console.log('[terrain] splat textures missing - run: bun tools/build-terrain-textures.ts');
   }
+}
+
+/// Swap a filename suffix. Perry-safe: no regex, no split.
+function replaceSuffix(s: string, from: string, to: string): string {
+  if (!s.endsWith(from)) return s;
+  return s.substring(0, s.length - from.length) + to;
 }
 const TERRAIN_PARAMS = [
   // Per-layer tint (multiplied into the sampled albedo), so the palette stays
@@ -541,7 +569,32 @@ const TERRAIN_PARAMS = [
   12.0, 2.4, 1.8,    0.12,
   // macro UV scale (tiles/m), detail UV scale, detail strength, normal strength
   0.35, 6.0, 0.35,   0.85,
+  // Splat UV: u = p.x * su + ou, v = p.z * sv + ov. Filled in below — it depends
+  // on the world's terrain grid, so it cannot be a literal here.
+  0.0, 0.0, 0.0, 0.0,
 ];
+{
+  // Map world XZ to the splat texture. Weights are authored per grid POINT, so
+  // point (x,z) is texel centre ((x+0.5)/W, (z+0.5)/W) — hence the half-texel in
+  // the offset. Get this wrong and the paint lands half a cell off the ground it
+  // was painted on, which reads as "the brush is inaccurate" rather than as a
+  // bug in a UV.
+  const n = W.TERRAIN_SPLAT_W;
+  const su = 1.0 / (W.TERRAIN_CELL_SIZE * n);
+  const sv = 1.0 / (W.TERRAIN_CELL_SIZE * n);
+  const ou = 0.5 / n - W.TERRAIN_ORIGIN_X * su;
+  const ov = 0.5 / n - W.TERRAIN_ORIGIN_Z * sv;
+  // Index 28, not 24: the four per-layer tints are 16 floats, so the vec4s land
+  // at 0/4/8/12 (tints), 16 (knobs), 20 (river), 24 (scales), 28 (splat_uv).
+  // Writing to 24 silently overwrites the detail-normal scales and leaves
+  // splat_uv zero — which reads as "the splat map is empty", not as "the params
+  // are off by one vec4".
+  const SPLAT_UV = 28;
+  TERRAIN_PARAMS[SPLAT_UV + 0] = su;
+  TERRAIN_PARAMS[SPLAT_UV + 1] = ou;
+  TERRAIN_PARAMS[SPLAT_UV + 2] = sv;
+  TERRAIN_PARAMS[SPLAT_UV + 3] = ov;
+}
 if (matTerrain > 0) setMaterialParams(matTerrain, TERRAIN_PARAMS);
 // Per-mesh collider from userData.collider === 'box'.
 for (let i = 0; i < W.MESH_COUNT; i++) {

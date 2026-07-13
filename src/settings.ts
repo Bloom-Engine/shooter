@@ -84,7 +84,8 @@ function defaults(): void {
 export function get(i: number): number { return V[i]; }
 export function set(i: number, v: number): void { V[i] = v; }
 export function bestScore(arena: number): number {
-  return arena >= 0 && arena < MAX_ARENAS ? best[arena] : 0;
+  if (arena >= 0 && arena < MAX_ARENAS) return best[arena];
+  return 0;
 }
 export function setBestScore(arena: number, s: number): void {
   if (arena >= 0 && arena < MAX_ARENAS && s > best[arena]) best[arena] = s;

@@ -586,3 +586,63 @@ export const TERRAIN_HEIGHTS = new Array<number>(heightCount);
 for (let i = 0; i < heightCount; i++) {
   TERRAIN_HEIGHTS[i] = hasTerrain ? terrain.heights[i] : 0;
 }
+
+// ---- splat layers (SH-009 authoring, PLAN §D) --------------------------------
+//
+// The terrain shader has always blended its four textures from procedural masks
+// — slope for rock, a moisture FBM for the dry/lush grass split, distance to the
+// river for dirt. That is a good default and a bad *authoring story*: there was
+// no way to say "dirt goes here" without editing a shader.
+//
+// So the world file's `terrain.layers` — which the editor now paints — becomes a
+// splat map, and the shader mixes it OVER the procedural blend by coverage. A
+// cell nobody painted has zero coverage and keeps the procedural look exactly;
+// paint raises coverage and takes over. That is what makes adding the feature
+// safe for the two arenas that already exist: neither has any layers, and
+// neither changes by a pixel.
+//
+// LAYER ORDER IS THE ABI, and it is the world file's, not ours: layer i's
+// `textureRef` becomes array slice i, and its weights become splat channel i.
+// The shader has four tints and four samples, so four is the cap.
+export const TERRAIN_SPLAT_MAX = 4;
+
+const rawLayers = hasTerrain ? terrain.layers : [];
+export const TERRAIN_SPLAT_COUNT = Math.min(rawLayers.length, TERRAIN_SPLAT_MAX);
+
+// Albedo paths, in layer order. Empty when the world authors no layers, which is
+// the signal for main.ts to fall back to its built-in four.
+export const TERRAIN_SPLAT_TEX = new Array<string>(TERRAIN_SPLAT_COUNT);
+for (let i = 0; i < TERRAIN_SPLAT_COUNT; i++) {
+  TERRAIN_SPLAT_TEX[i] = rawLayers[i].textureRef;
+}
+
+// The splat map itself: one RGBA8 texel per terrain cell, channel i = layer i's
+// weight. Built here, once, at load — never on a frame path (perry-quirks #5).
+//
+// Texels are PACKED u32 (r | g<<8 | b<<16 | a<<24), which is what
+// `createTextureArrayFromTexels` pushes through the engine's scratch buffer —
+// one FFI call per texel instead of four. (The byte-array FFI takes a raw
+// pointer, and Perry cannot pass an array to one. See EN-049.)
+//
+// Unpainted worlds get a 1x1 fully-zero texel rather than no texture at all: a
+// zero splat means zero coverage means "use the procedural blend", so the same
+// shader path serves both cases and there is no branch to get wrong.
+export const TERRAIN_SPLAT_W = TERRAIN_SPLAT_COUNT > 0 ? TERRAIN_SAMPLE_COUNT : 1;
+export const TERRAIN_SPLAT_H = TERRAIN_SPLAT_COUNT > 0 ? TERRAIN_SAMPLE_COUNT : 1;
+
+export const TERRAIN_SPLAT_TEXELS = TERRAIN_SPLAT_W * TERRAIN_SPLAT_H;
+export const TERRAIN_SPLAT_DATA = new Array<number>(TERRAIN_SPLAT_TEXELS);
+for (let i = 0; i < TERRAIN_SPLAT_TEXELS; i++) TERRAIN_SPLAT_DATA[i] = 0;
+for (let l = 0; l < TERRAIN_SPLAT_COUNT; l++) {
+  const w = rawLayers[l].weights;
+  const n = Math.min(w.length, TERRAIN_SPLAT_TEXELS);
+  const shift = l * 8;
+  for (let i = 0; i < n; i++) {
+    let v = Math.round(w[i] * 255);
+    if (v < 0) v = 0;
+    if (v > 255) v = 255;
+    // Multiply, not `<<`: Perry's shift on a value that has been through JSON is
+    // not worth trusting, and 2^24 is exact in a double anyway.
+    TERRAIN_SPLAT_DATA[i] = TERRAIN_SPLAT_DATA[i] + v * Math.pow(2, shift);
+  }
+}

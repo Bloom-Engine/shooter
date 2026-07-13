@@ -11,11 +11,18 @@
 // masks the old shader was already computing — slope, height, noise,
 // distance-to-water — now routed to texture weights instead of colour stops.
 //
-// Layer order is the ABI, set by tools/build-terrain-textures.ts:
+// Layer order is the ABI. It defaults to what tools/build-terrain-textures.ts
+// produces —
 //   0 grass_lush   1 grass_dry   2 dirt   3 rock
-// Arrays: albedo at @binding(14), normal at @binding(15) (EN-014).
-// A fifth texture — the shared detail normal — rides layer 0 of the MR array
-// slot, since nothing else needs it.
+// — but a world that authors `terrain.layers` overrides it: layer i's texture
+// becomes slice i and its painted weights become splat channel i.
+//
+// The three texture-array slots (EN-014) are all spoken for:
+//   @binding(14) albedo_array — the four layer albedos
+//   @binding(15) normal_array — their four normals, PLUS the detail normal at
+//                               slice 4 (it used to sit in the MR slot)
+//   @binding(16) mr_array     — the splat map: one RGBA8 texel per terrain cell,
+//                               channel i = layer i's weight, sum = coverage
 
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
@@ -37,6 +44,10 @@ struct TerrainParams {
   // x = macro UV scale (tiles/metre), y = detail UV scale, z = detail strength,
   // w = normal strength
   scales:    vec4<f32>,
+  // Splat-map UV transform: u = p.x * x + y, v = p.z * z + w. Precomputed on the
+  // CPU from the terrain's origin, cell size and grid width so the shader does
+  // not need any of them.
+  splat_uv:  vec4<f32>,
 };
 @group(2) @binding(11) var<uniform> tp: TerrainParams;
 
@@ -150,6 +161,28 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let wsum = max(w_lush + w_dry + w_dirt + w_rock, 0.0001);
   w_lush /= wsum; w_dry /= wsum; w_dirt /= wsum; w_rock /= wsum;
 
+  // ---- authored splat, over the top ---------------------------------------
+  // The editor's paint brush writes a weight per layer per terrain cell; those
+  // four weights arrive as one RGBA texel. Their SUM is the cell's coverage: a
+  // cell nobody painted sums to zero and keeps the procedural blend above,
+  // untouched, which is why turning this on changed neither shipped arena.
+  //
+  // Erasing in the editor drives a layer to zero WITHOUT pushing the others up,
+  // so coverage falls and the ground fades back to the procedural mix rather
+  // than to a bald patch. That is the whole reason coverage is a sum and not a
+  // flag.
+  let suv = vec2<f32>(p.x * tp.splat_uv.x + tp.splat_uv.y,
+                      p.z * tp.splat_uv.z + tp.splat_uv.w);
+  let sp = textureSample(mr_array, albedo_array_samp, suv, 0);
+  let cov = clamp(sp.r + sp.g + sp.b + sp.a, 0.0, 1.0);
+  if (cov > 0.0) {
+    let ssum = max(sp.r + sp.g + sp.b + sp.a, 0.0001);
+    w_lush = mix(w_lush, sp.r / ssum, cov);
+    w_dry  = mix(w_dry,  sp.g / ssum, cov);
+    w_dirt = mix(w_dirt, sp.b / ssum, cov);
+    w_rock = mix(w_rock, sp.a / ssum, cov);
+  }
+
   // ---- albedo -------------------------------------------------------------
   var albedo = tri_albedo(0, p, w, s) * tp.tint_lush.rgb * w_lush
              + tri_albedo(1, p, w, s) * tp.tint_dry.rgb  * w_dry
@@ -183,8 +216,13 @@ fn fs_main(in: VsOut) -> OpaqueOut {
 
   // SH-010 — detail normal at ~40x the macro scale, covering the last order of
   // magnitude (blade roots, grit) that a 512px macro texture cannot.
+  //
+  // It rides layer 4 of the NORMAL array, not the MR slot it used to have: all
+  // five normal maps are 512², a texture array needs a uniform extent anyway,
+  // and that frees the one remaining array slot for the splat map above. There
+  // are only three (EN-014), and the splat needs one.
   let ds = tp.scales.y;
-  let dt = textureSample(mr_array, albedo_array_samp, p.xz * ds, 0).rgb * 2.0 - 1.0;
+  let dt = textureSample(normal_array, albedo_array_samp, p.xz * ds, 4).rgb * 2.0 - 1.0;
   nrm = normalize(nrm + vec3<f32>(dt.x, 0.0, dt.y) * tp.scales.z);
 
   // ---- lighting -----------------------------------------------------------

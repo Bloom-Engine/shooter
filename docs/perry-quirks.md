@@ -209,3 +209,83 @@ is safe at prefab sizes and it must not be used on a world.
 
 Returns a child with an undefined pid; no process is started. Use the engine's
 `launchProcess()` (EN-048).
+
+## 8. Perry silently miscompiles some small numeric functions in imported modules
+
+**Two confirmed cases, both in `engine/src`. Both return a plausible wrong number
+rather than crashing, which is what makes them expensive.**
+
+### Case A — `clamp` returned `lo` for every input (FIXED)
+
+`quantizeWeight(0.5)` returned `0`. It calls a module-private helper:
+
+```ts
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : (v > hi ? hi : v);     // body is one nested ternary
+}
+```
+
+Called from `quantizeWeight` in the same file, that evaluates to **`lo`**
+regardless of the condition. Rewriting `clamp` with `if` statements fixes it, and
+the fix is verified: `quantizeWeight` is correct, the splat pipeline works, and
+the editor self-test `testSplatPaintPartition` pins it.
+
+**What makes it vicious:** `sampleHeight`, in the *same file*, calls the *same*
+`clamp` and is correct — its bilinear interpolation measurably works. So you
+cannot clear a helper by finding one passing caller. Every splat weight silently
+became `0`, which reads as "the paint tool wrote nothing", four layers from the
+cause.
+
+### Case B — `easeInOutQuad` never receives its argument (STILL BROKEN, EN-051)
+
+```ts
+export function easeInOutQuad(t: number): number {
+  if (t < 0.5) return 2 * t * t;
+  return (4 - 2 * t) * t - 1;
+}
+```
+
+`t < 0.5` is false for **every** input: the parameter does not arrive, and the
+function returns a constant. Adding a `console.log(t)` to the body makes it
+correct — the signature of a codegen/optimisation bug. Rewriting with `if`,
+reordering the expression, and binding `t` to a local all fail to fix it.
+Unused by the shooter and the editor; left broken and ticketed rather than
+cargo-culted around.
+
+### The rule, and what it is NOT
+
+**Do not write a helper whose entire body is a single ternary return.** Use `if`
+statements. That demonstrably fixes Case A.
+
+But be honest about the limit of that rule: **it is not a theory of the bug.**
+`easeInOutCubic` — same module, same shape, a single-ternary body — is correct.
+`easeInOutQuad` is broken *with* `if` statements. The trigger is not
+characterised, and a passing test on one function tells you nothing about its
+neighbour.
+
+**So: pin numeric helpers with tests that can actually fail.** The bilinear-sample
+test only sampled exact grid points, where the interpolation factor is `0` either
+way — a `clamp` returning `0` passed it clean.
+
+### On probing this
+
+Five probes gave confidently wrong answers before one gave a right one. The
+failures are worth more than the finding:
+
+- **Constant folding.** `Math.round(501.96) / 1000` printed `0.502`, "proving"
+  division was fine. Perry folded it at compile time. Feed probe inputs through an
+  array the compiler cannot see into.
+- **Shadowing.** A probe took a parameter `w` while a module-level `const w` held
+  the same value, so the broken and correct paths were indistinguishable.
+- **Calls nested in `console.log` concatenations.** `log('a' + f(x) + 'b')` gave a
+  different answer than `const r = f(x); log('a' + r)`. Compute results into
+  variables first, then print.
+- **Stale builds — the worst one.** *Perry does not rebuild when only an imported
+  module changed.* Two separate conclusions in this session were drawn from a
+  binary that predated the edit being tested. **Touch the entry file (or change
+  it) before every re-test, and put a sentinel value in the code so a stale build
+  is obvious rather than merely wrong.**
+- **A bogus `as` cast.** `{...} as LightData` on a literal with a field the type
+  does not have "proved" that `saveWorld` corrupted every boolean. It does not.
+
+Change one variable per probe, and make each probe capable of failing.

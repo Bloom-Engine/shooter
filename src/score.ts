@@ -34,7 +34,8 @@ export function kills(): number { return S[3]; }
 export function shotsFired(): number { return S[4]; }
 export function shotsHit(): number { return S[5]; }
 export function accuracy(): number {
-  return S[4] > 0 ? S[5] / S[4] : 0;
+  if (S[4] > 0) return S[5] / S[4];
+  return 0;
 }
 export function waveKills(): number { return S[8]; }
 export function comboPeak(): number { return S[7]; }
