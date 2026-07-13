@@ -43,3 +43,9 @@ screenshot_*.png
 assets/worlds/__playtest.world.json
 # tools/paint-test-world.ts fixture
 assets/worlds/__painttest.world.json
+
+# Player's saved settings, written by the game at runtime. Never ship one:
+# a stale (or corrupt) settings.json is read at startup and Perry's JSON.parse
+# ABORTS the process on bad input.
+settings.json
+level.txt

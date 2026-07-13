@@ -1,7 +1,0 @@
-{
-  "audio": { "master": 1, "music": 0.5, "sfx": 1 },
-  "controls": { "sensitivity": 1, "padSensitivity": 1, "invertY": 0, "aimToggle": 0, "sprintToggle": 0 },
-  "video": { "fov": 70, "renderScale": 0.5, "outputScale": 1, "shadows": 1, "ssao": 1, "ssr": 1, "ssgi": 1, "bloom": 1 },
-  "access": { "shake": 1, "colorblind": 0, "captions": 0 },
-  "meta": { "unlocks": 0, "best0": 733, "best1": 0, "best2": 0, "best3": 0, "best4": 0, "best5": 0, "best6": 0, "best7": 0 }
-}
