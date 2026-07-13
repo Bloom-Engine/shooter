@@ -562,7 +562,7 @@ damage audibly ducks the music; no render-thread glitches.
 
 ---
 
-## SH-036 — Dynamic music intensity 🔴 *(code live; genuinely blocked on real music — the ONE asset I could not synthesise. ASSET-TODO A4)*
+## SH-036 — Dynamic music intensity 🟡 *(fully wired 2026-07-13; the only thing missing is the audio itself — ASSET-TODO A4)*
 
 **Why:** one looping combat track from the first frame to the last
 flattens the pacing the wave director already creates.
@@ -581,7 +581,29 @@ flattens the pacing the wave director already creates.
 seconds; the next wave's spawn re-escalates it; stingers land on
 clear/death/win.
 
-**Blocker:** asset (stems).
+**Status (2026-07-13):** the software half is DONE. The game loads
+`assets/music/{music_calm,music_combat,music_menu}.wav` and the three
+stingers if they exist, and falls back to the old single `game.wav` bed
+if they don't — so the repo still runs with no music directory at all,
+exactly as before.
+
+- Both beds stream **simultaneously** from the moment play starts, and
+  the crossfade is pure gain. Opening the combat stream on demand would
+  cost a stream-open on the frame a wave spawns — the worst frame there
+  is — and would start it at bar 0 while the calm bed was 40 s in, so
+  the two would be permanently out of phase.
+- The fade is **equal-power** (`cos`/`sin`), not linear: two linear fades
+  sum to a ~3 dB dip in the middle, heard as the music ducking every
+  time a wave starts.
+- Both streams are pumped every frame even when one is silent, or the
+  silent one starves and comes in late when the crossfade reaches it.
+- Stingers are one-shots played **over** the bed. Victory replaces the
+  wave-clear sting rather than stacking with it.
+
+**Blocker:** the audio. `assets/music/SUNO-PROMPTS.md` has the six
+prompts and — the part that actually matters — the **key/tempo lock**:
+the two beds are crossfaded, not cut, so if they are in different keys
+the 2 s overlap is two songs colliding and no mixing fixes it later.
 
 ---
 

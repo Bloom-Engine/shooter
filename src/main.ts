@@ -16,6 +16,7 @@
   compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume, playSound3D, setListenerPosition,
   loadMusic, playMusic, stopMusic, updateMusicStream, setMusicVolume,
+  fileExists,
   setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
@@ -165,14 +166,59 @@ for (let k = 0; k < 7; k++) {
   setSoundVolume(p, 0.40);
   sfxAlienPain[k] = p;
 }
-// Two tracks from the 2026-07-03 asset drop: menu.wav on the title screen,
-// game.wav once play starts (see the gameState transition in the loop).
-// The old ambient.ogg loop stays in the repo as a fallback.
-const musicMenu = loadMusic('assets/sounds/menu.wav');
-const musicAmbient = loadMusic('assets/sounds/game.wav');
+// SH-036 — two beds, crossfaded by combat intensity.
+//
+// `assets/music/` is authored art (see its SUNO-PROMPTS.md) and may not be there:
+// the repo ships without it. So every music file is OPTIONAL, and the game falls
+// back to the single `game.wav` bed it always had. With no music/ dir at all this
+// behaves exactly as it did before — one track, no crossfade — and the moment the
+// two stems land, the crossfade has somewhere to go with no code change.
+//
+// Both beds play SIMULTANEOUSLY from the start, and the crossfade is pure gain.
+// Starting the combat bed on demand would cost a stream-open on the frame a wave
+// spawns — the worst possible frame — and would start it at bar 0 while the calm
+// bed is 40 s in, so the two would be out of phase.
+const musicMenu = loadMusic(
+  fileExists('assets/music/music_menu.wav') ? 'assets/music/music_menu.wav'
+                                            : 'assets/sounds/menu.wav');
+
+const HAS_STEMS = fileExists('assets/music/music_calm.wav')
+               && fileExists('assets/music/music_combat.wav');
+const musicCalm = loadMusic(HAS_STEMS ? 'assets/music/music_calm.wav'
+                                      : 'assets/sounds/game.wav');
+const musicCombat = loadMusic(HAS_STEMS ? 'assets/music/music_combat.wav'
+                                        : 'assets/sounds/game.wav');
+
 setMusicVolume(musicMenu, 0.4);
-setMusicVolume(musicAmbient, 0.35);
+setMusicVolume(musicCalm, 0.35);
+setMusicVolume(musicCombat, 0.0);
 playMusic(musicMenu);
+
+/// The three one-shots that land ON TOP of the bed (they do not replace it).
+/// Handle 0 = absent, and `playSound(0)` is a no-op in the engine, so a missing
+/// stinger is silence rather than a crash.
+const stingWaveClear = fileExists('assets/music/sting_wave_clear.wav')
+  ? loadSound('assets/music/sting_wave_clear.wav') : { handle: 0 };
+const stingDeath = fileExists('assets/music/sting_death.wav')
+  ? loadSound('assets/music/sting_death.wav') : { handle: 0 };
+const stingVictory = fileExists('assets/music/sting_victory.wav')
+  ? loadSound('assets/music/sting_victory.wav') : { handle: 0 };
+
+/// Apply the crossfade. `MIX.musicIntensity()` is the already-smoothed 0..1 the
+/// mixer maintains (~2 s, with hysteresis), so this is just gain.
+///
+/// With no stems both handles point at the SAME file, and summing two gains of a
+/// track against itself would make it louder in combat rather than different. So
+/// in that case the calm handle carries the whole bed and the combat handle stays
+/// silent — the pre-A4 behaviour, exactly.
+function applyMusicCrossfade(): void {
+  if (!HAS_STEMS) return;
+  const i = MIX.musicIntensity();
+  // Equal-power, not linear: two linear fades sum to a ~3 dB dip in the middle,
+  // which is audible as the music briefly ducking every time a wave starts.
+  setMusicVolume(musicCalm, Math.cos(i * Math.PI * 0.5) * 0.35);
+  setMusicVolume(musicCombat, Math.sin(i * Math.PI * 0.5) * 0.35);
+}
 
 const physics = createWorld({ gravity: vec3(0, -20, 0) });
 // Make NON_MOVING (static) and MOVING (character/dynamic) collide.
@@ -1511,6 +1557,7 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
         playerHP = 0;
         gameOver = true;
         playSound(sfxPlayerDie[0]);
+        playSound(stingDeath);   // SH-036
         SCORE.commitRun(0);
         SET.saveSettings();
       }
@@ -1841,7 +1888,16 @@ while (!windowShouldClose() && !aitestDone) {
   const uiScale = MOBILE ? swPx / 1000 : 1;
   const sw = swPx / uiScale;
   const sh = shPx / uiScale;
-  updateMusicStream(gameState === 0 ? musicMenu : musicAmbient);
+  // Both beds must be pumped every frame while they are playing, or the one that
+  // is currently silent starves and its buffer runs dry — so the moment the
+  // crossfade brings it up, it comes in late and out of phase with the other.
+  if (gameState === 0) {
+    updateMusicStream(musicMenu);
+  } else {
+    updateMusicStream(musicCalm);
+    if (HAS_STEMS) updateMusicStream(musicCombat);
+    applyMusicCrossfade();
+  }
 
   // Tab toggles cursor capture so you can free the mouse to screenshot etc.
   if (isKeyPressed(Key.TAB)) {
@@ -1928,7 +1984,8 @@ while (!windowShouldClose() && !aitestDone) {
     if (PERF_START_GAME && testFrame === 20 && gameState === 0) {
       gameState = 1;
       stopMusic(musicMenu);
-      playMusic(musicAmbient);
+      playMusic(musicCalm);
+      playMusic(musicCombat);
       waveBreakTimer = WAVE_BREAK_DELAY;
     }
     playerHP = PLAYER_HP_MAX;
@@ -2005,7 +2062,8 @@ while (!windowShouldClose() && !aitestDone) {
     if (testFrame === 20 && gameState === 0) {
       gameState = 1;
       stopMusic(musicMenu);
-      playMusic(musicAmbient);
+      playMusic(musicCalm);
+      playMusic(musicCombat);
     }
     // Round-6 verification: waves ENABLED so enemy size/facing/shadows can
     // be judged in the captures. (Re-suppress with waveBreakTimer = 9999
@@ -2049,7 +2107,8 @@ while (!windowShouldClose() && !aitestDone) {
     if (testFrame === 20 && gameState === 0) {
       gameState = 1;
       stopMusic(musicMenu);
-      playMusic(musicAmbient);
+      playMusic(musicCalm);
+      playMusic(musicCombat);
     }
     playerHP = PLAYER_HP_MAX;   // immortal observer
     gameOver = false;
@@ -2650,6 +2709,7 @@ while (!windowShouldClose() && !aitestDone) {
             FEEL.addTrauma(1.0);
             SCORE.commitRun(0);
             SET.saveSettings();     // persist the best score immediately
+            playSound(stingDeath);  // SH-036
           }
           gameOver = true;
         } else {
@@ -2724,6 +2784,9 @@ while (!windowShouldClose() && !aitestDone) {
           waveBreakTimer = WAVE_BREAK_DELAY;
           if (waveIdx >= wavePlan.length) {
             gameWon = true;
+            // SH-036 — the run is over; the victory sting replaces the wave-clear
+            // one rather than stacking on top of it.
+            playSound(stingVictory);
             // Clearing the arena unlocks the next weapon and persists it.
             const nextUnlock = WPN.W_CHAIN;
             if (!WPN.isUnlocked(nextUnlock)) {
@@ -2733,6 +2796,10 @@ while (!windowShouldClose() && !aitestDone) {
             }
             SCORE.commitRun(0);
             SET.saveSettings();
+          } else {
+            // SH-036 — a wave died and another is coming. The sting lands over the
+            // bed while the mixer is already crossfading combat -> calm.
+            playSound(stingWaveClear);
           }
         }
       }
@@ -2746,7 +2813,8 @@ while (!windowShouldClose() && !aitestDone) {
     if (testFrame === 20 && gameState === 0) {
       gameState = 1;
       stopMusic(musicMenu);
-      playMusic(musicAmbient);
+      playMusic(musicCalm);
+      playMusic(musicCombat);
       SCORE.resetScore();
       runElapsed = 0;
     }
@@ -3035,6 +3103,7 @@ while (!windowShouldClose() && !aitestDone) {
           FEEL.addTrauma(1.0);
           SCORE.commitRun(0);
           SET.saveSettings();
+          playSound(stingDeath);    // SH-036
         }
         gameOver = true;
       } else {
@@ -3791,7 +3860,8 @@ while (!windowShouldClose() && !aitestDone) {
     if (isAnyInputPressed()) {
       gameState = 1;
       stopMusic(musicMenu);
-      playMusic(musicAmbient);
+      playMusic(musicCalm);
+      playMusic(musicCombat);
       // Swallow the starting press so it isn't also read as a shot.
       WPN.selectWeapon(WPN.W_BLASTER);
       WPN.selectWeapon(WPN.W_RIFLE);
