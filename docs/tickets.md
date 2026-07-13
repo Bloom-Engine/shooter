@@ -1170,7 +1170,46 @@ only ever read the diffuse. Now it reads all three.
 
 Cost: ~0.5 MB per model. All 8 models, every material, now carry both maps.
 
-### Part 2 — a better player character 🔵 *(blocked on you)*
+### Part 1b — texture resolution: we were downsampling the art by 4-8x ✅ *(2026-07-13)*
+
+`TEX_MAX` in the converter was **512**. The Unvanquished source art is **2048²
+(player)** and **4096² (aliens)**. Every character had been shipped at a fraction of
+its authored detail, on models the camera is rarely more than a few metres from.
+
+Now 1024 for the aliens and **2048 for the player** (it is on screen 100% of the
+time and earns more). That is 4x the texels on the aliens and 16x on the player.
+
+**Cost: none that matters.** 53 fps before, 53 fps after — this was never
+fill-bound, it was texture-starved. Models grew 28 MB -> 65 MB on disk.
+
+Between this and the normal/spec maps (Part 1), the characters now carry roughly
+**64x the surface information** they did this morning, and not one byte of it was
+downloaded — it was all sitting in `vendor/`.
+
+### Part 2 — a better player character ❌ *won't-do (searched 2026-07-13, with an API key)*
+
+Searched Sketchfab properly (authenticated, Download API), across `cc0` / `by` /
+`by-sa`, filtered to **downloadable + animated**, over ten character queries.
+**43 candidates. None is an upgrade.** The honest tally:
+
+- The realistic-ish ones ship **3-5 animations** ("Infantryman" 48k verts / 3 anims;
+  "Animated Astronaut" 31k / 4; "Stylized Sci-Fi Officer" 89k / 5).
+- The ones with real animation counts are **low-poly stylized** ("Business Man" 25
+  anims / 2.4k verts; "Futuristic soldier (Free)" 18 anims / 3.7k verts).
+- The one high-poly, well-animated hit is a **Black Myth: Wukong rip** — someone
+  else's IP, licence label notwithstanding. Not touching it.
+
+**The battlesuit has 34 purpose-built clips** — idle, walk, run, four strafes, five
+crouch states, jump, land, pain, die, attack, plus per-weapon pose deltas. Swapping
+it for a 4-animation astronaut would trade a complete locomotion set for a prettier
+T-pose. Retargeting a CC0 animation library (KayKit, Quaternius UAL2) onto a new
+mesh is the only way round that, and it is a Blender-rigging project, not an
+afternoon.
+
+This is exactly what `docs/asset-sourcing.md` predicted: the free ecosystem is rich
+in humanoid animation *libraries* and stylized low-poly monsters, and thin in
+precisely what we already have. **Keep the bsuit.** The uplift above is the better
+buy, and it is done.
 
 The player is on screen 100% of the time and is the model most worth replacing.
 Per `docs/asset-sourcing.md`, the plan is a realistic CC0/CC-BY humanoid from

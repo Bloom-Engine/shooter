@@ -20,7 +20,14 @@ import { decodePng, encodePng } from './png';
 import { execSync } from 'node:child_process';
 import { basename, dirname } from 'node:path';
 
-const TEX_MAX = 512;
+// The SOURCE art is 2048² (player) and 4096² (aliens). This was 512 — we were
+// throwing away 4-8x the linear detail on every character, on a model the camera
+// is never more than a few metres from. Raised to 1024: 4x the texels, and the
+// GLBs stay in the tens of MB rather than the hundreds.
+//
+// Per-model override below: the player is on screen 100% of the time and earns more.
+const TEX_MAX = 1024;
+const TEX_MAX_PLAYER = 2048;
 const IQE_ROOT = 'vendor/unvanquished/pkg/res-players_src.dpkdir/models/players';
 const OUT_DIR  = 'assets/models';
 const CACHE    = 'tools/.cache';
@@ -331,9 +338,9 @@ function matInverse(m: number[]): number[] {
 
 function align4(n: number): number { return (n + 3) & ~3; }
 
-function resizeTexture(src: string, cachePath: string): Uint8Array {
+function resizeTexture(src: string, cachePath: string, maxPx: number): Uint8Array {
   mkdirSync(dirname(cachePath), { recursive: true });
-  resizeMax(src, cachePath, TEX_MAX);
+  resizeMax(src, cachePath, maxPx);
   return new Uint8Array(readFileSync(cachePath));
 }
 
@@ -713,8 +720,8 @@ function resolveAux(iqeDir: string, material: string, suffix: string): string | 
 const ROUGH_FLOOR = 0.35;
 const ROUGH_RANGE = 0.65;
 
-function specToMetalRough(specPath: string, cachePath: string, metalFromSpec: boolean): Uint8Array {
-  const resized = resizeTexture(specPath, cachePath);
+function specToMetalRough(specPath: string, cachePath: string, metalFromSpec: boolean, maxPx: number): Uint8Array {
+  const resized = resizeTexture(specPath, cachePath, maxPx);
   const img = decodePng(resized);
   const px = img.width * img.height;
   const out = new Uint8Array(px * 4);
@@ -793,16 +800,17 @@ for (let i = 0; i < ALIENS.length; i++) {
 
     const normSrc = resolveAux(iqeDir, wanted, '_n');
     const specSrc = resolveAux(iqeDir, wanted, '_s');
-    const normBytes = normSrc !== null ? resizeTexture(normSrc, stem + '_n.png') : null;
+    const maxPx = a.metalFromSpec === true ? TEX_MAX_PLAYER : TEX_MAX;
+    const normBytes = normSrc !== null ? resizeTexture(normSrc, stem + '_n.png', maxPx) : null;
     const mrBytes   = specSrc !== null
-      ? specToMetalRough(specSrc, stem + '_s.png', a.metalFromSpec === true) : null;
+      ? specToMetalRough(specSrc, stem + '_s.png', a.metalFromSpec === true, maxPx) : null;
     console.log('    ' + basename(wanted)
       + '  normal=' + (normSrc !== null ? 'yes' : 'NO')
       + '  spec->mr=' + (specSrc !== null ? 'yes' : 'NO'));
 
     mats.push({
       material: sub.material,
-      imgBytes: resizeTexture(texSrc, cachePath),
+      imgBytes: resizeTexture(texSrc, cachePath, maxPx),
       normBytes: normBytes,
       mrBytes: mrBytes,
     });
