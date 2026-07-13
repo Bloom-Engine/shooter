@@ -16,6 +16,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resizeMax } from './imgutil';
+import { decodePng, encodePng } from './png';
 import { execSync } from 'node:child_process';
 import { basename, dirname } from 'node:path';
 
@@ -30,7 +31,7 @@ const MAX_INFLUENCES = 4;
 /// ships its UPGRADE classes: the advanced marauder is the level2 rig wearing
 /// `body_adv.skin` (its own `level2_adv_*` textures), not a separate model. So
 /// two new enemies cost two rows here and no new art.
-interface AlienSpec { name: string; dir: string; skin?: string }
+interface AlienSpec { name: string; dir: string; skin?: string; metalFromSpec?: boolean }
 const ALIENS: AlienSpec[] = [
   { name: 'enemy_dretch',       dir: 'level0' },
   { name: 'enemy_mantis',       dir: 'level1' },
@@ -40,7 +41,8 @@ const ALIENS: AlienSpec[] = [
   // SH-042 — the two upgrade classes.
   { name: 'enemy_adv_marauder', dir: 'level2', skin: 'body_adv.skin' },
   { name: 'enemy_adv_dragoon',  dir: 'level3', skin: 'body_adv.skin' },
-  { name: 'player_bsuit',       dir: 'human_bsuit' },   // 3rd-person player model
+  // The battlesuit is the only METAL character. See specToMetalRough.
+  { name: 'player_bsuit',       dir: 'human_bsuit', metalFromSpec: true },
 ];
 
 /// Parse a `.skin` file: lines of `submeshIndex,models/players/<class>/<tex>`.
@@ -335,7 +337,17 @@ function resizeTexture(src: string, cachePath: string): Uint8Array {
   return new Uint8Array(readFileSync(cachePath));
 }
 
-function buildGlb(p: Parsed, mats: { material: string; imgBytes: Uint8Array }[]): Uint8Array {
+/// One material's three maps. `norm` and `mr` are null when the source set has
+/// no `_n`/`_s` for this texture — the material then falls back to a flat normal
+/// and the roughness factor, i.e. exactly what we shipped before.
+interface MatEntry {
+  material: string;
+  imgBytes: Uint8Array;
+  normBytes: Uint8Array | null;
+  mrBytes: Uint8Array | null;
+}
+
+function buildGlb(p: Parsed, mats: MatEntry[]): Uint8Array {
   const J = p.joints.length;
 
   // 1. Compute per-joint world matrices at rest pose. All TRS values in p
@@ -408,12 +420,25 @@ function buildGlb(p: Parsed, mats: { material: string; imgBytes: Uint8Array }[])
     animSlots.push({ timeOff, timeLen: frames * 4, timeCount: frames, tOff, tLen, rOff, rLen });
   }
 
-  // Images trailing.
-  const imgSlots: Slot[] = [];
+  // Images trailing. A material now carries up to THREE of them (base colour,
+  // normal, metallic-roughness), so the image list is no longer 1:1 with
+  // materials — flatten it and remember which indices each material owns.
+  const imageBytes: Uint8Array[] = [];
+  const matImg: { base: number; norm: number; mr: number }[] = [];
   for (let i = 0; i < mats.length; i++) {
+    const m = mats[i];
+    const base = imageBytes.length; imageBytes.push(m.imgBytes);
+    let norm = -1;
+    if (m.normBytes !== null) { norm = imageBytes.length; imageBytes.push(m.normBytes); }
+    let mr = -1;
+    if (m.mrBytes !== null) { mr = imageBytes.length; imageBytes.push(m.mrBytes); }
+    matImg.push({ base, norm, mr });
+  }
+  const imgSlots: Slot[] = [];
+  for (let i = 0; i < imageBytes.length; i++) {
     const off = align4(binLen);
-    binLen = off + mats[i].imgBytes.length;
-    imgSlots.push({ off, len: mats[i].imgBytes.length });
+    binLen = off + imageBytes[i].length;
+    imgSlots.push({ off, len: imageBytes[i].length });
   }
   binLen = align4(binLen);
 
@@ -463,7 +488,7 @@ function buildGlb(p: Parsed, mats: { material: string; imgBytes: Uint8Array }[])
       }
     }
   }
-  for (let i = 0; i < mats.length; i++) bin.set(mats[i].imgBytes, imgSlots[i].off);
+  for (let i = 0; i < imageBytes.length; i++) bin.set(imageBytes[i], imgSlots[i].off);
 
   // 4. Build JSON graph.
   const bufferViews: { buffer: number; byteOffset: number; byteLength: number; target?: number }[] = [];
@@ -540,7 +565,7 @@ function buildGlb(p: Parsed, mats: { material: string; imgBytes: Uint8Array }[])
   }
 
   const imageBv: number[] = [];
-  for (let i = 0; i < mats.length; i++) {
+  for (let i = 0; i < imageBytes.length; i++) {
     const bv = bufferViews.length;
     bufferViews.push({ buffer: 0, byteOffset: imgSlots[i].off, byteLength: imgSlots[i].len });
     imageBv.push(bv);
@@ -583,16 +608,29 @@ function buildGlb(p: Parsed, mats: { material: string; imgBytes: Uint8Array }[])
     meshes:    [{ primitives }],
     skins:     [{ joints: Array.from({ length: J }, (_, j) => j),
                   inverseBindMatrices: aIbm }],
-    materials: mats.map((m, i) => ({
-      name: basename(m.material),
-      pbrMetallicRoughness: {
-        baseColorTexture: { index: i },
-        metallicFactor: 0.0,
-        roughnessFactor: 0.9,
-      },
-    })),
-    textures: mats.map((_, i) => ({ source: i, sampler: 0 })),
-    images:   mats.map((_, i) => ({ bufferView: imageBv[i], mimeType: 'image/png' })),
+    // One texture per image, indices matching. The normal and MR textures are
+    // only referenced when the source set actually had an `_n` / `_s` — a model
+    // without them renders exactly as it did before this change.
+    //
+    // roughnessFactor is 1.0 (not the old flat 0.9) when an MR map exists, so the
+    // MAP drives roughness instead of being multiplied down to nothing by it.
+    materials: mats.map((m, i) => {
+      const im = matImg[i];
+      // Both factors go to 1.0 once a map exists — glTF MULTIPLIES factor by
+      // texture, so leaving metallicFactor at 0 would zero the blue channel and
+      // silently discard the metalness we just computed.
+      const pbr: any = {
+        baseColorTexture: { index: im.base },
+        metallicFactor: im.mr >= 0 ? 1.0 : 0.0,
+        roughnessFactor: im.mr >= 0 ? 1.0 : 0.9,
+      };
+      if (im.mr >= 0) pbr.metallicRoughnessTexture = { index: im.mr };
+      const mat: any = { name: basename(m.material), pbrMetallicRoughness: pbr };
+      if (im.norm >= 0) mat.normalTexture = { index: im.norm };
+      return mat;
+    }),
+    textures: imageBytes.map((_, i) => ({ source: i, sampler: 0 })),
+    images:   imageBytes.map((_, i) => ({ bufferView: imageBv[i], mimeType: 'image/png' })),
     samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
     animations: animsJson,
     buffers:  [{ byteLength: binLen }],
@@ -630,6 +668,81 @@ function resolveTexture(iqeDir: string, material: string): string {
   const candidate = iqeDir + '/' + base + '.png';
   if (existsSync(candidate)) return candidate;
   throw new Error('texture not found for ' + material);
+}
+
+/// Find the authored `_n` (normal) or `_s` (specular) beside a base texture.
+///
+/// These shipped with the Unvanquished source all along and the converter simply
+/// never read them, so every alien and the player have been rendering with a flat
+/// normal and a constant roughness next to a terrain that has both. That was the
+/// single largest fidelity gap on the characters, and the fix was already on disk.
+///
+/// The `_adv` upgrade skins are the exception: `level2_adv_body.png` has no
+/// `_n`/`_s` of its own because it is a RECOLOUR of `level2_body` on the same mesh
+/// and the same UVs. So fall back to the base skin's maps — the surface detail is
+/// identical, only the colour differs.
+function resolveAux(iqeDir: string, material: string, suffix: string): string | null {
+  const base = basename(material);
+  const direct = iqeDir + '/' + base + suffix + '.png';
+  if (existsSync(direct)) return direct;
+  if (base.includes('_adv')) {
+    const fallback = iqeDir + '/' + base.replace('_adv', '') + suffix + '.png';
+    if (existsSync(fallback)) return fallback;
+  }
+  return null;
+}
+
+/// Unvanquished specular map -> glTF metallic-roughness.
+///
+/// These are NOT the same thing and the map cannot simply be swapped in. A
+/// Quake-lineage specular map stores *specular intensity* — "how strongly does
+/// this texel catch a highlight" — while glTF wants *roughness* in GREEN and
+/// *metalness* in BLUE. The two coincide often enough to tempt you into mapping
+/// intensity straight to gloss, which is what I did first: bright texels went to
+/// roughness ~0 and the whole battlesuit came out looking wet.
+///
+/// So the mapping is deliberately CONSERVATIVE. Roughness spans 1.0 (matte) down
+/// to `ROUGH_FLOOR` (satin) — never a mirror. The point of this map is to give the
+/// surface *variation*, which it had none of; it is not to make anything glossy.
+///
+/// `metalFromSpec` is for the battlesuit and nothing else. It is armour plate, and
+/// a dielectric with a tight white highlight reads as wet plastic — metalness is
+/// what makes it read as metal, because it tints the reflection by the base colour
+/// instead of leaving it white. The aliens stay fully dielectric: metallic chitin
+/// would look like tinfoil.
+const ROUGH_FLOOR = 0.35;
+const ROUGH_RANGE = 0.65;
+
+function specToMetalRough(specPath: string, cachePath: string, metalFromSpec: boolean): Uint8Array {
+  const resized = resizeTexture(specPath, cachePath);
+  const img = decodePng(resized);
+  const px = img.width * img.height;
+  const out = new Uint8Array(px * 4);
+  for (let i = 0; i < px; i++) {
+    const r = img.rgba[i * 4 + 0];
+    const g = img.rgba[i * 4 + 1];
+    const b = img.rgba[i * 4 + 2];
+    const spec = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+
+    let rough = 1.0 - ROUGH_RANGE * spec;
+    if (rough < ROUGH_FLOOR) rough = ROUGH_FLOOR;
+    if (rough > 1.0) rough = 1.0;
+
+    // Only the bright, plate-like texels become metal; the straps, rubber and
+    // cloth in the darker parts of the spec map stay dielectric.
+    let metal = 0.0;
+    if (metalFromSpec) {
+      metal = (spec - 0.25) / 0.55;
+      if (metal < 0.0) metal = 0.0;
+      if (metal > 1.0) metal = 1.0;
+    }
+
+    out[i * 4 + 0] = 255;                        // R — unused by glTF MR
+    out[i * 4 + 1] = Math.round(rough * 255);    // G — roughness
+    out[i * 4 + 2] = Math.round(metal * 255);    // B — metallic
+    out[i * 4 + 3] = 255;
+  }
+  return encodePng(img.width, img.height, out);
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
@@ -675,8 +788,24 @@ for (let i = 0; i < ALIENS.length; i++) {
       ? (skinMap.get(s) as string)
       : sub.material;
     const texSrc = resolveTexture(iqeDir, wanted);
-    const cachePath = CACHE + '/' + a.name + '_' + basename(wanted) + '.png';
-    mats.push({ material: sub.material, imgBytes: resizeTexture(texSrc, cachePath) });
+    const stem = CACHE + '/' + a.name + '_' + basename(wanted);
+    const cachePath = stem + '.png';
+
+    const normSrc = resolveAux(iqeDir, wanted, '_n');
+    const specSrc = resolveAux(iqeDir, wanted, '_s');
+    const normBytes = normSrc !== null ? resizeTexture(normSrc, stem + '_n.png') : null;
+    const mrBytes   = specSrc !== null
+      ? specToMetalRough(specSrc, stem + '_s.png', a.metalFromSpec === true) : null;
+    console.log('    ' + basename(wanted)
+      + '  normal=' + (normSrc !== null ? 'yes' : 'NO')
+      + '  spec->mr=' + (specSrc !== null ? 'yes' : 'NO'));
+
+    mats.push({
+      material: sub.material,
+      imgBytes: resizeTexture(texSrc, cachePath),
+      normBytes: normBytes,
+      mrBytes: mrBytes,
+    });
   }
 
   const glb = buildGlb(parsed, mats);

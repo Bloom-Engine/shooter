@@ -1107,3 +1107,54 @@ object before parsing.
 **Also fixed:** the menu title was nailed to `sh * 0.5 - 200` while the list is
 centred — so adding rows grew the list upward straight through it. The title is
 anchored to the top of the list now.
+
+---
+
+## SH-046 — Character fidelity: PBR uplift + a better player model 🟡 *(uplift shipped 2026-07-13; the new player model needs you)*
+
+**Why:** the characters were the weakest surface in frame. The terrain has
+triplanar PBR *and* a detail normal; every alien and the player had a **base colour
+texture and nothing else** — no normal map, no roughness map, flat `roughness 0.9,
+metallic 0`. They read as matte toys standing on a real world.
+
+### Part 1 — PBR uplift ✅ *(shipped)*
+
+**The maps were on disk the whole time.** The Unvanquished source ships authored
+`_n` (normal) and `_s` (specular) for **every** character; `tools/convert-aliens-anim.ts`
+only ever read the diffuse. Now it reads all three.
+
+- `_n` → glTF `normalTexture`. (No TANGENT attribute needed — the engine
+  reconstructs a TBN from screen-space derivatives; SH-014 proved this.)
+- `_s` → glTF `metallicRoughnessTexture`. **These are not the same thing.** A
+  Quake-lineage spec map stores specular *intensity*; glTF wants *roughness* in
+  green and *metalness* in blue. Mapping intensity straight to gloss — my first
+  attempt — drove bright texels to roughness ~0 and the battlesuit came out
+  **looking wet**. The mapping is now deliberately conservative: roughness spans
+  1.0 → 0.35, never a mirror. The point is surface *variation*, which there was
+  none of; it is not to make anything glossy.
+- The **battlesuit alone** gets metalness from the spec map. It is armour plate,
+  and a dielectric with a tight white highlight reads as wet plastic — metalness is
+  what makes it read as metal, because the reflection gets tinted by the base
+  colour instead of staying white. The aliens stay fully dielectric: metallic
+  chitin would look like tinfoil.
+- The `_adv` upgrade skins have no `_n`/`_s` of their own (they are recolours of
+  the base on the same mesh and UVs), so they borrow the base skin's maps.
+
+Cost: ~0.5 MB per model. All 8 models, every material, now carry both maps.
+
+### Part 2 — a better player character 🔵 *(blocked on you)*
+
+The player is on screen 100% of the time and is the model most worth replacing.
+Per `docs/asset-sourcing.md`, the plan is a realistic CC0/CC-BY humanoid from
+**Sketchfab** (its Download API serves **glTF/GLB directly** — no conversion),
+animated from **KayKit** (161 anims) or **Quaternius UAL2** (130+), both **CC0,
+glTF, and redistributable in a GPL repo**.
+
+**What I need from you** — I cannot get past either gate:
+- **Sketchfab requires OAuth.** Give me an API token and I can search, filter by
+  licence, and pull GLBs directly. Otherwise pick a model and drop the `.glb` in.
+- **itch.io returns 403 to scripted downloads**, so KayKit needs a manual grab.
+
+**Reconsider first, honestly:** with the uplift landed, the battlesuit now reads as
+real armour. It may no longer be the weakest thing in frame. Look at it before
+spending on a replacement.
