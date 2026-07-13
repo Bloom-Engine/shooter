@@ -11,7 +11,16 @@ import {
 const HALF_HEIGHT = 0.6;
 const RADIUS = 0.32;               // slightly slimmer so player can squeeze between trees
 const EYE_OFFSET = 0.65;           // eye above capsule center
-const MOVE_SPEED = 6.0;
+// Walking, not running. 6.0 m/s was a RUN speed wearing a walk animation: the
+// walk clip is authored at ~2.6 m/s, so covering 6 m/s of ground meant playing it
+// at the 2.2x clamp, and even then the stride could not keep up with the floor.
+// That is what read as the player "sliding".
+//
+// Sprint absorbed the difference instead — SPRINT_MUL went 1.5 -> 2.0, so the TOP
+// speed is still 9.0 m/s and nothing about escaping a dragoon pounce changed. Only
+// the cruise is slower, and now holding shift is the difference between a walk and
+// a run, which is what it should always have been.
+const MOVE_SPEED = 4.5;
 const AIR_SPEED = 4.5;
 const ACCEL = 14.0;                // ground horizontal velocity lerp rate
 const AIR_ACCEL = 4.0;
@@ -24,7 +33,7 @@ const CLIMB_ASSIST = 0.45;
 
 // SH-032 — sprint + dodge. The enemies (mantis darts, dragoon pounces) were
 // more mobile than the player, which is exactly backwards for a power fantasy.
-const SPRINT_MUL = 1.5;
+const SPRINT_MUL = 2.0;   // 4.5 -> 9.0 m/s; top speed unchanged from the old 6.0 x 1.5
 const DODGE_SPEED = 18.0;    // m/s during the burst
 const DODGE_TIME = 0.25;     // seconds
 const DODGE_COOLDOWN = 1.2;

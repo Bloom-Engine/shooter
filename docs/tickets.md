@@ -461,7 +461,35 @@ sizes.
 
 ---
 
-## SH-034 — Locomotion & animation blending ✅ *(shipped — EN-028 mixer landed: crossfades, upper-body attack mask, speed-synced walk)*
+## SH-034 — Locomotion & animation blending ✅ *(shipped; **thresholds corrected 2026-07-13** — see below)*
+
+**The bug that shipped with it.** The clip was chosen by crossing a speed
+threshold: run above 7.0 m/s, walk below. But `MOVE_SPEED` was **6.0**, so normal
+movement *always* took the walk clip — and the walk clip is authored for ~2.6 m/s,
+so covering 6 m/s of ground meant playing it at the **2.2x clamp**. Even at the
+clamp the stride only covers ~5.7 m/s, so the feet could never keep up with the
+floor. That is what read as the player "sliding": the animation was playing the
+whole time, at double speed, losing a race with the ground.
+
+Sprint (9.0 m/s target, ~7.4 actual) only just cleared 7.0, so the run clip
+flickered in and out at the boundary rather than being a state you could feel.
+
+**Fixed two ways, and the second is the real one:**
+
+1. The clip now follows what the player is *doing* — `isSprinting()` runs, moving
+   walks, standing idles. No threshold to sit on. (`isSprinting()` was exported by
+   `player.ts` and imported by nobody, which was the clue.)
+2. `MOVE_SPEED` 6.0 → **4.5**. 6.0 m/s is a *run* speed wearing a walk animation;
+   no clip selection fixes that. `SPRINT_MUL` 1.5 → **2.0** absorbs it, so the top
+   speed is **still 9.0 m/s** and nothing about outrunning a dragoon pounce
+   changed. Only the cruise is slower — and now holding shift is the difference
+   between a walk and a run, which is what it should always have been.
+
+**The clamp is the canary.** Playback rate is (actual speed / the speed the clip
+was authored for). If that ratio ever *reaches* the clamp, the movement speed and
+the clip no longer belong together, and the fix is the speed constant — not a wider
+clamp. Measured after the change: walk lands at ~1.4x, sprint at ~1.1x. Both well
+inside it.
 
 **Why:** every animation change is a hard swap; enemies play walk at
 a fixed rate regardless of actual velocity (foot-sliding); the player

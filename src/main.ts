@@ -57,7 +57,7 @@ import {
 import { initInput, readInput, drawTouchControls, MOBILE, aimAssistScale } from './input';
 import {
   createPlayer, updatePlayerController, playerPosition,
-  playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac,
+  playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting,
 } from './player';
 import * as W from './world-runtime';
 import {
@@ -685,6 +685,12 @@ const mdlPlayer  = loadModel('assets/models/player_bsuit.glb');
 const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
 // human_bsuit animation indices (IQE declaration order):
 //   0 idle, 7 attack, 8 run, 12 walk.
+// The ground speed each locomotion clip was AUTHORED to travel at. The playback
+// rate is (actual speed / this), which is what plants the feet — get these wrong
+// and the character skates.
+const ANIM_WALK_SPEED = 2.6;
+const ANIM_RUN_SPEED  = 6.5;
+
 const PLAYER_ANIM_IDLE   = 0;
 const PLAYER_ANIM_WALK   = 12;
 const PLAYER_ANIM_RUN    = 8;
@@ -3356,23 +3362,36 @@ while (!windowShouldClose() && !aitestDone) {
     // pose and fake recoil + muzzle flash on the weapon.
     const modelYaw = Math.PI / 2 - camYaw;
 
-    // SH-034 / EN-028 â€” locomotion through the mixer instead of hard clip
-    // swaps. animPlay is idempotent, so we simply state the clip we want every
-    // frame and the engine crossfades if that changed. The run clip finally
-    // gets used (it was loaded and never played), and the playback RATE is
-    // driven by actual speed, which is what kills the foot-sliding.
+    // SH-034 / EN-028 — locomotion through the mixer instead of hard clip swaps.
+    // animPlay is idempotent, so we state the clip we want every frame and the
+    // engine crossfades if it changed.
+    //
+    // The clip is chosen by what the player is DOING, not by crossing a speed
+    // threshold. The old code switched to the run clip only above 7.0 m/s — but
+    // the walk speed is 6.0, so normal movement ALWAYS played the walk clip, and
+    // to cover 6 m/s of ground with a 2.6 m/s stride it ran at the 2.2x clamp.
+    // That is the "sliding": a walk cycle at double speed whose stride still
+    // cannot keep up with the floor. Sprint (9.0 m/s target, ~7.4 actual) only
+    // just cleared 7.0, so the run clip flickered in and out at the boundary.
+    //
+    // Now: sprinting runs, moving walks, standing idles. No threshold to sit on.
     const spd = playerSpeed();
-    const runIsh = spd > 7.0;
+    const sprinting = isSprinting();
     const wantClip = spd > 0.4
-      ? (runIsh ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
+      ? (sprinting ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
       : PLAYER_ANIM_IDLE;
-    // Authored stride speeds: walk ~2.6 m/s, run ~6.5 m/s. Scaling playback by
-    // (actual / authored) makes the feet land where the ground is.
-    const authored = wantClip === PLAYER_ANIM_RUN ? 6.5
-                   : (wantClip === PLAYER_ANIM_WALK ? 2.6 : 1);
+
+    // Playback rate = actual speed / the speed the clip was authored to travel
+    // at. That is what plants the feet: the stride then covers exactly the ground
+    // the character does. Clamp generously — outside this the cycle stops reading
+    // as a gait at all — but the clamp should never be REACHED in normal play. If
+    // it is, the movement speed and the clip no longer belong together, and the
+    // fix is the speed constant, not a wider clamp.
+    const authored = wantClip === PLAYER_ANIM_RUN ? ANIM_RUN_SPEED
+                   : (wantClip === PLAYER_ANIM_WALK ? ANIM_WALK_SPEED : 1);
     const rate = wantClip === PLAYER_ANIM_IDLE
       ? 1
-      : Math.max(0.35, Math.min(2.2, spd / authored));
+      : Math.max(0.5, Math.min(1.8, spd / authored));
     animPlay(animPlayer, wantClip, 0.15, rate, true);
     animUpdate(animPlayer, dt, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
