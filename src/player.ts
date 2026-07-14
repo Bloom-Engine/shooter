@@ -3,7 +3,7 @@ import {
   WorldHandle, CharacterHandle, ShapeHandle,
   capsuleShape, createCharacter,
   updateCharacter, getCharacterPosition, getCharacterLinearVelocity,
-  setCharacterLinearVelocity, isCharacterGrounded,
+  setCharacterLinearVelocity, isCharacterGrounded, getCharacterGroundNormal,
 } from 'bloom/physics';
 
 // Player character (third-person). Jolt's CharacterVirtual is anchored at the capsule center:
@@ -26,10 +26,28 @@ const ACCEL = 14.0;                // ground horizontal velocity lerp rate
 const AIR_ACCEL = 4.0;
 const JUMP_IMPULSE = 7.0;
 const GRAVITY: Vec3 = { x: 0, y: -20, z: 0 };
-// Climb assist: when grounded and pressing into a slope, add a
-// small upward velocity proportional to horizontal speed so the
-// character climbs hills smoothly instead of grinding into them.
-const CLIMB_ASSIST = 0.45;
+// Climb assist: when grounded and pressing INTO A SLOPE, add the upward
+// velocity needed to follow the surface, so the character climbs hills smoothly
+// instead of grinding into them.
+//
+// It used to be a flat `0.45 * horizontal speed`, applied on every grounded
+// frame the player was moving — on level ground too. At walk speed that is
+// 2.0 m/s of lift: enough to leave the floor. The player was therefore airborne
+// on most frames of an ordinary walk (measured: `grounded` read false on ~3 of
+// every 4 sampled frames), in a permanent ~10 cm hop nobody could see because
+// AIR_SPEED and MOVE_SPEED are equal.
+//
+// Sprint is gated on `grounded`, so sprint was very nearly unreachable — that,
+// and not the sprint code, is why holding shift did nothing.
+//
+// The assist is now derived from the ground normal: to travel at horizontal
+// speed h along a surface, the vertical rate required is h * (-(n·dir_h) / n.y).
+// That is exactly zero on flat ground (n = +Y), so the player stays planted, and
+// it is exactly right on a slope, which is more than the old constant ever was.
+const CLIMB_ASSIST_MAX = 6.0;   // m/s — a cap, not a target; steep ground only
+// Walkable ground has n.y >= cos(maxSlopeAngle). Below that it is a wall: no
+// assist (the slope limit already refuses it) and no dividing by ~zero.
+const MIN_GROUND_NY = 0.35;
 
 // SH-032 — sprint + dodge. The enemies (mantis darts, dragoon pounces) were
 // more mobile than the player, which is exactly backwards for a power fantasy.
@@ -131,14 +149,28 @@ export function updatePlayerController(
   // frame to keep ground contact.
   let ny = grounded ? 0 : v.y;
   if (jumpPressed && grounded) ny = JUMP_IMPULSE;
-  // When grounded and trying to move, give a small upward bias —
-  // CharacterVirtual otherwise wedges against slopes because the
-  // horizontal velocity hits the slope perpendicularly and can't
-  // glide up. The assist is proportional to horizontal speed so
-  // it disappears when the player stops.
+  // Grounded and pressing into a slope: rise at exactly the rate that keeps the
+  // character on the surface. CharacterVirtual otherwise wedges against a hill,
+  // because the horizontal velocity meets the slope perpendicularly and cannot
+  // glide up it. On level ground this contributes nothing at all — see the note
+  // on CLIMB_ASSIST_MAX for why that matters so much.
   else if (grounded) {
     const hspeed = Math.hypot(targetX, targetZ);
-    if (hspeed > 0.1) ny = CLIMB_ASSIST * hspeed;
+    if (hspeed > 0.1) {
+      const n = getCharacterGroundNormal(character);
+      if (n.y > MIN_GROUND_NY) {
+        // Unit horizontal heading, then the surface's gradient along it. The
+        // normal's horizontal part points DOWNhill, so climbing means the dot
+        // product is negative — hence the leading minus.
+        const ux = targetX / hspeed;
+        const uz = targetZ / hspeed;
+        const grade = -(n.x * ux + n.z * uz) / n.y;
+        if (grade > 0) {
+          const lift = hspeed * grade;
+          ny = lift > CLIMB_ASSIST_MAX ? CLIMB_ASSIST_MAX : lift;
+        }
+      }
+    }
   }
 
   setCharacterLinearVelocity(character, vec3(nx, ny, nz));

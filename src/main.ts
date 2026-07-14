@@ -1,4 +1,4 @@
-﻿import {
+import {
   initWindow, windowShouldClose, beginDrawing, endDrawing, clearBackground,
   setTargetFPS, getDeltaTime, getFPS, getTime,
   beginMode3D, endMode3D,
@@ -533,6 +533,34 @@ for (let i = 0; i < FOREST_COUNT; i++) {
   });
 }
 
+// ---- Camera occlusion: the canopy ------------------------------------------
+// The trunk box above is the ONLY collider a tree has â€” the canopy is
+// shoot-through on purpose â€” so the orbit camera's raycast could never see the
+// leaves. It happily parked the camera inside a wall of foliage, which is the
+// one place a third-person camera must never be. The canopy is not physics, so
+// the camera tests it analytically (below, in the orbit block).
+//
+// Leaf-card bounds MEASURED from the GLBs â€” mesh primitive 3 of each
+// prop_tree*.glb IS the leaf-card set, and glTF stores each accessor's min/max,
+// so these are the asset's own numbers, not a guess. Model units: multiply by
+// FOREST_SCALE. Indexed by FOREST_VAR (same order as treeVariants).
+// Re-measure if the tree art changes.
+const CANOPY_Y0 = [1.70, 2.33, 0.66];   // leaves start (tree3's hang near the ground)
+const CANOPY_Y1 = [5.64, 6.06, 5.02];   // ...and end
+const CANOPY_R  = [2.69, 2.44, 3.23];   // leaf-tip horizontal extent
+// How much of that measured radius actually counts as "in the way".
+//
+// This started at 0.70, on the theory that the bounds reach the outermost leaf
+// TIP while the opaque mass is smaller. A screenshot killed that theory: the
+// camera dutifully stopped just outside the shrunken cylinder and a leaf card
+// filled half the frame, because a leaf tip occludes exactly as well as a leaf
+// centre does. The camera has to clear the foliage it can SEE, so the measured
+// extent is the right number and 1.0 is the right factor.
+//
+// Lower it only if the camera turns out to zoom for foliage that was never in
+// the way; the cost of that is a leaf in the lens.
+const CANOPY_SOLID_FRAC = 1.0;
+
 let treePropIdx = -1;
 let terrainPropIdx = -1;
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
@@ -708,6 +736,14 @@ const CAM = [spawnYaw, 0.35, 0, 0, 0, 0, 0, 0, 0];
 const TP_PITCH_MIN = -0.25;
 const TP_PITCH_MAX = 1.20;
 const TP_ORBIT_DIST = 6.0;
+// How close the camera may be shoved before it gives up. It has to be able to
+// get properly close, or "zoom in past the obstacle" degrades into "sit inside
+// the obstacle" the moment the player backs into a wall.
+const TP_ORBIT_MIN = 0.8;
+// Radius of the swept volume the camera occupies for occlusion purposes. Roughly
+// the player capsule's radius: big enough that a trunk grazing the view pushes
+// the camera in, small enough not to zoom for a fence post two metres to the side.
+const CAM_PROBE_R = 0.30;
 const TP_EYE_HEIGHT = 1.4;
 const TP_SMOOTH = 10.0;
 const TP_FOVY = 70;
@@ -762,6 +798,9 @@ const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 // read on screen as "the weapon isn't rendering at all". Sockets fail silently
 // like that; an exact tag is the whole defence.
 const playerHandJoint = findJoint(animPlayer, 'tag_weapon');
+// ANIMDBG only â€” a joint that swings hard in any gait, so "is the pose actually
+// moving?" is a number and not an opinion.
+const dbgAnkle = findJoint(animPlayer, 'ankle.R');
 
 // SH-033 â€” VFX. Cosmetic, so a failure here must never take the game down:
 // initVfx() returns false and every emit call becomes a no-op.
@@ -1764,6 +1803,39 @@ let waterTestT0 = -1;
 const AITEST = false;
 let aitestDone = false;
 
+// ---- ANIMDBG harness (temporary diagnostic) ---------------------------------
+// The walk clip looks dead and sprint looks dead. Rather than guess which of the
+// three links is broken (input -> controller -> clip select -> mixer), drive a
+// scripted 3 s walk / 3 s sprint cycle and print, side by side:
+//   rep_spd   what playerSpeed() REPORTS
+//   real_spd  what the world actually did (position delta / dt)
+//   ankleAmp  how far the ankle joint MOVED in the pose this window
+// If rep_spd is 0 while real_spd is 4.5, the accessor is lying (the Perry
+// small-numeric-fn miscompile, EN-050/051). If they agree and ankleAmp is ~0,
+// the mixer never advances the clip. Each answer accuses a different file.
+//
+// It was the mixer (engine models.rs anim_play — a re-requested clip restarted
+// its own fade forever and pinned cur_time at 0), and `grounded` reading false
+// on 3 of every 4 walking frames, which is what made sprint unreachable. Both
+// fixed; the harness stays because the next locomotion bug will want it.
+//
+// `orbit=` also reports the camera occlusion distance (want vs. actual), which
+// is how the canopy zoom was verified.
+//
+// MUST be false in shipped builds: it suppresses every enemy wave.
+const ANIMDBG = false;
+// Sub-mode of ANIMDBG: walk into the tree behind the camera and then stand
+// still, so an external window capture (tools/shot-window.ps1 — takeScreenshot()
+// still writes no file on Windows) gets a stationary, occluded frame to shoot.
+const CAMHOLD = false;
+let animDbgDone = false;
+let dbgSprint = 0;
+// Camera occlusion readback: what the orbit was shortened TO, and what it wanted.
+let dbgOrbit = 0;
+let dbgWant = 0;
+// 0 prevX  1 prevZ  2 have-prev  3 measured speed  4 ankle min  5 ankle max
+const AD = [0, 0, 0, 0, 1e9, -1e9];
+
 // ---- COMBATSHOT harness -----------------------------------------------------
 // Drives a REAL fight and screenshots it, because the AAA-round systems (VFX,
 // decals, recoil, hit-stop, flinch, HUD) can only be judged in combat and the
@@ -1917,7 +1989,7 @@ function perfStageApply(s: number): void {
 }
 
 
-while (!windowShouldClose() && !aitestDone) {
+while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   beginDrawing();
   if (PERFTEST) {
     const nowTop = getTime();
@@ -2162,6 +2234,42 @@ while (!windowShouldClose() && !aitestDone) {
       if ((testFrame % 120) === 0) console.log('WATERTEST fps=' + getFPS());
     }
   }
+  // ANIMDBG â€” scripted walk/sprint cycle. See the harness block above.
+  if (ANIMDBG) {
+    if (testFrame === 20 && gameState === 0) gameState = 1;
+    playerHP = PLAYER_HP_MAX;
+    gameOver = false;
+    waveBreakTimer = 9999;      // no enemies: this walk must not be shoved
+    // Yaw the camera onto the tree at (5.3, 25.9) â€” nearest to the (0, 20)
+    // spawn â€” so the ORBIT (which trails behind the player) sweeps into its
+    // canopy and back out as the scripted walk moves down that axis. Walking
+    // "forward" here walks away from the tree, so the occlusion builds and
+    // releases without any hand-steering.
+    CAM[0] = -0.735;
+    CAM[1] = 0.35;
+    if (gameState === 1) {
+      const tA = getTime();
+      const seg = Math.floor(tA / 3);
+      // 3 s walk fwd, 3 s sprint fwd, 3 s walk back, 3 s sprint back â€” so the
+      // player stays near spawn instead of walking into the far wall (a wall
+      // would zero the speed and the probe would read that as the bug).
+      dbgSprint = (seg % 2) === 1 ? 1 : 0;
+      input.moveX = 0;
+      input.moveZ = (seg % 4) < 2 ? -1 : 1;
+      input.sprintDown = dbgSprint !== 0;
+      // CAMHOLD: walk INTO the tree behind the camera, then stand still, so an
+      // external window capture has a stationary, strongly-occluded frame to
+      // shoot. moveZ = +1 is "backward" = toward the tree at this yaw.
+      if (CAMHOLD) {
+        dbgSprint = 0;
+        input.sprintDown = false;
+        input.moveZ = testFrame < 42 ? 1 : 0;
+      }
+      input.aimDown = false;    // both cancel sprint â€” see wantSprint below
+      input.fireDown = false;
+      if (testFrame > 1200) animDbgDone = true;
+    }
+  }
   // AITEST â€” see the harness block above WATERTEST.
   if (AITEST) {
     if (testFrame === 20 && gameState === 0) {
@@ -2351,14 +2459,90 @@ while (!windowShouldClose() && !aitestDone) {
     // wall-aware raycast below still applies, so aiming into a corner behaves.
     const aimT = WPN.aimBlend();
     const wantDist = TP_ORBIT_DIST + (2.6 - TP_ORBIT_DIST) * aimT;
-    let orbitDist = wantDist;
-    const hit = raycast(physics,
-      vec3(fX, fY, fZ),
-      vec3(dxRaw, dyRaw, dzRaw),
-      wantDist, 1 << Layer.NON_MOVING);
-    if (hit !== null) {
-      orbitDist = Math.max(0.8, hit.fraction * wantDist - 0.25);
+    let blockDist = wantDist;
+
+    // (a) Static geometry, as a PROBE FAN rather than one hairline ray. The
+    // camera is a volume, not a point: a single centre ray slips past a trunk or
+    // a wall corner that then fills a third of the screen. Jolt has no shape
+    // cast exposed, so sweep a cylinder of radius CAM_PROBE_R the honest way â€”
+    // four rays offset perpendicular to the orbit direction, plus the centre.
+    // Cheap: five raycasts against static bodies only.
+    //
+    // The orbit direction never points straight up (pitch is clamped well below
+    // vertical), so (-dz, 0, dx) is always a safe perpendicular.
+    const perpL = Math.sqrt(dxRaw * dxRaw + dzRaw * dzRaw);
+    const uX = -dzRaw / perpL, uY = 0, uZ = dxRaw / perpL;      // right, level
+    const vX = uY * dzRaw - uZ * dyRaw;                          // u x d = up-ish
+    const vY = uZ * dxRaw - uX * dzRaw;
+    const vZ = uX * dyRaw - uY * dxRaw;
+    for (let p = 0; p < 5; p++) {
+      let oX = fX, oY = fY, oZ = fZ;
+      if (p === 1) { oX += uX * CAM_PROBE_R; oY += uY * CAM_PROBE_R; oZ += uZ * CAM_PROBE_R; }
+      if (p === 2) { oX -= uX * CAM_PROBE_R; oY -= uY * CAM_PROBE_R; oZ -= uZ * CAM_PROBE_R; }
+      if (p === 3) { oX += vX * CAM_PROBE_R; oY += vY * CAM_PROBE_R; oZ += vZ * CAM_PROBE_R; }
+      if (p === 4) { oX -= vX * CAM_PROBE_R; oY -= vY * CAM_PROBE_R; oZ -= vZ * CAM_PROBE_R; }
+      const hit = raycast(physics, vec3(oX, oY, oZ),
+        vec3(dxRaw, dyRaw, dzRaw), wantDist, 1 << Layer.NON_MOVING);
+      if (hit !== null) {
+        const d = hit.fraction * wantDist;
+        if (d < blockDist) blockDist = d;
+      }
     }
+
+    // (b) Tree canopies, which are not in the physics world at all (the leaves
+    // are deliberately shoot-through, so a raycast sails straight through them
+    // and the camera ends up inside a bush). Ray vs. the canopy cylinder,
+    // analytically. The cheap XZ reject drops ~85 of the 88 trees before any
+    // real work, so this is a handful of multiplies per frame.
+    for (let i = 0; i < FOREST_COUNT; i++) {
+      const s = FOREST_SCALE[i];
+      const vI = FOREST_VAR[i];
+      const cr = CANOPY_R[vI] * s * CANOPY_SOLID_FRAC;
+      const cx = FOREST_X[i] - fX;
+      const cz = FOREST_Z[i] - fZ;
+      const reach = blockDist + cr;
+      if (cx * cx + cz * cz > reach * reach) continue;          // far: cannot block
+
+      // Interval of the ray inside the canopy's XZ circle.
+      const a = dxRaw * dxRaw + dzRaw * dzRaw;
+      if (a < 1e-6) continue;                                    // ray is vertical
+      const b = -2 * (cx * dxRaw + cz * dzRaw);
+      const c = cx * cx + cz * cz - cr * cr;
+      const disc = b * b - 4 * a * c;
+      if (disc <= 0) continue;                                   // misses the circle
+      const sq = Math.sqrt(disc);
+      let ta = (-b - sq) / (2 * a);
+      let tb = (-b + sq) / (2 * a);
+      if (ta < 0) ta = 0;
+      if (tb > blockDist) tb = blockDist;
+      if (ta > tb) continue;
+
+      // ...and of the ray inside the canopy's height band. y(t) is linear, so
+      // both intervals are ranges and the block starts where they overlap.
+      const y0 = FOREST_Y[i] + CANOPY_Y0[vI] * s;
+      const y1 = FOREST_Y[i] + CANOPY_Y1[vI] * s;
+      let tEnter = ta;
+      let tExit = tb;
+      if (Math.abs(dyRaw) < 1e-6) {
+        if (fY < y0 || fY > y1) continue;                        // passes above/below
+      } else {
+        const tA = (y0 - fY) / dyRaw;
+        const tB = (y1 - fY) / dyRaw;
+        const tLo = tA < tB ? tA : tB;
+        const tHi = tA < tB ? tB : tA;
+        if (tLo > tEnter) tEnter = tLo;
+        if (tHi < tExit) tExit = tHi;
+        if (tEnter > tExit) continue;                            // never in the band
+      }
+      if (tEnter < blockDist) blockDist = tEnter;
+    }
+
+    // Leave a small skin so the camera does not kiss the surface it stopped at.
+    let orbitDist = wantDist;
+    if (blockDist < wantDist) {
+      orbitDist = Math.max(TP_ORBIT_MIN, blockDist - 0.25);
+    }
+    if (ANIMDBG) { dbgOrbit = orbitDist; dbgWant = wantDist; }
     const wX = fX + dxRaw * orbitDist;
     const wY = fY + dyRaw * orbitDist;
     const wZ = fZ + dzRaw * orbitDist;
@@ -3451,6 +3635,45 @@ while (!windowShouldClose() && !aitestDone) {
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
               PLAYER_SCALE, WHITE);
+
+    // ANIMDBG readback â€” must run AFTER animUpdate, or the joint query reads
+    // last frame's pose and the amplitude is a frame late.
+    if (ANIMDBG) {
+      if (AD[2] !== 0 && dtReal > 0) {
+        const mdx = pp.x - AD[0];
+        const mdz = pp.z - AD[1];
+        AD[3] = Math.sqrt(mdx * mdx + mdz * mdz) / dtReal;
+      }
+      AD[0] = pp.x;
+      AD[1] = pp.z;
+      AD[2] = 1;
+      const ay = jointWorld(animPlayer, dbgAnkle, 13);
+      if (ay < AD[4]) AD[4] = ay;
+      if (ay > AD[5]) AD[5] = ay;
+      if ((testFrame % 30) === 0) {
+        // Compute into locals, then print: a call nested inside a log
+        // concatenation has given a different answer than the same call
+        // assigned first (see docs/perry-quirks.md).
+        const repSpd = playerSpeed();
+        const realSpd = AD[3];
+        const spr = isSprinting() ? 1 : 0;
+        const gnd = playerGrounded() ? 1 : 0;
+        const amp = AD[5] - AD[4];
+        console.log('ANIMDBG f=' + testFrame
+          + ' want_sprint=' + dbgSprint
+          + ' rep_spd=' + repSpd.toFixed(2)
+          + ' real_spd=' + realSpd.toFixed(2)
+          + ' sprinting=' + spr
+          + ' grounded=' + gnd
+          + ' clip=' + wantClip
+          + ' rate=' + rate.toFixed(2)
+          + ' ankleAmp=' + amp.toFixed(4)
+          + ' orbit=' + dbgOrbit.toFixed(2) + '/' + dbgWant.toFixed(2)
+          + ' px=' + pp.x.toFixed(1) + ' pz=' + pp.z.toFixed(1));
+        AD[4] = 1e9;
+        AD[5] = -1e9;
+      }
+    }
 
     // SH-027 â€” the real weapon model, at the transform computed once above.
     // Recoil is a short kick BACK along the barrel; the squared falloff reads
