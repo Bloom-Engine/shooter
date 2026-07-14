@@ -132,6 +132,13 @@ function cliScaleOverride(name: string, idx: number): void {
 }
 cliScaleOverride('--render-scale', SET.SET_RENDER_SCALE);
 cliScaleOverride('--output-scale', SET.SET_OUTPUT_SCALE);
+// `--pt off|prog|rt` overrides the persisted path-tracing mode for this
+// launch. Applied with the rest of the graphics settings below (and
+// inert on devices without ray query, same as the menu row).
+const cliPt = cliArg('--pt');
+if (cliPt === 'off' || cliPt === '0') SET.set(SET.SET_PT, 0);
+else if (cliPt === 'prog' || cliPt === '1') SET.set(SET.SET_PT, 1);
+else if (cliPt === 'rt' || cliPt === '2') SET.set(SET.SET_PT, 2);
 
 FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
 initMenus();
@@ -1663,15 +1670,10 @@ let dbgSsao = true;
 // Progressive accumulates while the camera is still (stand still and the
 // image converges); realtime is the denoised gameplay mode. No-op on
 // devices without hardware ray query.
-let dbgPtMode = 0;
+// PT state lives in the settings array (SET_PT) — the menu row, the F9
+// debug cycle, the --pt CLI flag and the HUD all read/write one value.
+// applyGraphicsSettings() pushed the persisted mode at boot.
 const ptSupported = isPathTracingSupported();
-// `--pt prog|rt` (or 1|2) starts the run already in that mode. Goes through
-// dbgPtMode so the F9 cycle and the HUD tag stay truthful.
-const ptArg = cliArg('--pt');
-if (ptSupported) {
-  if (ptArg === 'prog' || ptArg === '1') { dbgPtMode = 1; setPathTracing(1); }
-  else if (ptArg === 'rt' || ptArg === '2') { dbgPtMode = 2; setPathTracing(2); }
-}
 let dbgSsr = true;
 let dbgShadow = true;
 disableCursor();
@@ -1786,10 +1788,10 @@ const PERFTEST = false;
 // player alive, and logs fps / worst-frame / alive-enemy count per 60-frame
 // window; the profiler turns on for the final third to get a combat per-pass
 // table.
-const PERF_MODE = 0;
+const PERF_MODE = 1;
 // false = stay on the title screen (stationary world backdrop â€” used for
 // external flicker captures); true = auto-start the run at frame 20.
-const PERF_START_GAME = false;
+const PERF_START_GAME = true;
 const PERF_SETTLE = 30;    // frames to let a config change settle
 const PERF_MEASURE = 120;  // frames per measurement window
 const PERF_STAGES = 11;
@@ -1827,7 +1829,13 @@ function perfKillOne(): void {
       enAlive[i] = 0;
       enDying[i] = 1;
       enDeathT[i] = 0;
-      enDeathYaw[i] = 0;
+      enDeathYaw[i] = enHeading[i];
+      // SH-031 ragdoll fields — the death anim reads these into native
+      // f64 params, so a scripted kill must set them like a real shot.
+      enDeathDX[i] = 0;
+      enDeathDY[i] = 0.3;
+      enDeathDZ[i] = -1;
+      enDeathImp[i] = 40;
       setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
       playSound(sfxAttack);
       console.log('PERFKILL t=' + getTime().toFixed(2)
@@ -1969,8 +1977,9 @@ while (!windowShouldClose() && !aitestDone) {
   if (isKeyPressed(Key.F7)) { dbgSsr = !dbgSsr; setSsrEnabled(dbgSsr); }
   if (isKeyPressed(Key.F8)) { dbgShadow = !dbgShadow; setShadowsEnabled(dbgShadow); }
   if (isKeyPressed(Key.F9) && ptSupported) {
-    dbgPtMode = (dbgPtMode + 1) % 3;
-    setPathTracing(dbgPtMode);
+    const ptNext = (SET.get(SET.SET_PT) + 1) % 3;
+    SET.set(SET.SET_PT, ptNext);
+    setPathTracing(ptNext);
   }
 
   const input = readInput(dtReal);
@@ -3798,7 +3807,7 @@ while (!windowShouldClose() && !aitestDone) {
       + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
       // The vN suffix is a build tag: bump it with each PT engine drop
       // so a stale main.exe is identifiable at a glance in the HUD.
-      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v10';
+      + '   F9 PT ' + (!ptSupported ? 'n/a' : (SET.get(SET.SET_PT) === 0 ? 'off' : (SET.get(SET.SET_PT) === 1 ? 'PROG' : 'RT'))) + ' v11';
     drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
     drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
   }
