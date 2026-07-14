@@ -32,6 +32,7 @@ import {
   setCloudShadows,
   setTaaEnabled, setRenderScale,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
+  setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
   setManualExposure, gamepadRumble, readFile,
 } from 'bloom/core';
@@ -57,7 +58,7 @@ import {
 import { initInput, readInput, drawTouchControls, MOBILE, aimAssistScale } from './input';
 import {
   createPlayer, updatePlayerController, playerPosition,
-  playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac,
+  playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting,
 } from './player';
 import * as W from './world-runtime';
 import {
@@ -106,6 +107,32 @@ initInput();
 // SH-037 â€” settings must load BEFORE anything reads them (input sensitivity,
 // audio volumes, FOV, shake). A missing file is a first run, not an error.
 SET.loadSettings();
+
+// ---- CLI overrides for A/B-testing graphics settings -----------------------
+// `main --render-scale 0.5|0.75|1` and `main --output-scale 0.5|0.75|1`
+// override settings.json for this launch (they land in the live settings
+// array, so the video menu shows them â€” and saving from the pause menu
+// persists them). Values are matched against the fixed list instead of
+// parsed: string equality on argv is safe (world-runtime does it), numeric
+// parsing of FFI strings is not (perry-quirks #5). `--pt off|prog|rt`
+// further below starts in that path-tracing mode without F9 taps.
+function cliArg(name: string): string {
+  const n = process.argv.length;
+  for (let i = 0; i < n - 1; i++) {
+    if (process.argv[i] === name) return process.argv[i + 1];
+  }
+  return '';
+}
+function cliScaleOverride(name: string, idx: number): void {
+  const v = cliArg(name);
+  if (v === '0.25') SET.set(idx, 0.25);
+  else if (v === '0.5' || v === '0.50') SET.set(idx, 0.5);
+  else if (v === '0.75') SET.set(idx, 0.75);
+  else if (v === '1' || v === '1.0') SET.set(idx, 1.0);
+}
+cliScaleOverride('--render-scale', SET.SET_RENDER_SCALE);
+cliScaleOverride('--output-scale', SET.SET_OUTPUT_SCALE);
+
 FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
 initMenus();
 
@@ -312,14 +339,15 @@ setWind(0.85, 0.50, WIND_AMP, 1.6);
 setCloudShadows(0.45, 150, 0.008, 6);
 // TAA + TSR reconstruction. Setting the scale explicitly opts out of the
 // legacy TAA coupling (which would otherwise silently halve the internal
-// resolution). 0.5 at 4K output = 1920Ã—1080 internal, reconstructed to
-// native by the TSR upscale inside the TAA pass â€” the pixel-bound passes
-// (material/G-buffer/GTAO/SSR/SSGI) run at quarter cost while the output
-// (and the HUD) stays native-sharp. Measured on the 4K dev box: ~20 fps at
-// native internal vs ~45 fps here, with the composite sharpen covering the
-// reconstruction softness.
+// resolution). 0.75 at 4K output = 2880x1620 internal, reconstructed to
+// native by the TSR upscale inside the TAA pass. Re-measured 2026-07-14
+// on the 4K dev box after the perf rounds: 0.5 ~46 fps but visibly
+// upscale-soft, 0.75 ~30 fps and dramatically sharper, 1.0 ~19 fps
+// (stills territory - selectable in the video menu). The PT realtime
+// trace grid is budget-capped engine-side, so this scale does not
+// multiply the ray cost.
 setTaaEnabled(true);
-setRenderScale(0.5);
+setRenderScale(0.75);
 // 2026-07-06 fullscreen-lag investigation: the Lumen SW-GI camera-follow
 // bakes (SDF clipmap + WSRC) used to re-run as single full-volume
 // dispatches whenever the view moved â€” a 1-2.4 s GPU stall every ~5 s of
@@ -685,6 +713,12 @@ const mdlPlayer  = loadModel('assets/models/player_bsuit.glb');
 const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
 // human_bsuit animation indices (IQE declaration order):
 //   0 idle, 7 attack, 8 run, 12 walk.
+// The ground speed each locomotion clip was AUTHORED to travel at. The playback
+// rate is (actual speed / this), which is what plants the feet — get these wrong
+// and the character skates.
+const ANIM_WALK_SPEED = 2.6;
+const ANIM_RUN_SPEED  = 6.5;
+
 const PLAYER_ANIM_IDLE   = 0;
 const PLAYER_ANIM_WALK   = 12;
 const PLAYER_ANIM_RUN    = 8;
@@ -1625,6 +1659,19 @@ let perfOverlayOn = false;
 // docs/shadow-cascade-and-ssao-fixes.md). Kept as a standing debug aid.
 let dbgSsgi = true;
 let dbgSsao = true;
+// F9 cycles path tracing: 0 off -> 1 progressive -> 2 realtime -> 0.
+// Progressive accumulates while the camera is still (stand still and the
+// image converges); realtime is the denoised gameplay mode. No-op on
+// devices without hardware ray query.
+let dbgPtMode = 0;
+const ptSupported = isPathTracingSupported();
+// `--pt prog|rt` (or 1|2) starts the run already in that mode. Goes through
+// dbgPtMode so the F9 cycle and the HUD tag stay truthful.
+const ptArg = cliArg('--pt');
+if (ptSupported) {
+  if (ptArg === 'prog' || ptArg === '1') { dbgPtMode = 1; setPathTracing(1); }
+  else if (ptArg === 'rt' || ptArg === '2') { dbgPtMode = 2; setPathTracing(2); }
+}
 let dbgSsr = true;
 let dbgShadow = true;
 disableCursor();
@@ -1921,6 +1968,10 @@ while (!windowShouldClose() && !aitestDone) {
   if (isKeyPressed(Key.F6)) { dbgSsao = !dbgSsao; setSsaoEnabled(dbgSsao); }
   if (isKeyPressed(Key.F7)) { dbgSsr = !dbgSsr; setSsrEnabled(dbgSsr); }
   if (isKeyPressed(Key.F8)) { dbgShadow = !dbgShadow; setShadowsEnabled(dbgShadow); }
+  if (isKeyPressed(Key.F9) && ptSupported) {
+    dbgPtMode = (dbgPtMode + 1) % 3;
+    setPathTracing(dbgPtMode);
+  }
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
@@ -3356,23 +3407,36 @@ while (!windowShouldClose() && !aitestDone) {
     // pose and fake recoil + muzzle flash on the weapon.
     const modelYaw = Math.PI / 2 - camYaw;
 
-    // SH-034 / EN-028 â€” locomotion through the mixer instead of hard clip
-    // swaps. animPlay is idempotent, so we simply state the clip we want every
-    // frame and the engine crossfades if that changed. The run clip finally
-    // gets used (it was loaded and never played), and the playback RATE is
-    // driven by actual speed, which is what kills the foot-sliding.
+    // SH-034 / EN-028 — locomotion through the mixer instead of hard clip swaps.
+    // animPlay is idempotent, so we state the clip we want every frame and the
+    // engine crossfades if it changed.
+    //
+    // The clip is chosen by what the player is DOING, not by crossing a speed
+    // threshold. The old code switched to the run clip only above 7.0 m/s — but
+    // the walk speed is 6.0, so normal movement ALWAYS played the walk clip, and
+    // to cover 6 m/s of ground with a 2.6 m/s stride it ran at the 2.2x clamp.
+    // That is the "sliding": a walk cycle at double speed whose stride still
+    // cannot keep up with the floor. Sprint (9.0 m/s target, ~7.4 actual) only
+    // just cleared 7.0, so the run clip flickered in and out at the boundary.
+    //
+    // Now: sprinting runs, moving walks, standing idles. No threshold to sit on.
     const spd = playerSpeed();
-    const runIsh = spd > 7.0;
+    const sprinting = isSprinting();
     const wantClip = spd > 0.4
-      ? (runIsh ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
+      ? (sprinting ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
       : PLAYER_ANIM_IDLE;
-    // Authored stride speeds: walk ~2.6 m/s, run ~6.5 m/s. Scaling playback by
-    // (actual / authored) makes the feet land where the ground is.
-    const authored = wantClip === PLAYER_ANIM_RUN ? 6.5
-                   : (wantClip === PLAYER_ANIM_WALK ? 2.6 : 1);
+
+    // Playback rate = actual speed / the speed the clip was authored to travel
+    // at. That is what plants the feet: the stride then covers exactly the ground
+    // the character does. Clamp generously — outside this the cycle stops reading
+    // as a gait at all — but the clamp should never be REACHED in normal play. If
+    // it is, the movement speed and the clip no longer belong together, and the
+    // fix is the speed constant, not a wider clamp.
+    const authored = wantClip === PLAYER_ANIM_RUN ? ANIM_RUN_SPEED
+                   : (wantClip === PLAYER_ANIM_WALK ? ANIM_WALK_SPEED : 1);
     const rate = wantClip === PLAYER_ANIM_IDLE
       ? 1
-      : Math.max(0.35, Math.min(2.2, spd / authored));
+      : Math.max(0.5, Math.min(1.8, spd / authored));
     animPlay(animPlayer, wantClip, 0.15, rate, true);
     animUpdate(animPlayer, dt, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
@@ -3731,8 +3795,11 @@ while (!windowShouldClose() && !aitestDone) {
     const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
       + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
       + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
-      + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off');
-    drawRect(6, 6, 620, 30, { r: 0, g: 0, b: 0, a: 170 });
+      + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
+      // The vN suffix is a build tag: bump it with each PT engine drop
+      // so a stale main.exe is identifiable at a glance in the HUD.
+      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v10';
+    drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
     drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
   }
 

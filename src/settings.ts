@@ -66,7 +66,11 @@ function defaults(): void {
   V[SET_INVERT_Y]   = 0;
   V[SET_FOV]        = 70;
   V[SET_SHAKE]      = 1.0;
-  V[SET_RENDER_SCALE] = 0.5;
+  // 0.75: re-measured 2026-07-14 — 0.5 reads visibly upscale-soft at 4K
+  // while 0.75 is dramatically sharper at ~30 fps (1.0 = ~19 fps, kept
+  // selectable for stills). PT's realtime ray budget is decoupled from
+  // this engine-side, so raising it does not slow path tracing.
+  V[SET_RENDER_SCALE] = 0.75;
   V[SET_AIM_TOGGLE] = 0;
   V[SET_SPRINT_TOGGLE] = 0;
   V[SET_COLORBLIND] = 0;

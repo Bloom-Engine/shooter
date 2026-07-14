@@ -461,7 +461,35 @@ sizes.
 
 ---
 
-## SH-034 — Locomotion & animation blending ✅ *(shipped — EN-028 mixer landed: crossfades, upper-body attack mask, speed-synced walk)*
+## SH-034 — Locomotion & animation blending ✅ *(shipped; **thresholds corrected 2026-07-13** — see below)*
+
+**The bug that shipped with it.** The clip was chosen by crossing a speed
+threshold: run above 7.0 m/s, walk below. But `MOVE_SPEED` was **6.0**, so normal
+movement *always* took the walk clip — and the walk clip is authored for ~2.6 m/s,
+so covering 6 m/s of ground meant playing it at the **2.2x clamp**. Even at the
+clamp the stride only covers ~5.7 m/s, so the feet could never keep up with the
+floor. That is what read as the player "sliding": the animation was playing the
+whole time, at double speed, losing a race with the ground.
+
+Sprint (9.0 m/s target, ~7.4 actual) only just cleared 7.0, so the run clip
+flickered in and out at the boundary rather than being a state you could feel.
+
+**Fixed two ways, and the second is the real one:**
+
+1. The clip now follows what the player is *doing* — `isSprinting()` runs, moving
+   walks, standing idles. No threshold to sit on. (`isSprinting()` was exported by
+   `player.ts` and imported by nobody, which was the clue.)
+2. `MOVE_SPEED` 6.0 → **4.5**. 6.0 m/s is a *run* speed wearing a walk animation;
+   no clip selection fixes that. `SPRINT_MUL` 1.5 → **2.0** absorbs it, so the top
+   speed is **still 9.0 m/s** and nothing about outrunning a dragoon pounce
+   changed. Only the cruise is slower — and now holding shift is the difference
+   between a walk and a run, which is what it should always have been.
+
+**The clamp is the canary.** Playback rate is (actual speed / the speed the clip
+was authored for). If that ratio ever *reaches* the clamp, the movement speed and
+the clip no longer belong together, and the fix is the speed constant — not a wider
+clamp. Measured after the change: walk lands at ~1.4x, sprint at ~1.1x. Both well
+inside it.
 
 **Why:** every animation change is a hard swap; enemies play walk at
 a fixed rate regardless of actual velocity (foot-sliding); the player
@@ -562,7 +590,7 @@ damage audibly ducks the music; no render-thread glitches.
 
 ---
 
-## SH-036 — Dynamic music intensity 🟡 *(fully wired 2026-07-13; the only thing missing is the audio itself — ASSET-TODO A4)*
+## SH-036 — Dynamic music intensity ✅ *(shipped 2026-07-13 — real music, mastered and looping)*
 
 **Why:** one looping combat track from the first frame to the last
 flattens the pacing the wave director already creates.
@@ -1107,3 +1135,93 @@ object before parsing.
 **Also fixed:** the menu title was nailed to `sh * 0.5 - 200` while the list is
 centred — so adding rows grew the list upward straight through it. The title is
 anchored to the top of the list now.
+
+---
+
+## SH-046 — Character fidelity: PBR uplift + a better player model 🟡 *(uplift shipped 2026-07-13; the new player model needs you)*
+
+**Why:** the characters were the weakest surface in frame. The terrain has
+triplanar PBR *and* a detail normal; every alien and the player had a **base colour
+texture and nothing else** — no normal map, no roughness map, flat `roughness 0.9,
+metallic 0`. They read as matte toys standing on a real world.
+
+### Part 1 — PBR uplift ✅ *(shipped)*
+
+**The maps were on disk the whole time.** The Unvanquished source ships authored
+`_n` (normal) and `_s` (specular) for **every** character; `tools/convert-aliens-anim.ts`
+only ever read the diffuse. Now it reads all three.
+
+- `_n` → glTF `normalTexture`. (No TANGENT attribute needed — the engine
+  reconstructs a TBN from screen-space derivatives; SH-014 proved this.)
+- `_s` → glTF `metallicRoughnessTexture`. **These are not the same thing.** A
+  Quake-lineage spec map stores specular *intensity*; glTF wants *roughness* in
+  green and *metalness* in blue. Mapping intensity straight to gloss — my first
+  attempt — drove bright texels to roughness ~0 and the battlesuit came out
+  **looking wet**. The mapping is now deliberately conservative: roughness spans
+  1.0 → 0.35, never a mirror. The point is surface *variation*, which there was
+  none of; it is not to make anything glossy.
+- The **battlesuit alone** gets metalness from the spec map. It is armour plate,
+  and a dielectric with a tight white highlight reads as wet plastic — metalness is
+  what makes it read as metal, because the reflection gets tinted by the base
+  colour instead of staying white. The aliens stay fully dielectric: metallic
+  chitin would look like tinfoil.
+- The `_adv` upgrade skins have no `_n`/`_s` of their own (they are recolours of
+  the base on the same mesh and UVs), so they borrow the base skin's maps.
+
+Cost: ~0.5 MB per model. All 8 models, every material, now carry both maps.
+
+### Part 1b — texture resolution: we were downsampling the art by 4-8x ✅ *(2026-07-13)*
+
+`TEX_MAX` in the converter was **512**. The Unvanquished source art is **2048²
+(player)** and **4096² (aliens)**. Every character had been shipped at a fraction of
+its authored detail, on models the camera is rarely more than a few metres from.
+
+Now 1024 for the aliens and **2048 for the player** (it is on screen 100% of the
+time and earns more). That is 4x the texels on the aliens and 16x on the player.
+
+**Cost: none that matters.** 53 fps before, 53 fps after — this was never
+fill-bound, it was texture-starved. Models grew 28 MB -> 65 MB on disk.
+
+Between this and the normal/spec maps (Part 1), the characters now carry roughly
+**64x the surface information** they did this morning, and not one byte of it was
+downloaded — it was all sitting in `vendor/`.
+
+### Part 2 — a better player character ❌ *won't-do (searched 2026-07-13, with an API key)*
+
+Searched Sketchfab properly (authenticated, Download API), across `cc0` / `by` /
+`by-sa`, filtered to **downloadable + animated**, over ten character queries.
+**43 candidates. None is an upgrade.** The honest tally:
+
+- The realistic-ish ones ship **3-5 animations** ("Infantryman" 48k verts / 3 anims;
+  "Animated Astronaut" 31k / 4; "Stylized Sci-Fi Officer" 89k / 5).
+- The ones with real animation counts are **low-poly stylized** ("Business Man" 25
+  anims / 2.4k verts; "Futuristic soldier (Free)" 18 anims / 3.7k verts).
+- The one high-poly, well-animated hit is a **Black Myth: Wukong rip** — someone
+  else's IP, licence label notwithstanding. Not touching it.
+
+**The battlesuit has 34 purpose-built clips** — idle, walk, run, four strafes, five
+crouch states, jump, land, pain, die, attack, plus per-weapon pose deltas. Swapping
+it for a 4-animation astronaut would trade a complete locomotion set for a prettier
+T-pose. Retargeting a CC0 animation library (KayKit, Quaternius UAL2) onto a new
+mesh is the only way round that, and it is a Blender-rigging project, not an
+afternoon.
+
+This is exactly what `docs/asset-sourcing.md` predicted: the free ecosystem is rich
+in humanoid animation *libraries* and stylized low-poly monsters, and thin in
+precisely what we already have. **Keep the bsuit.** The uplift above is the better
+buy, and it is done.
+
+The player is on screen 100% of the time and is the model most worth replacing.
+Per `docs/asset-sourcing.md`, the plan is a realistic CC0/CC-BY humanoid from
+**Sketchfab** (its Download API serves **glTF/GLB directly** — no conversion),
+animated from **KayKit** (161 anims) or **Quaternius UAL2** (130+), both **CC0,
+glTF, and redistributable in a GPL repo**.
+
+**What I need from you** — I cannot get past either gate:
+- **Sketchfab requires OAuth.** Give me an API token and I can search, filter by
+  licence, and pull GLBs directly. Otherwise pick a model and drop the `.glb` in.
+- **itch.io returns 403 to scripted downloads**, so KayKit needs a manual grab.
+
+**Reconsider first, honestly:** with the uplift landed, the battlesuit now reads as
+real armour. It may no longer be the weakest thing in frame. Look at it before
+spending on a replacement.
