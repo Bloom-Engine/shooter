@@ -34,7 +34,7 @@ import {
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
-  setManualExposure, gamepadRumble, readFile, writeFile,
+  setManualExposure, gamepadRumble, readFile,
 } from 'bloom/core';
 import {
   addPointLight, enableShadows,
@@ -62,6 +62,12 @@ import {
 } from './player';
 import * as W from './world-runtime';
 import { ENV, initEnvironment, initGiProxies } from './environment';
+import { GS } from './gamestate';
+import {
+  DIR, initDirector, setDirectorDeps, updateDirector, updateEnemyProjectiles,
+  countAlive, spawnEnemy, damageEnemy, despawnAllEnemies,
+  eX, eY, eZ, eLife, eKind, MAX_EPROJ, wavePlan, WAVE_BREAK_DELAY,
+} from './director';
 import {
   KIND_COUNT, KIND_NAME, mdlAliens, ALIEN_GLB, animAliens,
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
@@ -596,19 +602,18 @@ const OBST_MAX = FOREST_COUNT + W.MESH_COUNT;
 const OBST_X = new Array<number>(OBST_MAX);
 const OBST_Z = new Array<number>(OBST_MAX);
 const OBST_R = new Array<number>(OBST_MAX);
-let OBST_COUNT = 0;
 for (let i = 0; i < FOREST_COUNT; i++) {
-  OBST_X[OBST_COUNT] = FOREST_X[i];
-  OBST_Z[OBST_COUNT] = FOREST_Z[i];
-  OBST_R[OBST_COUNT] = 0.30 * FOREST_SCALE[i];
-  OBST_COUNT = OBST_COUNT + 1;
+  OBST_X[GS.OBST_COUNT] = FOREST_X[i];
+  OBST_Z[GS.OBST_COUNT] = FOREST_Z[i];
+  OBST_R[GS.OBST_COUNT] = 0.30 * FOREST_SCALE[i];
+  GS.OBST_COUNT = GS.OBST_COUNT + 1;
 }
 for (let i = 0; i < W.MESH_COUNT; i++) {
-  if (W.MESH_MODEL_IDX[i] === treePropIdx && OBST_COUNT < OBST_MAX) {
-    OBST_X[OBST_COUNT] = W.MESH_X[i];
-    OBST_Z[OBST_COUNT] = W.MESH_Z[i];
-    OBST_R[OBST_COUNT] = 0.30 * W.MESH_SCALE[i];
-    OBST_COUNT = OBST_COUNT + 1;
+  if (W.MESH_MODEL_IDX[i] === treePropIdx && GS.OBST_COUNT < OBST_MAX) {
+    OBST_X[GS.OBST_COUNT] = W.MESH_X[i];
+    OBST_Z[GS.OBST_COUNT] = W.MESH_Z[i];
+    OBST_R[GS.OBST_COUNT] = 0.30 * W.MESH_SCALE[i];
+    GS.OBST_COUNT = GS.OBST_COUNT + 1;
   }
 }
 
@@ -853,96 +858,7 @@ initEnvironment();
 
 // ---- Enemies (SH-025: kinds, stats, pool state → src/enemies.ts) ----------
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };
-bootStage(BOOT_ALIENS);
-initEnemyPool(physics);
-
-// Wave director â€” spawners, wave plan, and kind sequence all come from the
-// world file (see enemy_spawner + wave_config entities in arena_02.world.json).
-const spawnerX = W.SPAWNER_X;
-const spawnerZ = W.SPAWNER_Z;
-const wavePlan = W.WAVE_SIZE;
-const WAVE_OFFS = W.WAVE_OFFS;
-const WAVE_KINDS = W.WAVE_KIND;
-const WAVE_SPAWN_DELAY = 1.2;
-const WAVE_BREAK_DELAY = 2.5;
-// Round-2 audit (F11): with one kind per wave and BODIES_PER_KIND=2 pool
-// slots, the shipped game never showed more than 2 enemies at once â€” the
-// arena felt empty and the measured pool-max load never occurred in play.
-// Waves now mix kinds (see arena_02.world.json), so the concurrency cap
-// is the real limit again.
-const MAX_CONCURRENT = 6;
-
-let waveIdx = 0;
-let waveSpawned = 0;
-let waveBreakTimer = WAVE_BREAK_DELAY;
-let spawnTimer = 0;
-let gameWon = false;
-
-
-// Shortest-arc turn toward a target yaw, clamped to maxStep radians.
-// Keeps enemy headings continuous so models wheel around instead of
-// snapping 180Â°.
-function turnToward(cur: number, target: number, maxStep: number): number {
-  let d = target - cur;
-  while (d > Math.PI)  d = d - Math.PI * 2;
-  while (d < -Math.PI) d = d + Math.PI * 2;
-  if (d >  maxStep) d =  maxStep;
-  if (d < -maxStep) d = -maxStep;
-  return cur + d;
-}
-
-function countAlive(): number {
-  let c = 0;
-  for (let i = 0; i < MAX_ENEMIES; i++) if (enAlive[i] > 0) c = c + 1;
-  return c;
-}
-
-function findDormantSlot(kind: number): number {
-  for (let j = 0; j < BODIES_PER_KIND; j++) {
-    const i = kind * BODIES_PER_KIND + j;
-    // A dying slot still owns the corpse on screen â€” don't respawn into it
-    // or the death anim snaps into a fresh enemy mid-fall.
-    if (enAlive[i] === 0 && enDying[i] === 0) return i;
-  }
-  return -1;
-}
-
-function spawnEnemy(): void {
-  const kind = WAVE_KINDS[WAVE_OFFS[waveIdx] + waveSpawned];
-  const slot = findDormantSlot(kind);
-  if (slot < 0) return;   // all bodies of this kind busy; retry next tick
-  const sp = waveSpawned % 4;
-  enX[slot] = spawnerX[sp];
-  enZ[slot] = spawnerZ[sp];
-  enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
-  enHP[slot] = KIND_HP[kind];
-  enAlive[slot] = 1;
-  enAttackCD[slot] = 0;
-  enFlashT[slot] = 0;
-  enPhase[slot] = Math.random() * Math.PI * 2;
-  enAIState[slot] = AI_APPROACH;
-  enStateT[slot] = 0.5 + Math.random();          // stagger first specials
-  enOrbitDir[slot] = Math.random() < 0.5 ? -1 : 1;
-  enChargeX[slot] = 0;
-  enChargeZ[slot] = 1;
-  enSpeedMul[slot] = 1;
-  enFlinchLock[slot] = 0;
-  enDmgWindow[slot] = 0;
-  enDmgTimer[slot] = 0;
-  enAttackLayer[slot] = 0;
-  enStepPhase[slot] = 0;
-  vxLast[slot] = 0;
-  vzLast[slot] = 0;
-  // Force the mixer to re-trigger: the slot may still hold the die clip from
-  // the previous occupant, and animPlay is (deliberately) a no-op when asked
-  // for the clip that is already playing.
-  enAnimClip[slot] = -1;
-  // Spawners sit at the arena corners â€” start facing the middle.
-  enHeading[slot] = Math.atan2(-enX[slot], enZ[slot]);
-  setBodyPosition(enBody[slot],
-    vec3(enX[slot], enY[slot] + KIND_Y_OFF[kind], enZ[slot]), true);
-  waveSpawned = waveSpawned + 1;
-}
+initDirector(physics);
 
 // ---- Weapon + combat state (M4 / M5 / M6 / M7) ----------------------------
 const PLAYER_HP_MAX = 100;
@@ -956,23 +872,13 @@ const WEAPON_BLASTER = WPN.W_BLASTER;
 const BLASTER_PROJ_LIFE = 2.5;
 const BLASTER_PROJ_GRAVITY = 9.0;   // m/s^2 â€” lighter than world gravity for a softer arc
 
-let playerHP = PLAYER_HP_MAX;
-let gameOver = false;
 // 0 = title screen (menu.wav, world rendering as the backdrop, no waves /
 // no firing / no movement), 1 = playing. Any input starts the game.
-let gameState = 0;
 const MUZZLE_FLASH_DUR = 0.08;
-let muzzleFlashT = 0;
-let damageFlashT = 0;
 // SH-029/SH-043 â€” where the last hit came from, relative to the camera. Drives
 // the HUD's damage arc, which is what makes damage direction readable WITHOUT
 // relying on colour (the colourblind-safe path).
-let lastHitAngle = 0;
-let lastHitT = 0;
 // SH-041 â€” end-of-wave report card + unlock banner.
-let waveBonus = 0;
-let waveBonusT = 0;
-let unlockBannerT = 0;
 // SH-027 â€” the weapon's world transform for this frame. Computed once and used
 // by the draw, the muzzle flash, the tracer AND the shot ray, so what you see
 // is what you hit.
@@ -981,15 +887,10 @@ let weaponY = 0;
 let weaponZ = 0;
 let weaponYaw = 0;
 let weaponPitch = 0;
-let muzzleX = 0;
-let muzzleY = 0;
-let muzzleZ = 0;
 // SH-043 â€” hit marker. A white tick + a sound, so a colourblind player gets
 // the same confirmation everyone else does (the enemy's red tint alone does
 // not survive a red-green deficiency).
-let hitMarkT = 0;
 // SH-040 — seconds left on the "restart to load the new arena" notice.
-let levelChangeT = 0;
 // Phase 7 / Round-3 â€” seconds until the next wading splat may fire.
 // Splatting every moving frame overwhelmed the field's 3.2%/frame decay
 // (steady state ~19Ã— over max â€” a stuck white smear); one splat per
@@ -1021,34 +922,6 @@ const pCharge = new Array<number>(MAX_PROJ);
 for (let i = 0; i < MAX_PROJ; i++) { pLife[i] = 0; pWeapon[i] = 0; pCharge[i] = 0; }
 let projNext = 0;
 
-// SH-042 — ENEMY projectiles. Deliberately a separate pool from the player's:
-// they travel slower and they are DODGEABLE, which is the whole design. A
-// hitscan ranged enemy would just be an unavoidable damage tax; a slow visible
-// bolt is a thing you can sidestep, and that is what makes the new kinds a
-// skill check rather than a nuisance.
-const MAX_EPROJ = 24;
-const eX = new Array<number>(MAX_EPROJ);
-const eY = new Array<number>(MAX_EPROJ);
-const eZ = new Array<number>(MAX_EPROJ);
-const eVX = new Array<number>(MAX_EPROJ);
-const eVY = new Array<number>(MAX_EPROJ);
-const eVZ = new Array<number>(MAX_EPROJ);
-const eLife = new Array<number>(MAX_EPROJ);
-const eDmg = new Array<number>(MAX_EPROJ);
-const eKind = new Array<number>(MAX_EPROJ);
-for (let i = 0; i < MAX_EPROJ; i++) { eLife[i] = 0; eDmg[i] = 0; eKind[i] = 0; }
-let eprojNext = 0;
-
-function spawnEnemyProjectile(x: number, y: number, z: number,
-                              vx: number, vy: number, vz: number,
-                              dmg: number, kind: number): void {
-  eX[eprojNext] = x; eY[eprojNext] = y; eZ[eprojNext] = z;
-  eVX[eprojNext] = vx; eVY[eprojNext] = vy; eVZ[eprojNext] = vz;
-  eLife[eprojNext] = 3.0;
-  eDmg[eprojNext] = dmg;
-  eKind[eprojNext] = kind;
-  eprojNext = (eprojNext + 1) % MAX_EPROJ;
-}
 
 function spawnProjectile(x: number, y: number, z: number,
                          vx: number, vy: number, vz: number,
@@ -1078,33 +951,6 @@ const pickupActive   = new Array<number>(PICKUP_COUNT);
 const pickupRespawnT = new Array<number>(PICKUP_COUNT);
 for (let i = 0; i < PICKUP_COUNT; i++) { pickupActive[i] = 1; pickupRespawnT[i] = 0; }
 
-function despawnAllEnemies(): void {
-  for (let i = 0; i < MAX_ENEMIES; i++) {
-    // SH-031 — release any live ragdoll before wiping the slot, or its bodies
-    // stay in the physics world forever. A restart is exactly the moment such a
-    // leak would go unnoticed.
-    if (enRagActive[i] === 1 && enRagdoll[i] > 0) {
-      releaseRagdoll(enRagdoll[i]);
-      enRagdoll[i] = createRagdoll();
-    }
-    enRagActive[i] = 0;
-    enAlive[i] = 0;
-    enHP[i] = 0;
-    enAttackCD[i] = 0;
-    enFlashT[i] = 0;
-    enPhase[i] = Math.random() * Math.PI * 2;
-    enAnimClip[i] = -1;
-    enAttackLayer[i] = 0;
-    enFlinchLock[i] = 0;
-    enDmgWindow[i] = 0;
-    enDmgTimer[i] = 0;
-    enDying[i] = 0;
-    enDeathT[i] = 0;
-    enDeathYaw[i] = 0;
-    enX[i] = 0; enY[i] = -100; enZ[i] = 0;
-    setBodyPosition(enBody[i], vec3(0, -100, 0), false);
-  }
-}
 
 function resetRun(): void {
   WPN.resetWeapons();
@@ -1114,15 +960,15 @@ function resetRun(): void {
   for (let i = 0; i < WPN.WEAPON_COUNT; i++) {
     if ((mask & (1 << i)) !== 0) WPN.unlock(i);
   }
-  playerHP = PLAYER_HP_MAX;
-  gameOver = false;
-  gameWon = false;
-  muzzleFlashT = 0;
-  damageFlashT = 0;
-  waveIdx = 0;
-  waveSpawned = 0;
-  waveBreakTimer = WAVE_BREAK_DELAY;
-  spawnTimer = 0;
+  GS.playerHP = PLAYER_HP_MAX;
+  GS.gameOver = false;
+  DIR.gameWon = false;
+  GS.muzzleFlashT = 0;
+  GS.damageFlashT = 0;
+  DIR.waveIdx = 0;
+  DIR.waveSpawned = 0;
+  DIR.waveBreakTimer = WAVE_BREAK_DELAY;
+  DIR.spawnTimer = 0;
   for (let i = 0; i < MAX_PROJ; i++) pLife[i] = 0;
   for (let i = 0; i < MAX_EPROJ; i++) eLife[i] = 0;
   for (let i = 0; i < PICKUP_COUNT; i++) { pickupActive[i] = 1; pickupRespawnT[i] = 0; }
@@ -1130,7 +976,7 @@ function resetRun(): void {
   SCORE.resetScore();
   FEEL.resetFeel();
   VFX.resetVfx();     // last run's blood shouldn't greet the new one
-  runElapsed = 0;
+  GS.runElapsed = 0;
   SCORE.beginWave(0);
 }
 
@@ -1143,22 +989,21 @@ function resetRun(): void {
 function startRun(): void {
   // The main menu is open whenever the game is not running, so leaving it is
   // part of starting. The dormant test harnesses below start the game by calling
-  // this too — without the closeMenu() they would set gameState = 1 and then sit
+  // this too — without the closeMenu() they would set GS.gameState = 1 and then sit
   // there doing nothing, because `playing` is gated on !menuOpen().
   closeMenu();
-  gameState = 1;
+  GS.gameState = 1;
   stopMusic(musicMenu);
   playMusic(musicCalm);
   playMusic(musicCombat);
   WPN.selectWeapon(WPN.W_BLASTER);
   WPN.selectWeapon(WPN.W_RIFLE);
-  waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
+  DIR.waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
   SCORE.resetScore();
-  runElapsed = 0;
+  GS.runElapsed = 0;
 }
 
 // Seconds since the run began â€” drives the wave clock and the score bonuses.
-let runElapsed = 0;
 
 /// SH-030 / SH-033 / SH-041 â€” everything that happens when an enemy is hit.
 ///
@@ -1166,77 +1011,6 @@ let runElapsed = 0;
 /// whether the AI is interrupted, the VFX decide what you see, the score
 /// decides what you earn, and death has to freeze the heading before the
 /// corpse animation starts. Splitting them apart is how they drift.
-function damageEnemy(i: number, dmg: number,
-                     hx: number, hy: number, hz: number,
-                     dirX: number, dirY: number, dirZ: number): void {
-  const k = enKind[i];
-  enHP[i] = enHP[i] - dmg;
-  enFlashT[i] = DRETCH_HIT_FLASH;
-
-  const groundY = terrainHeightAt(enX[i], enZ[i]);
-  VFX.emitImpactFlesh(hx, hy, hz, dirX, dirY, dirZ,
-                      KIND_BLOOD_R[k], KIND_BLOOD_G[k], KIND_BLOOD_B[k],
-                      groundY + 0.02, Math.random() * 6.28);
-  playSound3D(sfxImpactFlesh, hx, hy, hz);
-  hitMarkT = 0.18;
-
-  if (enHP[i] <= 0) {
-    // Death: AI/waves see it gone (enAlive 0), the physics body leaves play,
-    // but the corpse keeps drawing while the die animation runs.
-    enAlive[i] = 0;
-    enDying[i] = 1;
-    enDeathT[i] = 0;
-    // Freeze the AI heading â€” a dragoon killed mid-charge collapses along its
-    // charge line rather than snapping around toward the player.
-    enDeathYaw[i] = enHeading[i];
-    // SH-031 — remember the killing shot so the ragdoll is thrown along it.
-    enDeathDX[i] = dirX;
-    enDeathDY[i] = dirY;
-    enDeathDZ[i] = dirZ;
-    enDeathImp[i] = dmg;
-    setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
-    playSound3D(sfxAlienDie[k * 3 + (i % 3)], enX[i], enY[i] + 1, enZ[i]);
-
-    VFX.emitDeathBurst(hx, hy, hz,
-                       KIND_BLOOD_R[k], KIND_BLOOD_G[k], KIND_BLOOD_B[k],
-                       0.6 + KIND_SCALE[k]);
-    // SH-029 â€” hit-stop. The single cheapest way to make a kill land: the frame
-    // holds for ~50 ms and the brain reads it as impact. Heavier kinds hold
-    // longer, which is most of why killing a tyrant feels different.
-    FEEL.requestHitstop(k >= 3 ? 0.09 : 0.05);
-    FEEL.addTrauma(0.12 + KIND_SCALE[k] * 0.1);
-    gamepadRumble(0.5, 0.4, 0.12);
-    SCORE.noteKill(k);
-    return;
-  }
-
-  // Not dead â€” should it flinch?
-  // Light kinds flinch on any hit (with a lockout so sustained fire cannot
-  // stun-lock them). Heavies need enough damage inside a window, so a tyrant
-  // shrugs off a rifle but staggers under a cannon: unflinching by default is
-  // what makes it frightening.
-  const light = KIND_LIGHT[k] === 1;
-  if (light) {
-    if (enFlinchLock[i] <= 0) {
-      enAIState[i] = AI_FLINCH;
-      enStateT[i] = FLINCH_TIME;
-      enFlinchLock[i] = FLINCH_LOCKOUT;
-    }
-  } else {
-    enDmgWindow[i] = enDmgWindow[i] + dmg;
-    enDmgTimer[i] = STAGGER_WINDOW;
-    if (enDmgWindow[i] >= KIND_HP[k] * STAGGER_FRAC && enFlinchLock[i] <= 0) {
-      enAIState[i] = AI_FLINCH;
-      enStateT[i] = STAGGER_TIME;
-      enFlinchLock[i] = FLINCH_LOCKOUT * 2;
-      enDmgWindow[i] = 0;
-      playSound3D(sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
-    }
-  }
-  if ((i & 3) === 0) {
-    playSound3D(sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
-  }
-}
 
 /// SH-042 â€” the cannon's area damage. Falls off linearly, and it hurts the
 /// player too: an AoE weapon you can fire at your own feet for free is not a
@@ -1265,16 +1039,16 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   const pdx = pp.x - x;
   const pdz = pp.z - z;
   const pd = Math.sqrt(pdx * pdx + pdz * pdz);
-  if (pd < radius && !gameOver) {
+  if (pd < radius && !GS.gameOver) {
     const selfDmg = Math.floor(dmg * 2.5 * (1 - pd / radius));
     if (selfDmg > 0) {
-      playerHP = playerHP - selfDmg;
+      GS.playerHP = GS.playerHP - selfDmg;
       FEEL.damageFlash(1);
-      damageFlashT = 0.5;
+      GS.damageFlashT = 0.5;
       MIX.duckMusicOnDamage();
-      if (playerHP <= 0) {
-        playerHP = 0;
-        gameOver = true;
+      if (GS.playerHP <= 0) {
+        GS.playerHP = 0;
+        GS.gameOver = true;
         playSound(sfxPlayerDie[0]);
         playSound(stingDeath);   // SH-036
         SCORE.commitRun(0);
@@ -1586,19 +1360,28 @@ function perfStageApply(s: number): void {
 // and come up on the main menu over the live arena. The cursor is FREE here —
 // it is a menu, not a game; PLAY takes it back (see ACT_PLAY below).
 bootStage(BOOT_READY);
-writeFile('tools/.testout/breadcrumb.txt', 'ready\n');
 bootOutro();
-writeFile('tools/.testout/breadcrumb.txt', 'outro\n');
 openMain();
 enableCursor();
 cursorLocked = false;
-writeFile('tools/.testout/breadcrumb.txt', 'menu-open\n');
+
+// SH-025b — hand the director the main.ts-owned handles it steers
+// with (compiler-verified list; see DEPS in director.ts). Once, here,
+// because the pickup arrays above are declared after the director's
+// boot position.
+setDirectorDeps({
+  CAM, physics,
+  MUZZLE_FLASH_DUR, SPARK_MAX, TP_FOVY,
+  PICKUP_COUNT, PICKUP_RADIUS, PICKUP_RESPAWN, PICKUP_RIFLE,
+  sfxImpactFlesh, sfxPickup, stingDeath, stingVictory, stingWaveClear,
+  OBST_X, OBST_Z, OBST_R,
+  sfxAlienAttack, sfxAlienDie, sfxAlienPain, sfxPlayerPain, sfxPlayerDie,
+  pickupActive, pickupKind, pickupRespawnT, pickupX, pickupZ,
+  sparkT,
+});
 
 while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   beginDrawing();
-  if (testFrame === 1) writeFile('tools/.testout/breadcrumb.txt', 'frame1\n');
-  if (testFrame === 30) writeFile('tools/.testout/breadcrumb.txt', 'frame30\n');
-  if (testFrame === 120) writeFile('tools/.testout/breadcrumb.txt', 'frame120\n');
   if (PERFTEST) {
     const nowTop = getTime();
     perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
@@ -1610,7 +1393,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // the camera, or a hit-stop would freeze its own recovery.
   const dt = menuOpen() ? 0 : FEEL.applyHitstop(dtReal);
   FEEL.updateFeel(dtReal);
-  if (gameState === 1 && !gameOver && !gameWon && !menuOpen()) runElapsed = runElapsed + dt;
+  if (GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen()) GS.runElapsed = GS.runElapsed + dt;
   // iOS reports the screen in *pixels*, where macOS reports points (engine
   // EN-024). On a 3x iPhone that makes every hardcoded HUD offset below come
   // out a third of its intended size â€” an unreadable 13px status line on a
@@ -1626,7 +1409,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // Both beds must be pumped every frame while they are playing, or the one that
   // is currently silent starves and its buffer runs dry — so the moment the
   // crossfade brings it up, it comes in late and out of phase with the other.
-  if (gameState === 0) {
+  if (GS.gameState === 0) {
     updateMusicStream(musicMenu);
   } else {
     updateMusicStream(musicCalm);
@@ -1669,7 +1452,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // Esc / Start opens the pause menu mid-fight; the sim freezes (dt = 0 above)
   // but the world keeps rendering behind the dim, so you can see what you
   // paused. Audio keeps running deliberately â€” a silent pause is jarring.
-  if (input.pausePressed && gameState === 1 && !gameOver && !gameWon) {
+  if (input.pausePressed && GS.gameState === 1 && !GS.gameOver && !DIR.gameWon) {
     if (menuOpen()) {
       closeMenu();
       if (cursorLocked) disableCursor();
@@ -1697,7 +1480,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       // swapping levels in place means tearing all of it down. Until EN-032's
       // async load makes that seamless, be honest: the choice is saved and the
       // next launch is in it.
-      levelChangeT = 4.0;
+      GS.levelChangeT = 4.0;
     }
   }
 
@@ -1725,12 +1508,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Start the run once the mouse-settle guard has passed (mirrors the
     // title-screen input handler), then hold the player immortal so the
     // timeline never hits the game-over overlay.
-    if (PERF_START_GAME && testFrame === 20 && gameState === 0) {
+    if (PERF_START_GAME && testFrame === 20 && GS.gameState === 0) {
       startRun();
-      waveBreakTimer = WAVE_BREAK_DELAY;
+      DIR.waveBreakTimer = WAVE_BREAK_DELAY;
     }
-    playerHP = PLAYER_HP_MAX;
-    gameOver = false;
+    GS.playerHP = PLAYER_HP_MAX;
+    GS.gameOver = false;
     // Spike attribution: dt covers the previous frame, so dump the phase
     // brackets recorded during it (plus this frame's beginDrawing time).
     if (dt > 0.1 && perfPrevEnd > 0) {
@@ -1747,7 +1530,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const perfAliveNow = countAlive();
     if (perfAliveNow !== perfPrevAlive) {
       console.log('PERFALIVE t=' + getTime().toFixed(2)
-        + ' alive=' + perfAliveNow + ' wave=' + waveIdx);
+        + ' alive=' + perfAliveNow + ' wave=' + DIR.waveIdx);
       perfPrevAlive = perfAliveNow;
     }
     // Warm the death-thud sound early so later kill hitches can't be the
@@ -1783,7 +1566,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
         + ' avg_ms=' + (1000 * wall / 60).toFixed(2)
         + ' max_ms=' + (perfDtMax * 1000).toFixed(1)
         + ' alive=' + countAlive()
-        + ' wave=' + waveIdx);
+        + ' wave=' + DIR.waveIdx);
       perfStageFrame = 0;
       perfWindows = perfWindows + 1;
       if (perfWindows === 35) {
@@ -1800,11 +1583,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // along it (direction swaps every ~1.2 s; the river spans X so the
   // camera-forward walk stays inside the band). See harness block above.
   if (WATERTEST) {
-    if (testFrame === 20 && gameState === 0) {
+    if (testFrame === 20 && GS.gameState === 0) {
       startRun();
     }
     // Round-6 verification: waves ENABLED so enemy size/facing/shadows can
-    // be judged in the captures. (Re-suppress with waveBreakTimer = 9999
+    // be judged in the captures. (Re-suppress with DIR.waveBreakTimer = 9999
     // when a run needs an unshoved scripted walk.)
     if (testFrame === 30) {
       for (let k = 0; k < 5; k++) {
@@ -1816,8 +1599,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
           + ' scaled_h=' + ((bb.max.y - bb.min.y) * KIND_SCALE[k]).toFixed(2));
       }
     }
-    playerHP = PLAYER_HP_MAX;
-    gameOver = false;
+    GS.playerHP = PLAYER_HP_MAX;
+    GS.gameOver = false;
     // Face -Z: spawn is (0, 20), the river band is z 9.5..14.5, so the
     // river lies dead ahead and the camera looks across it at the far
     // bank. moveZ = -1 is forward (same convention as SELFTEST).
@@ -1825,7 +1608,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     CAM[1] = 0.42;
     input.moveX = 0;
     input.moveZ = 0;
-    if (gameState === 1) {
+    if (GS.gameState === 1) {
       if (waterTestT0 < 0) waterTestT0 = getTime();
       const tw = getTime() - waterTestT0;
       // Shadow check: stay ON GRASS at spawn (the water shader receives
@@ -1842,10 +1625,10 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   // ANIMDBG â€” scripted walk/sprint cycle. See the harness block above.
   if (ANIMDBG) {
-    if (testFrame === 20 && gameState === 0) startRun();
-    playerHP = PLAYER_HP_MAX;
-    gameOver = false;
-    waveBreakTimer = 9999;      // no enemies: this walk must not be shoved
+    if (testFrame === 20 && GS.gameState === 0) startRun();
+    GS.playerHP = PLAYER_HP_MAX;
+    GS.gameOver = false;
+    DIR.waveBreakTimer = 9999;      // no enemies: this walk must not be shoved
     // Yaw the camera onto the tree at (5.3, 25.9) â€” nearest to the (0, 20)
     // spawn â€” so the ORBIT (which trails behind the player) sweeps into its
     // canopy and back out as the scripted walk moves down that axis. Walking
@@ -1853,7 +1636,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // releases without any hand-steering.
     CAM[0] = -0.735;
     CAM[1] = 0.35;
-    if (gameState === 1) {
+    if (GS.gameState === 1) {
       const tA = getTime();
       const seg = Math.floor(tA / 3);
       // 3 s walk fwd, 3 s sprint fwd, 3 s walk back, 3 s sprint back â€” so the
@@ -1878,16 +1661,16 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   // AITEST â€” see the harness block above WATERTEST.
   if (AITEST) {
-    if (testFrame === 20 && gameState === 0) {
+    if (testFrame === 20 && GS.gameState === 0) {
       startRun();
     }
-    playerHP = PLAYER_HP_MAX;   // immortal observer
-    gameOver = false;
+    GS.playerHP = PLAYER_HP_MAX;   // immortal observer
+    GS.gameOver = false;
     CAM[0] = 0;
     CAM[1] = 0.55;              // high-ish pitch â€” survey the field
     input.moveX = 0;
     input.moveZ = 0;
-    if (gameState === 1 && (testFrame % 60) === 0) {
+    if (GS.gameState === 1 && (testFrame % 60) === 0) {
       const ppT = playerPosition();
       let line = 'AITEST f=' + testFrame;
       for (let i = 0; i < MAX_ENEMIES; i++) {
@@ -1931,12 +1714,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     CAM[1] = np < TP_PITCH_MIN ? TP_PITCH_MIN : (np > TP_PITCH_MAX ? TP_PITCH_MAX : np);
   }
 
-  const playing = gameState === 1 && !gameOver && !gameWon && !menuOpen();
+  const playing = GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen();
 
   // Restart on R when the run has ended (died or won); otherwise R reloads.
   // Reload is TIMED now (SH-028) â€” you can be punished for it.
   if (input.reloadPressed) {
-    if (gameOver || gameWon) resetRun();
+    if (GS.gameOver || DIR.gameWon) resetRun();
     else if (playing && !WPN.isReloading()) {
       const before = WPN.isReloading();
       WPN.beginReload();
@@ -2218,453 +2001,27 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const fy = Math.sin(pitch);
     const fz = -cyW * cp;
     const mz = WEAPON_MUZZLE_Z[WPN.currentWeapon()];
-    muzzleX = baseX + fx * mz;
-    muzzleY = baseY + fy * mz;
-    muzzleZ = baseZ + fz * mz;
+    GS.muzzleX = baseX + fx * mz;
+    GS.muzzleY = baseY + fy * mz;
+    GS.muzzleZ = baseZ + fz * mz;
     weaponYaw = CAM[0];
     weaponPitch = pitch;
   }
 
-  // ---- Enemy AI + wave director (M5 / M6, Round-9 rework) ---------------
-  // Old behaviour was a straight beeline + melee â€” every kind identical.
-  // Now each kind runs its own steering flavour + state machine:
-  //   dretch   â€” skittering swarm: full speed but weaving hard around the
-  //              direct line, so packs wash around the player.
-  //   mantis   â€” circler: orbits at ~7 m, darts in for one hit, backs off.
-  //   marauder â€” flanker: approaches on a wide curve toward your side.
-  //   dragoon  â€” pouncer: rooted 0.65 s telegraph (roar), then a locked-
-  //              direction 3.4Ã— charge you can sidestep.
-  //   tyrant   â€” bulldozer: momentum builds in a straight line but the
-  //              turn rate is capped, so dodging works and it has to
-  //              wheel around after an overrun.
-  // Shared: pairwise separation (no model-pile), trunk-circle avoidance
-  // (enemies are kinematic â€” Jolt won't resolve their contacts), terrain
-  // following, and a turn-rate-limited heading the draw code renders.
-  if (playing) {
-    const pp = playerPosition();
-    const tAI = getTime();
-    for (let i = 0; i < MAX_ENEMIES; i++) {
-      if (enAlive[i] === 0) continue;
-      const k = enKind[i];
-      const dx = pp.x - enX[i];
-      const dz = pp.z - enZ[i];
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      const invD = dist > 0.001 ? 1 / dist : 0;
-      const toPX = dx * invD;                    // unit vector to the player
-      const toPZ = dz * invD;
-      if (enStateT[i] > 0) enStateT[i] = enStateT[i] - dt;
-      if (enFlinchLock[i] > 0) enFlinchLock[i] = enFlinchLock[i] - dt;
-      // Damage window for the heavies' stagger meter.
-      if (enDmgTimer[i] > 0) {
-        enDmgTimer[i] = enDmgTimer[i] - dt;
-        if (enDmgTimer[i] <= 0) enDmgWindow[i] = 0;
-      }
-
-      // Steering output: desired velocity (m/s) + what to face.
-      let vx = 0;
-      let vz = 0;
-      let faceX = toPX;
-      let faceZ = toPZ;
-
-      // SH-030 â€” a flinching enemy is rooted. This is the whole point: it is
-      // the reward for landing shots, and the window in which you can push.
-      if (enAIState[i] === AI_FLINCH) {
-        if (enStateT[i] <= 0) {
-          enAIState[i] = AI_APPROACH;
-          enStateT[i] = 0;
-        }
-        // No steering this frame â€” fall through to the shared tail below with
-        // vx = vz = 0.
-      } else if (k === 0) {
-        // DRETCH â€” weave amplitude fades out inside 6 m so the final
-        // lunge still connects; i*2.399 desyncs pack members.
-        const weave = Math.sin(tAI * 3.0 + i * 2.399) * 0.85
-                    * Math.min(1, Math.max(0, (dist - 2.5) / 4));
-        const cw = Math.cos(weave), sw = Math.sin(weave);
-        if (dist > KIND_MELEE[k] * 0.85) {
-          vx = (toPX * cw - toPZ * sw) * KIND_SPEED[k] * 1.15;
-          vz = (toPX * sw + toPZ * cw) * KIND_SPEED[k] * 1.15;
-        }
-      } else if (k === 1) {
-        // MANTIS â€” approach â†’ orbit â†’ dart â†’ back off.
-        if (enAIState[i] === AI_APPROACH) {
-          if (dist < 9) {
-            enAIState[i] = AI_ORBIT;
-            enStateT[i] = 1.2 + Math.random() * 1.4;
-          } else {
-            vx = toPX * KIND_SPEED[k];
-            vz = toPZ * KIND_SPEED[k];
-          }
-        } else if (enAIState[i] === AI_ORBIT) {
-          // Tangential motion + gentle spring toward the 7 m ring.
-          const inward = Math.max(-1, Math.min(1, (dist - 7) * 0.3));
-          vx = (-toPZ * enOrbitDir[i] + toPX * inward) * KIND_SPEED[k] * 0.9;
-          vz = ( toPX * enOrbitDir[i] + toPZ * inward) * KIND_SPEED[k] * 0.9;
-          if (dist > 14) enAIState[i] = AI_APPROACH;
-          else if (enStateT[i] <= 0) {
-            enAIState[i] = AI_CHARGE;              // dart in
-            enStateT[i] = 1.1;
-            enChargeX[i] = toPX;
-            enChargeZ[i] = toPZ;
-          }
-        } else if (enAIState[i] === AI_CHARGE) {
-          // Mostly locked, slight homing so it isn't trivially cheesed.
-          const hx = enChargeX[i] * 0.8 + toPX * 0.2;
-          const hz = enChargeZ[i] * 0.8 + toPZ * 0.2;
-          const hl = Math.sqrt(hx * hx + hz * hz);
-          enChargeX[i] = hx / hl;
-          enChargeZ[i] = hz / hl;
-          vx = enChargeX[i] * KIND_SPEED[k] * 1.85;
-          vz = enChargeZ[i] * KIND_SPEED[k] * 1.85;
-          faceX = enChargeX[i]; faceZ = enChargeZ[i];
-          if (enStateT[i] <= 0) { enAIState[i] = AI_RECOVER; enStateT[i] = 0.8; }
-        } else {
-          // AI_RECOVER â€” back away facing the player, then re-approach.
-          vx = (-toPX + -toPZ * enOrbitDir[i] * 0.5) * KIND_SPEED[k] * 0.8;
-          vz = (-toPZ +  toPX * enOrbitDir[i] * 0.5) * KIND_SPEED[k] * 0.8;
-          if (enStateT[i] <= 0) enAIState[i] = AI_APPROACH;
-        }
-      } else if (k === 2) {
-        // MARAUDER â€” flank: aim beside the player, the offset shrinking
-        // as it closes, so it comes in on a curve toward your side.
-        const m = Math.min(6, Math.max(0, dist - 3) * 0.5);
-        const aimX = pp.x - toPZ * enOrbitDir[i] * m - enX[i];
-        const aimZ = pp.z + toPX * enOrbitDir[i] * m - enZ[i];
-        const al = Math.sqrt(aimX * aimX + aimZ * aimZ);
-        if (dist > KIND_MELEE[k] * 0.85 && al > 0.001) {
-          vx = (aimX / al) * KIND_SPEED[k];
-          vz = (aimZ / al) * KIND_SPEED[k];
-        }
-      } else if (k === 3) {
-        // DRAGOON â€” pounce with a rooted, audible telegraph.
-        if (enAIState[i] === AI_APPROACH) {
-          if (dist > KIND_MELEE[k] * 0.9) {
-            vx = toPX * KIND_SPEED[k];
-            vz = toPZ * KIND_SPEED[k];
-          }
-          if (dist < 12 && dist > 4.5 && enStateT[i] <= 0) {
-            enAIState[i] = AI_WINDUP;
-            enStateT[i] = 0.65;
-            playSound3D(sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);  // roar
-          }
-        } else if (enAIState[i] === AI_WINDUP) {
-          // Rooted â€” the player's dodge window.
-          if (enStateT[i] <= 0) {
-            enAIState[i] = AI_CHARGE;
-            enStateT[i] = 1.2;
-            enChargeX[i] = toPX;
-            enChargeZ[i] = toPZ;
-          }
-        } else if (enAIState[i] === AI_CHARGE) {
-          vx = enChargeX[i] * KIND_SPEED[k] * 3.4;   // fully locked â€” dodgeable
-          vz = enChargeZ[i] * KIND_SPEED[k] * 3.4;
-          faceX = enChargeX[i]; faceZ = enChargeZ[i];
-          if (dist <= KIND_MELEE[k] || enStateT[i] <= 0) {
-            enAIState[i] = AI_RECOVER;
-            enStateT[i] = 1.4;
-          }
-        } else {
-          // AI_RECOVER â€” winded: creep, then re-arm the pounce.
-          if (dist > KIND_MELEE[k] * 0.9) {
-            vx = toPX * KIND_SPEED[k] * 0.6;
-            vz = toPZ * KIND_SPEED[k] * 0.6;
-          }
-          if (enStateT[i] <= 0) {
-            enAIState[i] = AI_APPROACH;
-            enStateT[i] = 1.5 + Math.random();       // pounce cooldown
-          }
-        }
-      } else if (k === 4) {
-        // TYRANT â€” heading-locked momentum. Speed builds only while the
-        // player sits near its nose; hard turns bleed it off, so a
-        // sidestep leaves 3+ tons wheeling around for another pass.
-        const tgtYaw = Math.atan2(toPX, -toPZ);
-        enHeading[i] = turnToward(enHeading[i], tgtYaw, 1.5 * dt);
-        let err = tgtYaw - enHeading[i];
-        while (err > Math.PI)  err = err - Math.PI * 2;
-        while (err < -Math.PI) err = err + Math.PI * 2;
-        const aligned = Math.cos(err);
-        const accel = aligned > 0.8 ? 0.55 : -1.4;
-        enSpeedMul[i] = Math.max(0.7, Math.min(2.6, enSpeedMul[i] + accel * dt));
-        const hdX = Math.sin(enHeading[i]);
-        const hdZ = -Math.cos(enHeading[i]);
-        if (dist > KIND_MELEE[k] * 0.8 || aligned < 0.5) {
-          vx = hdX * KIND_SPEED[k] * enSpeedMul[i];
-          vz = hdZ * KIND_SPEED[k] * enSpeedMul[i];
-        }
-        faceX = hdX; faceZ = hdZ;
-      } else {
-        // SH-042 — RANGED (adv marauder, adv dragoon).
-        //
-        // Hold a band and shoot from it. Closer than MIN it backs off, further
-        // than MAX it closes, and inside the band it strafes — so it is always
-        // moving laterally, which is what makes it hard to hit without leading
-        // and what stops the fight from becoming a staring contest.
-        //
-        // The volley is TELEGRAPHED: a rooted wind-up first (the attack clip
-        // plays, the thing stops moving), then the rounds. Without that, ranged
-        // damage arrives with no tell and reads as unfair rather than as
-        // something you failed to dodge.
-        const lo = RANGED_MIN[k];
-        const hi = RANGED_MAX[k];
-        const spd = KIND_SPEED[k];
-
-        if (enRangedCD[i] > 0) enRangedCD[i] = enRangedCD[i] - dt;
-
-        if (enAIState[i] === AI_WINDUP) {
-          // Rooted telegraph — the dodge window.
-          if (enStateT[i] <= 0) {
-            enAIState[i] = AI_CHARGE;                 // reuse as "firing"
-            enBurst[i] = RANGED_SHOTS[k];
-            enBurstT[i] = 0;
-          }
-        } else if (enAIState[i] === AI_CHARGE) {
-          // Firing the volley — still rooted, so the burst has a cost.
-          enBurstT[i] = enBurstT[i] - dt;
-          if (enBurstT[i] <= 0 && enBurst[i] > 0) {
-            enBurst[i] = enBurst[i] - 1;
-            enBurstT[i] = 0.14;
-
-            const muzY = enY[i] + KIND_Y_OFF[k] * 0.8;
-            const tx = pp.x - enX[i];
-            const ty = (pp.y + 0.9) - muzY;
-            const tz = pp.z - enZ[i];
-            const tl = Math.sqrt(tx * tx + ty * ty + tz * tz);
-            const sp = RANGED_SPREAD[k];
-            const jx = (Math.random() * 2 - 1) * sp;
-            const jy = (Math.random() * 2 - 1) * sp;
-            const jz = (Math.random() * 2 - 1) * sp;
-            const vsp = RANGED_SPEED[k];
-            spawnEnemyProjectile(
-              enX[i], muzY, enZ[i],
-              (tx / tl + jx) * vsp, (ty / tl + jy) * vsp, (tz / tl + jz) * vsp,
-              RANGED_DMG[k], k);
-            playSound3D(sfxAlienAttack[k], enX[i], muzY, enZ[i]);
-            VFX.emitMuzzle(enX[i], muzY, enZ[i], tx / tl, ty / tl, tz / tl, 0, 0);
-          }
-          if (enBurst[i] <= 0) {
-            enAIState[i] = AI_RECOVER;
-            enStateT[i] = 0.5;
-            enRangedCD[i] = RANGED_CD[k];
-          }
-        } else {
-          // Reposition: hold the band, strafing.
-          let radial = 0;
-          if (dist > hi) radial = 1;          // too far — close
-          else if (dist < lo) radial = -1;    // too close — back off
-          const tangX = -toPZ * enOrbitDir[i];
-          const tangZ =  toPX * enOrbitDir[i];
-          vx = (toPX * radial + tangX * 0.85) * spd;
-          vz = (toPZ * radial + tangZ * 0.85) * spd;
-
-          if (enStateT[i] <= 0) {
-            // Occasionally reverse the strafe so it is not a predictable circle.
-            enOrbitDir[i] = -enOrbitDir[i];
-            enStateT[i] = 1.5 + Math.random() * 2.0;
-          }
-          // In the band, with a clear-ish line and off cooldown -> telegraph.
-          if (enRangedCD[i] <= 0 && dist >= lo * 0.8 && dist <= hi * 1.15) {
-            enAIState[i] = AI_WINDUP;
-            enStateT[i] = RANGED_WINDUP[k];
-            playSound3D(sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);   // hiss/tell
-          }
-        }
-      }
-
-      // Separation â€” pack members shoulder each other apart instead of
-      // stacking into one model pile.
-      for (let j = 0; j < MAX_ENEMIES; j++) {
-        if (j === i || enAlive[j] === 0) continue;
-        const sx = enX[i] - enX[j];
-        const sz = enZ[i] - enZ[j];
-        const sd2 = sx * sx + sz * sz;
-        const minS = (KIND_HX[k] + KIND_HX[enKind[j]]) * 0.7;
-        if (sd2 < minS * minS && sd2 > 0.0001) {
-          const sd = Math.sqrt(sd2);
-          const push = ((minS - sd) / minS) * 3.0;
-          vx = vx + (sx / sd) * push;
-          vz = vz + (sz / sd) * push;
-        }
-      }
-
-      // Integrate, then slide the tentative position out of any trunk
-      // circle â€” projection keeps the tangential component, so enemies
-      // skim around trees instead of head-butting them.
-      let nx = enX[i] + vx * dt;
-      let nz = enZ[i] + vz * dt;
-      const bodyR = KIND_HX[k] * 0.55;
-      for (let o = 0; o < OBST_COUNT; o++) {
-        const odx = nx - OBST_X[o];
-        const odz = nz - OBST_Z[o];
-        const minD = OBST_R[o] + bodyR;
-        const od2 = odx * odx + odz * odz;
-        if (od2 < minD * minD && od2 > 0.000001) {
-          const od = Math.sqrt(od2);
-          nx = OBST_X[o] + (odx / od) * minD;
-          nz = OBST_Z[o] + (odz / od) * minD;
-        }
-      }
-      // Record the realised velocity BEFORE the obstacle projection is
-      // forgotten â€” the draw pass matches animation playback to it.
-      vxLast[i] = vx;
-      vzLast[i] = vz;
-      enX[i] = nx;
-      enZ[i] = nz;
-      // Follow the terrain surface â€” enemies are steered in XZ, so
-      // their Y must track the heightfield or they walk into hills.
-      enY[i] = terrainHeightAt(nx, nz);
-      setBodyPosition(enBody[i],
-        vec3(nx, enY[i] + KIND_Y_OFF[k], nz), true);
-
-      // Turn-rate-limited facing (tyrant already steered its own).
-      if (k !== 4) {
-        const wantYaw = Math.atan2(faceX, -faceZ);
-        enHeading[i] = turnToward(enHeading[i], wantYaw, 7.0 * dt);
-      }
-
-      // Melee — hit-and-run kinds break off after connecting. Ranged kinds do
-      // NOT melee: if they did, the right answer to them would be to walk up and
-      // hug them, which is exactly the play they exist to punish.
-      if (KIND_RANGED[k] === 0 &&
-          dist <= KIND_MELEE[k] && enAttackCD[i] <= 0 &&
-          enAIState[i] !== AI_WINDUP && enAIState[i] !== AI_FLINCH) {
-        playerHP = playerHP - KIND_DMG[k];
-        damageFlashT = 0.5;
-        enAttackCD[i] = KIND_CD[k];
-        // SH-029 â€” being hit is now unmistakable with your eyes on the
-        // crosshair: the camera flinches AWAY from the attacker, the screen
-        // flashes, and the music ducks so you hear the hit land.
-        const hitYaw = Math.atan2(toPX, -toPZ);
-        let rel = hitYaw - CAM[0];
-        while (rel > Math.PI) rel = rel - Math.PI * 2;
-        while (rel < -Math.PI) rel = rel + Math.PI * 2;
-        lastHitAngle = rel;
-        lastHitT = 1.4;
-        FEEL.addTrauma(0.30 + KIND_DMG[k] * 0.006);
-        FEEL.flinch(-Math.sign(rel) * 0.035, -0.02);
-        FEEL.damageFlash(1);
-        MIX.duckMusicOnDamage();
-        gamepadRumble(0.55, 0.35, 0.18);
-        // Per-kind bite/claw at the attacker's position.
-        playSound3D(sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
-        if (k === 1) { enAIState[i] = AI_RECOVER; enStateT[i] = 1.3; }
-        if (k === 3) { enAIState[i] = AI_RECOVER; enStateT[i] = 1.4; }
-        if (playerHP <= 0) {
-          playerHP = 0;
-          if (!gameOver) {
-            playSound(sfxPlayerDie[i & 1]);
-            FEEL.addTrauma(1.0);
-            SCORE.commitRun(0);
-            SET.saveSettings();     // persist the best score immediately
-            playSound(stingDeath);  // SH-036
-          }
-          gameOver = true;
-        } else {
-          playSound(sfxPlayerPain[i & 1]);
-        }
-      }
-      if (enAttackCD[i] > 0) enAttackCD[i] = enAttackCD[i] - dt;
-      if (enFlashT[i]   > 0) enFlashT[i]   = enFlashT[i]   - dt;
-      enPhase[i] = enPhase[i] + dt;   // seconds into current animation
-
-      // SH-003 â€” the tyrant's footfalls. You should hear (and faintly feel) the
-      // big one coming before you see it: the trauma is distance-scaled, so it
-      // telegraphs through walls without ever being loud enough to annoy.
-      if (k === 4) {
-        const spd = Math.sqrt(vx * vx + vz * vz);
-        enStepPhase[i] = enStepPhase[i] + spd * dt;
-        if (enStepPhase[i] > 2.2) {
-          enStepPhase[i] = 0;
-          MIX.tyrantStep(enX[i], enY[i], enZ[i]);
-          if (dist < 15) FEEL.addTrauma(0.05 * (1 - dist / 15));
-          VFX.emitFootDust(enX[i], enY[i] + 0.05, enZ[i], 3);
-        }
-      }
-    }
-
-    // Pickups â€” proximity collect, respawn after delay. The crate refills the
-    // weapon it is for; the amount is a column of the weapon table now.
-    for (let i = 0; i < PICKUP_COUNT; i++) {
-      if (pickupActive[i] === 0) {
-        pickupRespawnT[i] = pickupRespawnT[i] - dt;
-        if (pickupRespawnT[i] <= 0) pickupActive[i] = 1;
-        continue;
-      }
-      const pdx = pp.x - pickupX[i];
-      const pdz = pp.z - pickupZ[i];
-      if (pdx * pdx + pdz * pdz < PICKUP_RADIUS * PICKUP_RADIUS) {
-        const w = pickupKind[i] === PICKUP_RIFLE ? WPN.W_RIFLE : WPN.W_BLASTER;
-        WPN.addAmmo(w, WPN.W_PICKUP_AMT[w]);
-        // Ammo you can't use is no reward: top up whatever else you carry too.
-        for (let q = 2; q < WPN.WEAPON_COUNT; q++) {
-          if (WPN.isUnlocked(q)) WPN.addAmmo(q, Math.floor(WPN.W_PICKUP_AMT[q] * 0.5));
-        }
-        pickupActive[i] = 0;
-        pickupRespawnT[i] = PICKUP_RESPAWN;
-        playSound(sfxPickup);
-      }
-    }
-
-    // Wave director
-    const alive = countAlive();
-    MIX.updateMusicIntensity(dtReal, alive, waveBreakTimer <= 0);
-    if (waveIdx < wavePlan.length) {
-      if (waveBreakTimer > 0) {
-        waveBreakTimer = waveBreakTimer - dt;
-        if (waveBreakTimer <= 0) SCORE.beginWave(runElapsed);
-      } else {
-        const waveSize = wavePlan[waveIdx];
-        if (waveSpawned < waveSize && alive < MAX_CONCURRENT) {
-          spawnTimer = spawnTimer - dt;
-          if (spawnTimer <= 0) {
-            spawnEnemy();
-            spawnTimer = WAVE_SPAWN_DELAY;
-          }
-        }
-        if (waveSpawned >= waveSize && alive === 0) {
-          // SH-041 â€” bank the wave: a time bonus for clearing fast, an accuracy
-          // bonus for clearing cleanly. Shown on the report card.
-          waveBonus = SCORE.endWave(runElapsed);
-          waveBonusT = 4.0;
-          waveIdx = waveIdx + 1;
-          waveSpawned = 0;
-          waveBreakTimer = WAVE_BREAK_DELAY;
-          if (waveIdx >= wavePlan.length) {
-            gameWon = true;
-            // SH-036 — the run is over; the victory sting replaces the wave-clear
-            // one rather than stacking on top of it.
-            playSound(stingVictory);
-            // Clearing the arena unlocks the next weapon and persists it.
-            const nextUnlock = WPN.W_CHAIN;
-            if (!WPN.isUnlocked(nextUnlock)) {
-              WPN.unlock(nextUnlock);
-              SET.setUnlockMask(SET.unlockMask() | (1 << nextUnlock));
-              unlockBannerT = 5.0;
-            }
-            SCORE.commitRun(0);
-            SET.saveSettings();
-          } else {
-            // SH-036 — a wave died and another is coming. The sting lands over the
-            // bed while the mixer is already crossfading combat -> calm.
-            playSound(stingWaveClear);
-          }
-        }
-      }
-    }
-  }
+  updateDirector(dt, dtReal, playing);
 
   // testFrame is incremented above the input block so the mouse-settle
   // grace period uses the same counter.
   let forceFire = false;
   if (COMBATSHOT) {
-    if (testFrame === 20 && gameState === 0) {
+    if (testFrame === 20 && GS.gameState === 0) {
       startRun();
       SCORE.resetScore();
-      runElapsed = 0;
+      GS.runElapsed = 0;
     }
-    playerHP = PLAYER_HP_MAX;          // immortal â€” we want the fight, not a death
-    gameOver = false;
-    waveBreakTimer = 9999;             // suppress the director; we place our own
+    GS.playerHP = PLAYER_HP_MAX;          // immortal â€” we want the fight, not a death
+    GS.gameOver = false;
+    DIR.waveBreakTimer = 9999;             // suppress the director; we place our own
     CAM[1] = 0.30;
     // Two enemies dead ahead, respawned if killed, so there's always something
     // to shoot at and to bleed on the ground.
@@ -2717,7 +2074,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     }
   }
   if (SELFTEST) {
-    waveBreakTimer = 9999;
+    DIR.waveBreakTimer = 9999;
     if (testFrame < 5) { CAM[0] = 0; CAM[1] = 0.35; CAM[8] = 0; }
     if (testFrame === 5) {
       // Manually spawn ONE dretch off to the side, stays idle.
@@ -2753,7 +2110,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
   if (wantFire || chargeShot >= 0 || harnessFire) {
     SCORE.noteShot();
-    muzzleFlashT = MUZZLE_FLASH_DUR;
+    GS.muzzleFlashT = MUZZLE_FLASH_DUR;
 
     // Recoil + spread bloom. fireShot spends the ammo and starts the cooldown;
     // a charge shot already did both in releaseCharge().
@@ -2785,9 +2142,9 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const tgtY = camOriginV.y + camFwd.y * aimTargetFar;
     const tgtZ = camOriginV.z + camFwd.z * aimTargetFar;
 
-    const originX = muzzleX;
-    const originY = muzzleY;
-    const originZ = muzzleZ;
+    const originX = GS.muzzleX;
+    const originY = GS.muzzleY;
+    const originZ = GS.muzzleZ;
     const mdx = tgtX - originX, mdy = tgtY - originY, mdz = tgtZ - originZ;
     const mlen = Math.sqrt(mdx*mdx + mdy*mdy + mdz*mdz);
     const aimX = mlen > 0 ? mdx / mlen : camFwd.x;
@@ -2899,92 +2256,20 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       pLife[i] = pLife[i] - dt;
     }
   }
-  // ---- SH-042: enemy projectiles ----------------------------------------
-  // Segment-raycast like the player's, so a fast bolt can't tunnel a wall — and
-  // so it can be BLOCKED by the world, which is what turns the building and the
-  // treeline into cover.
-  for (let i = 0; i < MAX_EPROJ; i++) {
-    if (eLife[i] <= 0) continue;
-    eVY[i] = eVY[i] - 3.0 * dt;            // slight droop: it reads as a lob
-    const ox = eX[i], oy = eY[i], oz = eZ[i];
-    const nx2 = ox + eVX[i] * dt;
-    const ny2 = oy + eVY[i] * dt;
-    const nz2 = oz + eVZ[i] * dt;
-    const sx2 = nx2 - ox, sy2 = ny2 - oy, sz2 = nz2 - oz;
-    const seg = Math.sqrt(sx2 * sx2 + sy2 * sy2 + sz2 * sz2);
-    const inv2 = seg > 0 ? 1 / seg : 0;
-
-    // Does it reach the player this step? Point-segment distance against the
-    // capsule, which is cheaper and fairer than raycasting at a moving target.
-    const ppE = playerPosition();
-    const rx = ppE.x - ox, ry = (ppE.y + 0.2) - oy, rz = ppE.z - oz;
-    const t = Math.max(0, Math.min(seg, rx * sx2 * inv2 + ry * sy2 * inv2 + rz * sz2 * inv2));
-    const cxp = ox + sx2 * inv2 * t, cyp = oy + sy2 * inv2 * t, czp = oz + sz2 * inv2 * t;
-    const dxp = ppE.x - cxp, dyp = (ppE.y + 0.2) - cyp, dzp = ppE.z - czp;
-    const hitPlayer = (dxp * dxp + dyp * dyp + dzp * dzp) < 0.55 * 0.55;
-
-    if (hitPlayer && playing) {
-      playerHP = playerHP - eDmg[i];
-      damageFlashT = 0.5;
-      FEEL.addTrauma(0.25);
-      FEEL.damageFlash(1);
-      MIX.duckMusicOnDamage();
-      gamepadRumble(0.45, 0.3, 0.15);
-      playSound3D(sfxImpactFlesh, cxp, cyp, czp);
-      VFX.emitImpactHard(cxp, cyp, czp, -sx2 * inv2, -sy2 * inv2, -sz2 * inv2,
-                         Math.random() * 6.28);
-      // Where did it come from? Same arc the melee hits drive.
-      const ang = Math.atan2(-sx2 * inv2, sz2 * inv2);
-      let rel2 = ang - CAM[0];
-      while (rel2 > Math.PI) rel2 = rel2 - Math.PI * 2;
-      while (rel2 < -Math.PI) rel2 = rel2 + Math.PI * 2;
-      lastHitAngle = rel2;
-      lastHitT = 1.4;
-      if (playerHP <= 0) {
-        playerHP = 0;
-        if (!gameOver) {
-          playSound(sfxPlayerDie[0]);
-          FEEL.addTrauma(1.0);
-          SCORE.commitRun(0);
-          SET.saveSettings();
-          playSound(stingDeath);    // SH-036
-        }
-        gameOver = true;
-      } else {
-        playSound(sfxPlayerPain[i & 1]);
-      }
-      eLife[i] = 0;
-      continue;
-    }
-
-    const hitW = raycast(physics, vec3(ox, oy, oz),
-                         vec3(sx2 * inv2, sy2 * inv2, sz2 * inv2),
-                         seg, 1 << Layer.NON_MOVING);
-    if (hitW) {
-      const nw = hitW.normal;
-      VFX.emitImpactHard(hitW.point.x, hitW.point.y, hitW.point.z,
-                         nw.x, nw.y, nw.z, Math.random() * 6.28);
-      eLife[i] = 0;
-      continue;
-    }
-
-    eX[i] = nx2; eY[i] = ny2; eZ[i] = nz2;
-    eLife[i] = eLife[i] - dt;
-  }
-
-  if (muzzleFlashT > 0) muzzleFlashT = muzzleFlashT - dt;
-  if (damageFlashT > 0) damageFlashT = damageFlashT - dt;
-  if (lastHitT > 0) lastHitT = lastHitT - dtReal;
-  if (hitMarkT > 0) hitMarkT = hitMarkT - dtReal;
-  if (levelChangeT > 0) levelChangeT = levelChangeT - dtReal;
-  if (waveBonusT > 0) waveBonusT = waveBonusT - dtReal;
-  if (unlockBannerT > 0) unlockBannerT = unlockBannerT - dtReal;
+  updateEnemyProjectiles(dt, playing);
+  if (GS.muzzleFlashT > 0) GS.muzzleFlashT = GS.muzzleFlashT - dt;
+  if (GS.damageFlashT > 0) GS.damageFlashT = GS.damageFlashT - dt;
+  if (GS.lastHitT > 0) GS.lastHitT = GS.lastHitT - dtReal;
+  if (GS.hitMarkT > 0) GS.hitMarkT = GS.hitMarkT - dtReal;
+  if (GS.levelChangeT > 0) GS.levelChangeT = GS.levelChangeT - dtReal;
+  if (GS.waveBonusT > 0) GS.waveBonusT = GS.waveBonusT - dtReal;
+  if (GS.unlockBannerT > 0) GS.unlockBannerT = GS.unlockBannerT - dtReal;
   for (let i = 0; i < SPARK_MAX; i++) {
     if (sparkT[i] > 0) sparkT[i] = sparkT[i] - dt;
   }
   // SH-029 â€” low-health grading. Ramps in below 25 HP.
-  FEEL.setLowHealth(playerHP < 25 ? (1 - playerHP / 25) : 0);
-  MIX.duckForLowHealth(playerHP > 0 && playerHP < 15);
+  FEEL.setLowHealth(GS.playerHP < 25 ? (1 - GS.playerHP / 25) : 0);
+  MIX.duckForLowHealth(GS.playerHP > 0 && GS.playerHP < 15);
 
   // The HDR sky pass overrides the clear colour, but leave this in
   // as a fallback when the HDR file is missing.
@@ -3006,7 +2291,6 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
     W.ENV_SUN_I);
 
-  if (PERFTEST) perfTB = getTime();
   // Round-7 â€” keep the audio listener on the camera so playSound3D
   // (alien deaths/attacks, impacts, ricochets) pans and attenuates
   // correctly.
@@ -3028,11 +2312,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // Muzzle flare point light â€” sits just past the barrel tip so
   // the warm splash of light hits the gun body and the floor in
   // front of the player when firing.
-  if (muzzleFlashT > 0) {
+  if (GS.muzzleFlashT > 0) {
     // Now sits at the REAL muzzle (SH-027), so the warm splash lands on the
     // barrel and the ground in front of it instead of near the player's hip.
-    const k = muzzleFlashT / MUZZLE_FLASH_DUR;
-    addPointLight(muzzleX, muzzleY, muzzleZ, 6, 1.0, 0.85, 0.5, 4.0 * k);
+    const k = GS.muzzleFlashT / MUZZLE_FLASH_DUR;
+    addPointLight(GS.muzzleX, GS.muzzleY, GS.muzzleZ, 6, 1.0, 0.85, 0.5, 4.0 * k);
   }
 
   // ---- World: static meshes + water + lights (all from the world file) -----
@@ -3278,7 +2562,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // SH-027 â€” the real weapon model, at the transform computed once above.
     // Recoil is a short kick BACK along the barrel; the squared falloff reads
     // as a snap rather than a slide.
-    const recoilT = muzzleFlashT > 0 ? muzzleFlashT / MUZZLE_FLASH_DUR : 0;
+    const recoilT = GS.muzzleFlashT > 0 ? GS.muzzleFlashT / MUZZLE_FLASH_DUR : 0;
     const recoilBack = recoilT * recoilT * 0.10;
     const cpW = Math.cos(weaponPitch);
     const fwx = Math.sin(weaponYaw) * cpW;
@@ -3306,12 +2590,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Muzzle flash â€” additive material at the true muzzle. The particle system
     // now layers smoke and a shell on top of this (SH-033); the flash card
     // stays because it is what makes the HDR spike.
-    if (muzzleFlashT > 0 && ENV.matMuzzleFlash > 0) {
-      const k = muzzleFlashT / MUZZLE_FLASH_DUR;
+    if (GS.muzzleFlashT > 0 && ENV.matMuzzleFlash > 0) {
+      const k = GS.muzzleFlashT / MUZZLE_FLASH_DUR;
       const flashScale = 0.40 + (1 - k) * 0.18;
       const intensity255 = Math.min(255, Math.floor(k * 255));
       drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
-        vec3(muzzleX, muzzleY, muzzleZ), flashScale,
+        vec3(GS.muzzleX, GS.muzzleY, GS.muzzleZ), flashScale,
         { r: 255, g: 200, b: 120, a: intensity255 });
     }
   }
@@ -3536,7 +2820,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // the health bar, the ammo readout and the crosshair over a game that had
   // not started — which is exactly the tell that a "title screen" was really
   // just the game with the input switched off.
-  if (gameState === 1) {
+  if (GS.gameState === 1) {
     // ---- Crosshair (SH-028) -------------------------------------------------
     // The gap between the arms IS the current spread. A crosshair that doesn't
     // move while your cone triples is lying to the player about where the bullet
@@ -3545,7 +2829,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       const spreadDeg = WPN.spreadRad() * 180 / Math.PI;
       const gap = 4 + spreadDeg * 5.5;
       const arm = 7;
-      const crossA = muzzleFlashT > 0 ? 250 : 190;
+      const crossA = GS.muzzleFlashT > 0 ? 250 : 190;
       const col = { r: 255, g: 255, b: 255, a: crossA };
       const cx = sw / 2;
       const cy = sh / 2;
@@ -3557,8 +2841,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
       // SH-043 â€” hit confirmation is a white FLASH + a tick, not a colour change:
       // a colourblind player gets the same information as anyone else.
-      if (hitMarkT > 0) {
-        const ha = Math.floor((hitMarkT / 0.18) * 255);
+      if (GS.hitMarkT > 0) {
+        const ha = Math.floor((GS.hitMarkT / 0.18) * 255);
         const hc = { r: 255, g: 255, b: 255, a: ha };
         const d = 10;
         drawRect(cx - d, cy - d, 6, 2, hc);
@@ -3569,8 +2853,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     }
 
     // Damage vignette â€” red screen edges when the player takes a hit.
-    if (damageFlashT > 0) {
-      const fa = Math.floor((damageFlashT / 0.5) * 120);
+    if (GS.damageFlashT > 0) {
+      const fa = Math.floor((GS.damageFlashT / 0.5) * 120);
       drawRect(0, 0, sw, 60, { r: 200, g: 20, b: 20, a: fa });
       drawRect(0, sh - 60, sw, 60, { r: 200, g: 20, b: 20, a: fa });
       drawRect(0, 0, 60, sh, { r: 200, g: 20, b: 20, a: fa });
@@ -3579,14 +2863,14 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
     // SH-029/SH-043 â€” damage direction arc. Encodes WHERE the hit came from as
     // a position (a shape you can see), not just a colour you have to interpret.
-    if (lastHitT > 0) {
-      const a = Math.floor((lastHitT / 1.4) * 200);
+    if (GS.lastHitT > 0) {
+      const a = Math.floor((GS.lastHitT / 1.4) * 200);
       const r = Math.min(sw, sh) * 0.22;
       const cx = sw / 2;
       const cy = sh / 2;
       // Screen-space: +x right, -y up. The angle is relative to where you face.
-      const ax = cx + Math.sin(lastHitAngle) * r;
-      const ay = cy - Math.cos(lastHitAngle) * r;
+      const ax = cx + Math.sin(GS.lastHitAngle) * r;
+      const ay = cy - Math.cos(GS.lastHitAngle) * r;
       drawCircle(ax, ay, 9, { r: 235, g: 70, b: 55, a: a });
       drawCircle(ax, ay, 4, { r: 255, g: 220, b: 210, a: a });
     }
@@ -3594,12 +2878,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Player HP bar â€” bottom-left. Low health pulses, so the state is legible
     // without reading the number.
     const phpW = 220;
-    const phpFill = Math.max(0, Math.floor(phpW * (playerHP / PLAYER_HP_MAX)));
-    const lowT = playerHP < 25 ? (0.6 + 0.4 * Math.sin(getTime() * 9)) : 1;
+    const phpFill = Math.max(0, Math.floor(phpW * (GS.playerHP / PLAYER_HP_MAX)));
+    const lowT = GS.playerHP < 25 ? (0.6 + 0.4 * Math.sin(getTime() * 9)) : 1;
     drawRect(10, sh - 68, phpW, 18, { r: 30, g: 10, b: 10, a: 180 });
     drawRect(10, sh - 68, phpFill, 18,
       { r: Math.floor(180 * lowT + 60), g: 60, b: 50, a: 230 });
-    drawText('HP ' + playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
+    drawText('HP ' + GS.playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
 
     // Dodge cooldown â€” a thin bar under HP, so you know when you can commit.
     {
@@ -3611,7 +2895,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     }
 
     // ---- Score + combo (SH-041) ---------------------------------------------
-    if (gameState === 1) {
+    if (GS.gameState === 1) {
       const st = 'SCORE ' + SCORE.score();
       drawText(st, 14, 44, 22, { r: 245, g: 235, b: 195, a: 235 });
       const cmb = SCORE.combo();
@@ -3698,15 +2982,15 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Wave HUD â€” top-center. Shows "WAVE X â€” enemies K/N" while spawning,
     // or a "NEXT WAVE IN ..." countdown between waves.
     const aliveNow = countAlive();
-    if (gameState === 1 && !gameOver && !gameWon) {
-      if (waveBreakTimer > 0 && waveIdx < wavePlan.length) {
-        const label = 'WAVE ' + (waveIdx + 1) + ' IN ' + waveBreakTimer.toFixed(1) + 's';
+    if (GS.gameState === 1 && !GS.gameOver && !DIR.gameWon) {
+      if (DIR.waveBreakTimer > 0 && DIR.waveIdx < wavePlan.length) {
+        const label = 'WAVE ' + (DIR.waveIdx + 1) + ' IN ' + DIR.waveBreakTimer.toFixed(1) + 's';
         const lw = measureText(label, 22);
         drawText(label, (sw - lw) / 2, 18, 22, { r: 230, g: 220, b: 160, a: 230 });
-      } else if (waveIdx < wavePlan.length) {
-        const waveSize = wavePlan[waveIdx];
-        const remaining = (waveSize - waveSpawned) + aliveNow;
-        const label = 'WAVE ' + (waveIdx + 1) + ' â€” ' + remaining + ' / ' + waveSize;
+      } else if (DIR.waveIdx < wavePlan.length) {
+        const waveSize = wavePlan[DIR.waveIdx];
+        const remaining = (waveSize - DIR.waveSpawned) + aliveNow;
+        const label = 'WAVE ' + (DIR.waveIdx + 1) + ' â€” ' + remaining + ' / ' + waveSize;
         const lw = measureText(label, 20);
         drawText(label, (sw - lw) / 2, 18, 20, { r: 230, g: 220, b: 160, a: 230 });
       }
@@ -3714,14 +2998,14 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
     // SH-041 â€” end-of-wave report card. Shows what the wave EARNED, which is what
     // turns "I survived" into "I could have done that better".
-    if (waveBonusT > 0 && gameState === 1) {
-      const a = Math.min(1, waveBonusT / 0.6);
+    if (GS.waveBonusT > 0 && GS.gameState === 1) {
+      const a = Math.min(1, GS.waveBonusT / 0.6);
       const alpha = Math.floor(a * 235);
       const cardY = sh * 0.28;
       const cardW = 320;
       const cardX = (sw - cardW) / 2;
       drawRect(cardX, cardY, cardW, 118, { r: 12, g: 12, b: 16, a: Math.floor(a * 200) });
-      const head = 'WAVE ' + waveIdx + ' CLEAR';
+      const head = 'WAVE ' + DIR.waveIdx + ' CLEAR';
       const hw = measureText(head, 26);
       drawText(head, (sw - hw) / 2, cardY + 10, 26,
         { r: 235, g: 220, b: 150, a: alpha });
@@ -3730,13 +3014,13 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
         { r: 220, g: 220, b: 225, a: alpha });
       drawText('ACCURACY   ' + acc + '%', cardX + 24, cardY + 68, 17,
         { r: 220, g: 220, b: 225, a: alpha });
-      drawText('BONUS     +' + waveBonus, cardX + 24, cardY + 90, 17,
+      drawText('BONUS     +' + GS.waveBonus, cardX + 24, cardY + 90, 17,
         { r: 255, g: 205, b: 100, a: alpha });
     }
 
     // Unlock banner.
-    if (unlockBannerT > 0) {
-      const a = Math.floor(Math.min(1, unlockBannerT / 1.0) * 245);
+    if (GS.unlockBannerT > 0) {
+      const a = Math.floor(Math.min(1, GS.unlockBannerT / 1.0) * 245);
       const msg = 'CHAINGUN UNLOCKED';
       const mw = measureText(msg, 30);
       drawText(msg, (sw - mw) / 2, sh * 0.20, 30, { r: 255, g: 215, b: 120, a: a });
@@ -3749,20 +3033,20 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // ACT_PLAY -> startRun() rather than by swallowing a keypress.)
 
   // Game over overlay â€” now with the run's numbers on it.
-  if (gameOver) {
+  if (GS.gameOver) {
     drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: 170 });
     const msg = 'YOU DIED';
     const mw = measureText(msg, 56);
     drawText(msg, (sw - mw) / 2, sh * 0.30, 56, { r: 220, g: 60, b: 50, a: 255 });
     drawRunSummary(sw, sh * 0.30 + 76);
-    const sub = 'Reached wave ' + (waveIdx + 1)
+    const sub = 'Reached wave ' + (DIR.waveIdx + 1)
       + (MOBILE ? ' â€” tap R to restart' : ' â€” press R to restart');
     const sww = measureText(sub, 22);
     drawText(sub, (sw - sww) / 2, sh * 0.30 + 210, 22, { r: 220, g: 220, b: 220, a: 230 });
   }
 
   // Victory overlay.
-  if (gameWon) {
+  if (DIR.gameWon) {
     drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: 170 });
     const msg = 'ARENA CLEARED';
     const mw = measureText(msg, 52);
@@ -3776,8 +3060,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
   // SH-040 — level chosen, but it loads on the next launch. Say so plainly
   // rather than letting the player wonder why nothing happened.
-  if (levelChangeT > 0) {
-    const a = Math.floor(Math.min(1, levelChangeT / 0.5) * 240);
+  if (GS.levelChangeT > 0) {
+    const a = Math.floor(Math.min(1, GS.levelChangeT / 0.5) * 240);
     const msg = 'ARENA SET - RESTART THE GAME TO PLAY IT';
     const mw = measureText(msg, 22);
     drawRect((sw - mw) / 2 - 16, sh * 0.16 - 8, mw + 32, 40,
@@ -3883,15 +3167,6 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   if (PERFTEST && perfDone) break;
 }
-
-// Why did the game stop? The loop has several exits (window close, the ESC
-// break above, ACT_QUIT) and from the outside they are indistinguishable — the
-// process just vanishes. Write the reason down.
-writeFile('tools/.testout/exit_reason.txt',
-  'windowShouldClose=' + (windowShouldClose() ? 1 : 0)
-  + ' frames=' + testFrame
-  + ' gameState=' + gameState
-  + ' menuOpen=' + (menuOpen() ? 1 : 0) + '\n');
 
 
 
