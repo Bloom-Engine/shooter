@@ -3764,7 +3764,7 @@ while (!windowShouldClose() && !aitestDone) {
       + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
       // The vN suffix is a build tag: bump it with each PT engine drop
       // so a stale main.exe is identifiable at a glance in the HUD.
-      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v6';
+      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v7';
     drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
     drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
   }
