@@ -107,6 +107,32 @@ initInput();
 // SH-037 â€” settings must load BEFORE anything reads them (input sensitivity,
 // audio volumes, FOV, shake). A missing file is a first run, not an error.
 SET.loadSettings();
+
+// ---- CLI overrides for A/B-testing graphics settings -----------------------
+// `main --render-scale 0.5|0.75|1` and `main --output-scale 0.5|0.75|1`
+// override settings.json for this launch (they land in the live settings
+// array, so the video menu shows them â€” and saving from the pause menu
+// persists them). Values are matched against the fixed list instead of
+// parsed: string equality on argv is safe (world-runtime does it), numeric
+// parsing of FFI strings is not (perry-quirks #5). `--pt off|prog|rt`
+// further below starts in that path-tracing mode without F9 taps.
+function cliArg(name: string): string {
+  const n = process.argv.length;
+  for (let i = 0; i < n - 1; i++) {
+    if (process.argv[i] === name) return process.argv[i + 1];
+  }
+  return '';
+}
+function cliScaleOverride(name: string, idx: number): void {
+  const v = cliArg(name);
+  if (v === '0.25') SET.set(idx, 0.25);
+  else if (v === '0.5' || v === '0.50') SET.set(idx, 0.5);
+  else if (v === '0.75') SET.set(idx, 0.75);
+  else if (v === '1' || v === '1.0') SET.set(idx, 1.0);
+}
+cliScaleOverride('--render-scale', SET.SET_RENDER_SCALE);
+cliScaleOverride('--output-scale', SET.SET_OUTPUT_SCALE);
+
 FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
 initMenus();
 
@@ -1639,6 +1665,13 @@ let dbgSsao = true;
 // devices without hardware ray query.
 let dbgPtMode = 0;
 const ptSupported = isPathTracingSupported();
+// `--pt prog|rt` (or 1|2) starts the run already in that mode. Goes through
+// dbgPtMode so the F9 cycle and the HUD tag stay truthful.
+const ptArg = cliArg('--pt');
+if (ptSupported) {
+  if (ptArg === 'prog' || ptArg === '1') { dbgPtMode = 1; setPathTracing(1); }
+  else if (ptArg === 'rt' || ptArg === '2') { dbgPtMode = 2; setPathTracing(2); }
+}
 let dbgSsr = true;
 let dbgShadow = true;
 disableCursor();
@@ -3765,7 +3798,7 @@ while (!windowShouldClose() && !aitestDone) {
       + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
       // The vN suffix is a build tag: bump it with each PT engine drop
       // so a stale main.exe is identifiable at a glance in the HUD.
-      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v8';
+      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v9';
     drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
     drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
   }
