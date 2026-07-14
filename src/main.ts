@@ -34,7 +34,7 @@ import {
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
-  setManualExposure, gamepadRumble, readFile,
+  setManualExposure, gamepadRumble, readFile, writeFile,
 } from 'bloom/core';
 import {
   addPointLight, enableShadows,
@@ -61,6 +61,7 @@ import {
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting,
 } from './player';
 import * as W from './world-runtime';
+import { ENV, initEnvironment, initGiProxies } from './environment';
 import {
   KIND_COUNT, KIND_NAME, mdlAliens, ALIEN_GLB, animAliens,
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
@@ -91,7 +92,13 @@ import * as WPN from './weapons';
 import * as MIX from './audio-mix';
 import * as SET from './settings';
 import * as SCORE from './score';
-import { initMenus, menuOpen, openPause, closeMenu, updateMenu, drawMenu, MENU_NONE, applyGraphicsSettings } from './menu';
+import { initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, MENU_NONE, applyGraphicsSettings } from './menu';
+import {
+  bootSplash, bootStage, bootOutro,
+  BOOT_AUDIO, BOOT_MUSIC, BOOT_WORLD, BOOT_MESHES, BOOT_TREES, BOOT_TERRAIN,
+  BOOT_PLAYER, BOOT_WEAPONS, BOOT_ALIENS, BOOT_VFX, BOOT_WATER, BOOT_GRASS,
+  BOOT_PROPS, BOOT_SCENE, BOOT_READY,
+} from './boot';
 // Terrain comes from the same world file as everything else now; `T` is kept as
 // an alias so the height-sampling call sites read the same as they always have.
 import * as T from './world-runtime';
@@ -143,7 +150,16 @@ else if (cliPt === 'rt' || cliPt === '2') SET.set(SET.SET_PT, 2);
 FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
 initMenus();
 
+// ---- SH-046: the boot sequence ---------------------------------------------
+// Everything below this line until `bootOutro()` is the game LOADING, and until
+// now it did that behind a black, frozen window for several seconds. The splash
+// runs first (it owns its own loop, so it is the one part of the boot that can
+// animate smoothly); then each group of loads announces itself with a
+// bootStage() call, which draws a frame of the loading screen. See src/boot.ts.
+bootSplash(1.1);
+
 // ---- M8 polish: audio -----------------------------------------------------
+bootStage(BOOT_AUDIO);
 initAudio();
 const sfxFire = loadSound('assets/sounds/rifle_fire.wav');
 const sfxAttack = loadSound('assets/sounds/dretch_attack.wav');
@@ -212,6 +228,7 @@ for (let k = 0; k < 7; k++) {
 // Starting the combat bed on demand would cost a stream-open on the frame a wave
 // spawns — the worst possible frame — and would start it at bar 0 while the calm
 // bed is 40 s in, so the two would be out of phase.
+bootStage(BOOT_MUSIC);
 const musicMenu = loadMusic(
   fileExists('assets/music/music_menu.wav') ? 'assets/music/music_menu.wav'
                                             : 'assets/sounds/menu.wav');
@@ -254,6 +271,7 @@ function applyMusicCrossfade(): void {
   setMusicVolume(musicCombat, Math.sin(i * Math.PI * 0.5) * 0.35);
 }
 
+bootStage(BOOT_WORLD);
 const physics = createWorld({ gravity: vec3(0, -20, 0) });
 // Make NON_MOVING (static) and MOVING (character/dynamic) collide.
 setLayerCollides(physics, Layer.NON_MOVING, Layer.MOVING, true);
@@ -454,6 +472,7 @@ for (let i = 0; i < W.COLLIDER_COUNT; i++) {
 const MESH_TINT_R = [150, 196, 120, 130];
 const MESH_TINT_G = [148, 168,  90,  95];
 const MESH_TINT_B = [140, 130,  70,  80];
+bootStage(BOOT_MESHES);
 const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
@@ -471,6 +490,7 @@ for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
 // see docs/tickets.md SH-013 for the number that decided this.
 const FOLIAGE_SHADOW_MOTION = false;
 
+bootStage(BOOT_TREES);
 const treeVariants = [
   loadModel('assets/models/prop_tree.glb'),
   loadModel('assets/models/prop_tree2.glb'),
@@ -598,6 +618,7 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
 // under Perry â€” the FFI receives zero count for inline literals).
 //   grass_dry rgb  pad   grass_mid rgb  pad   grass_deep rgb pad   dirt rgb pad
 //   noise_freq, slope_threshold, ridge_height, pale_strength
+bootStage(BOOT_TERRAIN);
 const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opaque');
 
 // SH-009 — four splat layers + their normals, as texture ARRAYS. The layer
@@ -752,6 +773,7 @@ const TP_FOVY = 70;
 // Converted via tools/convert-aliens-anim.ts. Drawn at the physics-character
 // position, facing the camera's horizontal yaw so the player always looks
 // "away from the camera" (classic 3rd-person over-the-shoulder feel).
+bootStage(BOOT_PLAYER);
 const mdlPlayer  = loadModel('assets/models/player_bsuit.glb');
 const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
 // human_bsuit animation indices (IQE declaration order):
@@ -774,6 +796,7 @@ let playerAnimT = 0;
 // were the most visible placeholder left in the game. Built by
 // tools/build-weapons.ts; local +Z is down the barrel and the muzzle distances
 // below are the ABI that file prints (keep them in sync).
+bootStage(BOOT_WEAPONS);
 const mdlWeapons = [
   loadModel('assets/models/weapon_rifle.glb'),
   loadModel('assets/models/weapon_blaster.glb'),
@@ -804,6 +827,7 @@ const dbgAnkle = findJoint(animPlayer, 'ankle.R');
 
 // SH-033 â€” VFX. Cosmetic, so a failure here must never take the game down:
 // initVfx() returns false and every emit call becomes a no-op.
+bootStage(BOOT_VFX);
 const vfxOk = VFX.initVfx();
 if (!vfxOk) console.log('[vfx] disabled - shaders or textures failed to load');
 
@@ -825,420 +849,11 @@ WPN.initWeapons();
 }
 
 
-// ---- Phase 9 water â€” real shader-based river ----------------------------
-// Replaces the ~1800-cube tessellated river from earlier with a proper
-// WGSL material: three Gerstner waves for vertex displacement, per-vertex
-// normal from the wave derivatives, Fresnel-blended refraction (sampling
-// the SceneColor snapshot) and sky reflection (from the engine's env
-// cubemap), plus foam on high-slope crests. Single drawMeshWithMaterial
-// call; Phase 4b handles the snapshot + translucent pass automatically.
-
-// SH-005: the inline WGSL fallbacks are gone. They existed so a binary-only
-// build could run with no assets on disk, and they cost more than they bought:
-// the water copy silently drifted to a 2-vec4 params layout that misread the
-// real 3-vec4 WATER_PARAMS, so engaging the "fallback" shipped WRONG water, and
-// the grass copy had to be hand-patched twice during EN-022. The game already
-// loads its world, textures and models from disk; shaders are no different.
-// One source of truth, no drift possible.
-const matWater = compileMaterialFromFile('assets/materials/water.wgsl', 'refractive');
-// Tier 4 layout: absorption coefficient (red dies fastest, blue
-// slowest), deep-water colour (greenish-teal), then knobs:
-//   foam, rim, sky_lod, micro_strength.
-// Round-3 recalibration: the river bed sits only ~0.3 m down, so the
-// old 0.55/m absorption left the water reading as hazy grass â€”
-// exaggerate it (games do) so a shallow column still shifts teal.
-// Rim 0.25 â†’ 0.10 and sky_lod 2.0 â†’ 0.6 both fight the milky wash:
-// less white shoreline paint, sharper sky/cloud reflection.
-// Round-9: micro_strength 0.18 â†’ 0.26 â€” the shader's micro detail is now
-// flow-advected noise streaks (see water.wgsl) and carries most of the
-// "moving river" read, so it gets a little more normal weight.
-const WATER_PARAMS = [
-  2.20, 0.90, 0.60,   0.0,    // absorption per metre
-  0.05, 0.18, 0.28,   0.0,    // deep_tint
-  0.50, 0.10,         0.6,   0.26,    // foam / rim / sky_lod / micro_strength
-];
-if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
-
-// ---- Water plane mesh â€” tessellated for Gerstner displacement ----------
-// One flat XZ plane covering the whole river footprint in arena_02.
-// Drawn at origin with scale 1, so the mesh's native dimensions are the
-// visible river size. Subdivide finely enough that the longest
-// Gerstner wave (~5 m wavelength) shows smooth wave peaks.
-// Round-2 audit (F11): these used to be hardcoded here while the world
-// file authored six overlapping zig-zag volumes the runtime ignored â€”
-// two sources of truth that had already drifted. The world file now
-// carries the one real river volume and the runtime reads it.
-const WATER_W  = W.WATER_COUNT > 0 ? W.WATER_SX[0] : 80;   // metres along X
-const WATER_D  = W.WATER_COUNT > 0 ? W.WATER_SZ[0] : 5;    // metres along Z
-const WATER_CX = W.WATER_COUNT > 0 ? W.WATER_CX[0] : 0;    // world X centre
-const WATER_CZ = W.WATER_COUNT > 0 ? W.WATER_CZ[0] : 12;   // world Z centre
-const WATER_Y  = W.WATER_COUNT > 0 ? W.WATER_CY[0] + 0.05 : 0.05;
-const WATER_COLS = 80;
-const WATER_ROWS = 10;
-const _wvc = (WATER_COLS + 1) * (WATER_ROWS + 1);
-const _wic = WATER_COLS * WATER_ROWS * 2 * 3;
-const WATER_VERTS = new Array<number>(_wvc * 12);
-const WATER_INDS  = new Array<number>(_wic);
-{
-  let vi = 0;
-  for (let r = 0; r <= WATER_ROWS; r++) {
-    for (let c = 0; c <= WATER_COLS; c++) {
-      const u = c / WATER_COLS;
-      const vv = r / WATER_ROWS;
-      // World-space positions â€” mesh has its own real extent.
-      WATER_VERTS[vi++] = -WATER_W * 0.5 + u * WATER_W;
-      WATER_VERTS[vi++] = 0;
-      WATER_VERTS[vi++] = -WATER_D * 0.5 + vv * WATER_D;
-      WATER_VERTS[vi++] = 0; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 0;
-      WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1;
-      WATER_VERTS[vi++] = u; WATER_VERTS[vi++] = vv;
-    }
-  }
-  let ii = 0;
-  const nc = WATER_COLS + 1;
-  for (let r = 0; r < WATER_ROWS; r++) {
-    for (let c = 0; c < WATER_COLS; c++) {
-      const tl = r * nc + c;
-      const tr = tl + 1;
-      const bl = tl + nc;
-      const br = bl + 1;
-      // CCW-from-above so default backface culling doesn't cull them.
-      WATER_INDS[ii++] = tl; WATER_INDS[ii++] = br; WATER_INDS[ii++] = bl;
-      WATER_INDS[ii++] = tl; WATER_INDS[ii++] = tr; WATER_INDS[ii++] = br;
-    }
-  }
-}
-const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
-
-// Round-3 â€” planar reflection probe (EN-011). Mirror-renders the
-// cached-model world across the water plane into an HDR RT each frame;
-// water.wgsl blends it over the analytic sky by probe alpha, so trees /
-// house / banks actually appear in the river. Materials linked to a
-// probe are excluded from their own reflection automatically.
-const waterProbe = matWater > 0 ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
-if (waterProbe > 0) setMaterialReflectionProbe(matWater, waterProbe);
-
-// ---- SH-021 instanced grass â€” canonical blade Ã— N instances -------------
-// Replaces the Tier-2b 5 000-blade baked-mesh path. One canonical
-// 6-vert cross-quad blade is uploaded once; per-frame draw is a
-// single drawMeshWithMaterialInstanced call against a 20 000-entry
-// instance buffer (pos / rot_y / scale / tint). Wind sway uses the
-// global PerFrame.wind UBO (EN-013); cascade sun shadows come
-// through sample_sun_shadow (EN-016). Both are folded into the
-// material so SH-011 (grass shading polish) ships in the same pass.
-//
-// The WGSL is READ FROM DISK (SH-005). It used to be duplicated inline as a
-// binary-only fallback, and the copy had to be hand-patched during EN-022 --
-// the drift was not hypothetical. compileMaterialInstanced takes a source
-// string, so reading the file costs one call and removes the second copy.
-const matGrass = compileMaterialInstanced(
-  readFile('assets/materials/grass_instanced.wgsl'));
-const GRASS_PARAMS = [
-  // base hue rgb (Round-4: slightly desaturated), transmission strength
-  0.30, 0.42, 0.20,  0.40,
-];
-if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
-// Blades are sub-pixel in the 512Â² water probe but cost the full 20k-
-// instance vertex + raster pass there â€” skip grass in reflections.
-if (matGrass > 0) setMaterialProbeVisible(matGrass, false);
-
-// Canonical blade mesh â€” Round-4: two-segment tapered blades with a
-// bow, instead of the old single hard triangle (which read as plastic
-// spikes). Per crossed plane: 2 root verts â†’ 2 narrower mid verts â†’
-// 1 tip vert, bowing along the plane normal so the per-instance yaw
-// randomises bow direction across the field. 10 verts Ã— 12 floats
-// (pos.3 normal.3 color.4 uv.2); 36 indices = 12 triangles (front +
-// back of 3 quads/tips per plane). color.r is the tip weight (0 at
-// root â†’ 1 at tip) which the vertex shader uses for wind sway and
-// the fragment shader for the rootâ†’tip colour gradient.
-// Round-9 anti-grit: wider blades (0.045/0.026 â†’ 0.062/0.038) â€” the old
-// needle-thin cards fell below a pixel a few metres out and the field
-// read as gritty speckle rather than foliage.
-const GB_W0 = 0.062;   // root half-width
-const GB_W1 = 0.038;   // mid half-width
-const GB_H1 = 0.26;    // mid height
-const GB_H2 = 0.55;    // tip height
-const GB_B1 = 0.028;   // bow at mid
-const GB_B2 = 0.090;   // bow at tip
-const GRASS_BLADE_VERTS: number[] = [
-  // Plane 1 (XY plane, normal +Z, bows toward +Z)
-  -GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   0,   0,
-   GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   1,   0,
-  -GB_W1, GB_H1, GB_B1,  0, 0, 1,   0.55, 0, 1, 1,   0,   0.55,
-   GB_W1, GB_H1, GB_B1,  0, 0, 1,   0.55, 0, 1, 1,   1,   0.55,
-   0,     GB_H2, GB_B2,  0, 0, 1,   1,    0, 1, 1,   0.5, 1,
-  // Plane 2 (YZ plane, normal +X, bows toward +X)
-   0,     0,     -GB_W0,   1, 0, 0,   0,    0, 1, 1,   0,   0,
-   0,     0,      GB_W0,   1, 0, 0,   0,    0, 1, 1,   1,   0,
-   GB_B1, GB_H1, -GB_W1,   1, 0, 0,   0.55, 0, 1, 1,   0,   0.55,
-   GB_B1, GB_H1,  GB_W1,   1, 0, 0,   0.55, 0, 1, 1,   1,   0.55,
-   GB_B2, GB_H2,  0,       1, 0, 0,   1,    0, 1, 1,   0.5, 1,
-];
-const GRASS_BLADE_INDS: number[] = [
-  // Plane 1: root quad + tip tri, front (CCW from +Z) then back.
-  0, 1, 3,   0, 3, 2,   2, 3, 4,
-  0, 3, 1,   0, 2, 3,   2, 4, 3,
-  // Plane 2: same topology at base 5.
-  5, 6, 8,   5, 8, 7,   7, 8, 9,
-  5, 8, 6,   5, 7, 8,   7, 9, 8,
-];
-const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, 10, GRASS_BLADE_INDS, 36);
-
-// Round-4 â€” deterministic value noise over world XZ, used for the
-// large-scale "moisture" patches that vary grass colour/height (and
-// loosely match the terrain shader's macro patches). Pure math, no
-// state â€” Perry-safe.
-function hashCell(ix: number, iz: number): number {
-  let h = (ix * 374761393 + iz * 668265263) | 0;
-  h = (h ^ (h >> 13)) | 0;
-  h = (h * 1274126177) | 0;
-  return ((h ^ (h >> 16)) >>> 0) / 4294967295;
-}
-function moistureNoise(x: number, z: number): number {
-  const fx = Math.floor(x), fz = Math.floor(z);
-  const tx = x - fx, tz = z - fz;
-  const sx = tx * tx * (3 - 2 * tx), sz = tz * tz * (3 - 2 * tz);
-  const a = hashCell(fx, fz),     b = hashCell(fx + 1, fz);
-  const c = hashCell(fx, fz + 1), d = hashCell(fx + 1, fz + 1);
-  return (a * (1 - sx) + b * sx) * (1 - sz) + (c * (1 - sx) + d * sx) * sz;
-}
-
-// Per-instance buffer â€” 20 000 blades Ã— 9 floats (pos.xyz, rot_y,
-// scale, tint.rgba). Same RNG / heightmap / rejection logic as the
-// old baked-mesh path; deterministic given the seed so screenshot
-// diffs stay stable.
-// SH-011 - density LOD, measured. 20k -> 40k costs ONE fps (34 -> 33): the
-// engine's grass-tile culling (aeb3228) already throws away everything off-screen,
-// so near-field density is close to free and the field finally reads as grass
-// rather than as tufts on a green carpet.
-//
-// The ticket asked for player-following density RINGS. That does not work here:
-// the rings follow the camera but these instances are STATIC, so a ring would mean
-// re-scattering and re-uploading 20k x 9 floats every frame -- which the perf audit
-// would flag the same day. Raising the uniform density gets the same look for a
-// one-off cost.
-//
-// 70k was also measured: still 33 fps, but no denser to look at. Past ~40k the
-// scatter saturates against its keep-outs, so the limit here is the scatter, not
-// the GPU. No reason to pay for instances that never get placed.
-const GRASS_INSTANCE_COUNT_MAX = 40000;
-const GRASS_INSTANCE_FLOATS    = 9;
-const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
-let GRASS_INSTANCE_COUNT = 0;
-{
-  // Round-9b â€” the clump lattice is rotated 37Â° off the world axes so
-  // tuft rows can't line up with the view/river/arena edges.
-  const CLUMP_C = Math.cos(0.65);
-  const CLUMP_S = Math.sin(0.65);
-  let seed = 0x12345 | 0;
-  let wi = 0;
-  for (let attempt = 0; attempt < GRASS_INSTANCE_COUNT_MAX * 3 && GRASS_INSTANCE_COUNT < GRASS_INSTANCE_COUNT_MAX; attempt++) {
-    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
-    const r1 = seed / 0x7fffffff;
-    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
-    const r2 = seed / 0x7fffffff;
-    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
-    const r3 = seed / 0x7fffffff;
-    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
-    const r4 = seed / 0x7fffffff;
-    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
-    const r5 = seed / 0x7fffffff;
-    seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
-    const r6 = seed / 0x7fffffff;
-    let px = -38 + r1 * 76;
-    let pz = -38 + r2 * 76;
-    // Round-4 â€” clumping: pull each blade toward a per-1.7 m-cell anchor
-    // so the field reads as natural tufts instead of an even lawn. Pull
-    // FIRST, then reject on the pulled position.
-    // Round-9b â€” de-grid the tufts. The anchors were one per AXIS-ALIGNED
-    // cell, jittered across only the middle 60% of it â€” at grazing angles
-    // the tufts read as straight rows of stumps. Now the cell lookup runs
-    // in the rotated frame, anchors jitter across the FULL cell (with two
-    // decorrelated hashes), and ~22% of blades stay loose between tufts
-    // so the lattice never shows through.
-    const qx = px * CLUMP_C - pz * CLUMP_S;
-    const qz = px * CLUMP_S + pz * CLUMP_C;
-    const cellX = Math.floor(qx / 1.7), cellZ = Math.floor(qz / 1.7);
-    const aqx = (cellX + hashCell(cellX, cellZ)) * 1.7;
-    const aqz = (cellZ + hashCell(cellX + 137, cellZ - 91)) * 1.7;
-    const ax =  aqx * CLUMP_C + aqz * CLUMP_S;
-    const az = -aqx * CLUMP_S + aqz * CLUMP_C;
-    const pull = r6 < 0.22 ? 0.12 : 0.65;
-    px = px + (ax - px) * pull;
-    pz = pz + (az - pz) * pull;
-    // No grass on the water or inside the building. Same world-derived shapes
-    // the forest uses, with a tighter margin: a blade may grow right up to the
-    // waterline, a tree may not.
-    if (W.keepOut(px, pz, 0.75)) continue;
-    // Bilinear heightmap sample.
-    const u = (px - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
-    const v = (pz - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
-    let py = 0;
-    if (u >= 0 && v >= 0 && u < T.TERRAIN_SAMPLE_COUNT - 1 && v < T.TERRAIN_SAMPLE_COUNT - 1) {
-      const ixc = Math.floor(u), iz = Math.floor(v);
-      const fx = u - ixc, fz = v - iz;
-      const h00 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ixc];
-      const h10 = T.TERRAIN_HEIGHTS[iz * T.TERRAIN_SAMPLE_COUNT + ixc + 1];
-      const h01 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ixc];
-      const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ixc + 1];
-      py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
-           (h01 * (1 - fx) + h11 * fx) * fz;
-    }
-    // Round-4 â€” moisture patches (~12 m wavelength): low-moisture areas
-    // go dry olive-yellow and slightly shorter, lush areas stay deep
-    // green and tall. Plus per-blade jitter on top.
-    const moist = moistureNoise(px * 0.085, pz * 0.085);
-    const dry   = Math.max(0, Math.min(1, (0.55 - moist) * 3.0));
-    // Round-9: jitter 0.16 â†’ 0.10 â€” per-blade hue speckle was a big part
-    // of the gritty read; the moisture patches carry the large-scale
-    // variation on their own.
-    const jit   = (r5 - 0.5) * 0.10;
-    GRASS_INSTANCES[wi++] = px;
-    GRASS_INSTANCES[wi++] = py;
-    GRASS_INSTANCES[wi++] = pz;
-    GRASS_INSTANCES[wi++] = r3 * 6.2832;                          // rot_y radians
-    GRASS_INSTANCES[wi++] = (0.85 + r4 * 0.40) * (1.05 - dry * 0.30);  // scale
-    GRASS_INSTANCES[wi++] = 0.85 + dry * 0.60 + jit;              // tint r
-    GRASS_INSTANCES[wi++] = 1.03 + dry * 0.02 + jit * 0.5;        // tint g
-    GRASS_INSTANCES[wi++] = 0.95 - dry * 0.40 + jit * 0.3;        // tint b
-    GRASS_INSTANCES[wi++] = 1.0;
-    GRASS_INSTANCE_COUNT++;
-  }
-}
-// EN-001 â€” pass instanceCount explicitly (Perry's `.length` reports
-// the literal-init size, not how many were written).
-const matGrassInstances = matGrass > 0
-  ? createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT)
-  : 0;
-
-// ---- Building stone material â€” bake all box-placeholder building
-// entries into a single static mesh, drawn once per frame against
-// a noise + horizontal-band material. Replaces the flat-beige
-// drawCube path for category-1 (building) entities.
-const matBuilding = compileMaterialFromFile('assets/materials/building.wgsl', 'opaque');
-const BUILDING_PARAMS = [
-  // base rgb (warm sandstone)        noise mix
-  0.72, 0.66, 0.55,                   0.55,
-  // band rgb (darker mortar line)    band tightness (higher = sharper)
-  0.40, 0.34, 0.28,                   1.4,
-  // noise_freq, band_period (m), unused, unused
-  0.50, 3.0,                          0.0,   0.0,
-];
-if (matBuilding > 0) setMaterialParams(matBuilding, BUILDING_PARAMS);
-
-// Count the building boxes first so we can size the arrays.
-let _bldgCount = 0;
-for (let i = 0; i < W.MESH_COUNT; i++) {
-  const mi = W.MESH_MODEL_IDX[i];
-  if (W.MODEL_IS_BOX[mi] === 1 && W.MESH_CATEGORY[i] === 1) _bldgCount++;
-}
-const _bvc = _bldgCount * 24;     // 24 verts per cube (4 per face Ã— 6 faces)
-const _bic = _bldgCount * 36;     // 36 indices per cube (2 tris Ã— 6 faces)
-const BUILDING_VERTS = new Array<number>(_bvc * 12);
-const BUILDING_INDS  = new Array<number>(_bic);
-{
-  let vi = 0, ii = 0, vbase = 0;
-  for (let i = 0; i < W.MESH_COUNT; i++) {
-    const mi = W.MESH_MODEL_IDX[i];
-    if (W.MODEL_IS_BOX[mi] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
-    const cx = W.MESH_X[i], cy = W.MESH_Y[i], cz = W.MESH_Z[i];
-    const hx = W.MESH_COLLIDER_HX[i];
-    const hy = W.MESH_COLLIDER_HY[i];
-    const hz = W.MESH_COLLIDER_HZ[i];
-    const xn = cx - hx, xp = cx + hx;
-    const yn = cy - hy, yp = cy + hy;
-    const zn = cz - hz, zp = cz + hz;
-    // Six faces, 4 verts each. Vertex layout: pos(3) normal(3)
-    // color(4) uv(2) â€” colors all white, UVs unused (material
-    // samples world XY/XZ/YZ).
-    // +X face (normal +X)
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-    // -X face
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-    // +Y face (top)
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-    // -Y face (bottom)
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-    // +Z face
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-    // -Z face
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-    BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-    BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-
-    // 36 indices: 6 faces Ã— 2 tris Ã— 3, CCW from outside.
-    BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  1; BUILDING_INDS[ii++] = vbase +  2;
-    BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  2; BUILDING_INDS[ii++] = vbase +  3;
-    BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  5; BUILDING_INDS[ii++] = vbase +  6;
-    BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  6; BUILDING_INDS[ii++] = vbase +  7;
-    BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase +  9; BUILDING_INDS[ii++] = vbase + 10;
-    BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase + 10; BUILDING_INDS[ii++] = vbase + 11;
-    BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 13; BUILDING_INDS[ii++] = vbase + 14;
-    BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 14; BUILDING_INDS[ii++] = vbase + 15;
-    BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 17; BUILDING_INDS[ii++] = vbase + 18;
-    BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 18; BUILDING_INDS[ii++] = vbase + 19;
-    BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 21; BUILDING_INDS[ii++] = vbase + 22;
-    BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 22; BUILDING_INDS[ii++] = vbase + 23;
-    vbase += 24;
-  }
-}
-const matBuildingMesh = createMeshExplicit(BUILDING_VERTS, _bvc, BUILDING_INDS, _bic);
-
-// ---- Phase 10 glass â€” second material consumer, proves the ABI works -----
-// Second material using the Phase 4b refractive path (scene-colour snapshot
-// at group 4). No Gerstner waves; flat normal, heavier Fresnel so edges
-// reflect the sky and the centre of the pane stays clearest. Placed in the
-// south-wall door opening of the h1 house (gap at x=-22..-20, y=0..2.4,
-// z=-10) so the player can see the interior refracted through it on the
-// approach. Phase 10's acceptance criterion: no engine change between
-// Phase 9 and 10 â€” only TypeScript.
-
-const matGlass = compileMaterialFromFile(
-  'assets/materials/glass.wgsl', 'refractive');
-
-// Glass pane mesh â€” a single 2m Ã— 2.4m quad on the XY plane, normal +Z.
-// Subdivided 1Ã—1 (two triangles) because glass has no per-vertex
-// displacement; the shader runs entirely in fs_main.
-const GLASS_W = 2.0;   // metres along X â€” door opening width
-const GLASS_H = 2.4;   // metres along Y â€” door opening height
-const GLASS_VERTS: number[] = [
-  // pos(3)         normal(3)   color(4)     uv(2)
-  -GLASS_W*0.5, 0,        0,  0,0,1,  1,1,1,1,  0,0,
-   GLASS_W*0.5, 0,        0,  0,0,1,  1,1,1,1,  1,0,
-   GLASS_W*0.5, GLASS_H,  0,  0,0,1,  1,1,1,1,  1,1,
-  -GLASS_W*0.5, GLASS_H,  0,  0,0,1,  1,1,1,1,  0,1,
-];
-// CCW from +Z so the pane is front-facing when viewed from outside.
-const GLASS_INDS: number[] = [0, 1, 2, 0, 2, 3];
-const matGlassMesh = createMesh(GLASS_VERTS, GLASS_INDS);
-
-// ---- Muzzle flash â€” additive-bucket material (Bucket::Additive) ----------
-// First consumer of the additive blend path. Fragment fakes a
-// volumetric warm flash inside a unit cube via radial falloff from
-// local-space centre. Per-draw tint alpha carries the flash intensity.
-const matMuzzleFlash = compileMaterialFromFile(
-  'assets/materials/muzzle_flash.wgsl', 'additive',
-);
-const matMuzzleFlashMesh = genMeshCube(1, 1, 1);
+initEnvironment();
 
 // ---- Enemies (SH-025: kinds, stats, pool state → src/enemies.ts) ----------
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };
+bootStage(BOOT_ALIENS);
 initEnemyPool(physics);
 
 // Wave director â€” spawners, wave plan, and kind sequence all come from the
@@ -1518,6 +1133,30 @@ function resetRun(): void {
   runElapsed = 0;
   SCORE.beginWave(0);
 }
+
+/// SH-046 â€” leave the main menu and drop into the arena. This was inline in the
+/// old "press any key" title screen; the main menu's PLAY row calls it now.
+///
+/// The two selectWeapon() calls look redundant and are not: selecting a second
+/// weapon and coming back is what clears any half-finished reload/spool state on
+/// the rifle, so the run always starts on a clean, loaded gun.
+function startRun(): void {
+  // The main menu is open whenever the game is not running, so leaving it is
+  // part of starting. The dormant test harnesses below start the game by calling
+  // this too — without the closeMenu() they would set gameState = 1 and then sit
+  // there doing nothing, because `playing` is gated on !menuOpen().
+  closeMenu();
+  gameState = 1;
+  stopMusic(musicMenu);
+  playMusic(musicCalm);
+  playMusic(musicCombat);
+  WPN.selectWeapon(WPN.W_BLASTER);
+  WPN.selectWeapon(WPN.W_RIFLE);
+  waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
+  SCORE.resetScore();
+  runElapsed = 0;
+}
+
 // Seconds since the run began â€” drives the wave clock and the score bonuses.
 let runElapsed = 0;
 
@@ -1715,7 +1354,6 @@ let dbgSsao = true;
 const ptSupported = isPathTracingSupported();
 let dbgSsr = true;
 let dbgShadow = true;
-disableCursor();
 
 // ---- M8 polish: post-FX ---------------------------------------------------
 // Called once at startup â€” these are cheap, always-on stylistic passes.
@@ -1723,54 +1361,8 @@ setVignette(0.4, 0.55);    // darken frame edges
 setFilmGrain(0.018);       // barely-there noise â€” 0.05+ reads as heavy speckle
                            // over sky/shadow areas (phase-0 calibration).
 
-// ---- GI proxies ------------------------------------------------------------
-// The world renders through the material system, which Lumen's inputs
-// (BLAS/TLAS, mesh cards, SDF clipmap) never see â€” so SSGI had no
-// off-screen geometry to bounce from. Register invisible scene-node
-// duplicates of the big static geometry, flagged gi_only: they feed the
-// GI stack but are skipped by the main render, reflections, and the sun
-// shadow pass (the material path casts those shadows itself). Node
-// colour approximates each material's mid albedo so bounce carries the
-// right hue.
-{
-  // Terrain instance(s) from the world's static-mesh list.
-  // loadModel/createMeshExplicit return Model OBJECTS â€” the scene attach
-  // FFI wants the raw .handle number.
-  for (let i = 0; i < W.MESH_COUNT; i++) {
-    const mi = W.MESH_MODEL_IDX[i];
-    if (mi === terrainPropIdx && W.MODEL_IS_BOX[mi] !== 1) {
-      const n = createSceneNode();
-      attachModelToNode(n, (meshModelHandles[mi] as any).handle, 0);
-      setSceneNodeTrs(n, W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i], 0, W.MESH_SCALE[i]);
-      setSceneNodeColor(n, 84, 116, 51);          // â‰ˆ grass_mid albedo
-      setSceneNodeCastShadow(n, false);
-      setSceneNodeGiOnly(n, true);
-    }
-  }
-  // The generated building shell (drawn at origin, scale 1).
-  if (matBuildingMesh.handle > 0) {
-    const n = createSceneNode();
-    attachModelToNode(n, matBuildingMesh.handle, 0);
-    setSceneNodeTrs(n, 0, 0, 0, 0, 1);
-    setSceneNodeColor(n, 214, 208, 196);          // plaster base
-    setSceneNodeCastShadow(n, false);
-    setSceneNodeGiOnly(n, true);
-  }
-  // Forest trees â€” every primitive of every placed tree. glTF materials
-  // ride along through attachModelToNode, so trunks bounce brown and
-  // canopies green without per-node colour overrides. (GI proxies are
-  // unrotated â€” close enough for bounce lighting.)
-  for (let i = 0; i < FOREST_COUNT; i++) {
-    const v = treeVariants[FOREST_VAR[i]];
-    for (let mIdx = 0; mIdx < TREE_GLB_PARTS; mIdx++) {
-      const n = createSceneNode();
-      attachModelToNode(n, (v as any).handle, mIdx);
-      setSceneNodeTrs(n, FOREST_X[i], FOREST_Y[i], FOREST_Z[i], 0, FOREST_SCALE[i]);
-      setSceneNodeCastShadow(n, false);
-      setSceneNodeGiOnly(n, true);
-    }
-  }
-}
+bootStage(BOOT_SCENE);
+initGiProxies(meshModelHandles, treeVariants, terrainPropIdx, TREE_GLB_PARTS);
 
 
 // ---- Self-test harness ----------------------------------------------------
@@ -1989,8 +1581,24 @@ function perfStageApply(s: number): void {
 }
 
 
+// ---- Boot complete ---------------------------------------------------------
+// Everything is loaded. Hold the full bar long enough to read, fade to black,
+// and come up on the main menu over the live arena. The cursor is FREE here —
+// it is a menu, not a game; PLAY takes it back (see ACT_PLAY below).
+bootStage(BOOT_READY);
+writeFile('tools/.testout/breadcrumb.txt', 'ready\n');
+bootOutro();
+writeFile('tools/.testout/breadcrumb.txt', 'outro\n');
+openMain();
+enableCursor();
+cursorLocked = false;
+writeFile('tools/.testout/breadcrumb.txt', 'menu-open\n');
+
 while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   beginDrawing();
+  if (testFrame === 1) writeFile('tools/.testout/breadcrumb.txt', 'frame1\n');
+  if (testFrame === 30) writeFile('tools/.testout/breadcrumb.txt', 'frame30\n');
+  if (testFrame === 120) writeFile('tools/.testout/breadcrumb.txt', 'frame120\n');
   if (PERFTEST) {
     const nowTop = getTime();
     perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
@@ -2079,6 +1687,10 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       if (cursorLocked) disableCursor();
     } else if (act === 3) {               // ACT_QUIT
       break;
+    } else if (act === 5) {               // ACT_PLAY — start the run
+      startRun();
+      cursorLocked = true;
+      disableCursor();
     } else if (act === 4) {               // ACT_LEVEL — chosen, needs a relaunch
       // The whole world (colliders, heightfield, 20k grass instances, 267 GI
       // proxies, the forest's trunk bodies) is built once at startup, so
@@ -2114,10 +1726,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // title-screen input handler), then hold the player immortal so the
     // timeline never hits the game-over overlay.
     if (PERF_START_GAME && testFrame === 20 && gameState === 0) {
-      gameState = 1;
-      stopMusic(musicMenu);
-      playMusic(musicCalm);
-      playMusic(musicCombat);
+      startRun();
       waveBreakTimer = WAVE_BREAK_DELAY;
     }
     playerHP = PLAYER_HP_MAX;
@@ -2192,10 +1801,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // camera-forward walk stays inside the band). See harness block above.
   if (WATERTEST) {
     if (testFrame === 20 && gameState === 0) {
-      gameState = 1;
-      stopMusic(musicMenu);
-      playMusic(musicCalm);
-      playMusic(musicCombat);
+      startRun();
     }
     // Round-6 verification: waves ENABLED so enemy size/facing/shadows can
     // be judged in the captures. (Re-suppress with waveBreakTimer = 9999
@@ -2236,7 +1842,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   // ANIMDBG â€” scripted walk/sprint cycle. See the harness block above.
   if (ANIMDBG) {
-    if (testFrame === 20 && gameState === 0) gameState = 1;
+    if (testFrame === 20 && gameState === 0) startRun();
     playerHP = PLAYER_HP_MAX;
     gameOver = false;
     waveBreakTimer = 9999;      // no enemies: this walk must not be shoved
@@ -2273,10 +1879,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // AITEST â€” see the harness block above WATERTEST.
   if (AITEST) {
     if (testFrame === 20 && gameState === 0) {
-      gameState = 1;
-      stopMusic(musicMenu);
-      playMusic(musicCalm);
-      playMusic(musicCombat);
+      startRun();
     }
     playerHP = PLAYER_HP_MAX;   // immortal observer
     gameOver = false;
@@ -2393,9 +1996,9 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // so the water shader can render persistent ripples.
   {
     const pp = playerPosition();
-    const inRiver = pp.z > WATER_CZ - WATER_D * 0.5 &&
-                    pp.z < WATER_CZ + WATER_D * 0.5 &&
-                    Math.abs(pp.x) < WATER_W * 0.5;
+    const inRiver = pp.z > ENV.WATER_CZ - ENV.WATER_D * 0.5 &&
+                    pp.z < ENV.WATER_CZ + ENV.WATER_D * 0.5 &&
+                    Math.abs(pp.x) < ENV.WATER_W * 0.5;
     const moving = Math.abs(input.moveX) + Math.abs(input.moveZ) > 0.1;
     splatCooldown -= dt;
     if (inRiver && moving && splatCooldown <= 0) {
@@ -2413,7 +2016,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       if (stepped && !inRiver) {
         VFX.emitFootDust(pp.x, pp.y - 0.92, pp.z, playerSpeed() > 7 ? 3 : 1);
       }
-      if (stepped && inRiver) VFX.emitSplash(pp.x, WATER_Y, pp.z);
+      if (stepped && inRiver) VFX.emitSplash(pp.x, ENV.WATER_Y, pp.z);
     }
 
     // SH-035 â€” reverb zone. `enclosure` rises as the player nears the building
@@ -3055,10 +2658,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   let forceFire = false;
   if (COMBATSHOT) {
     if (testFrame === 20 && gameState === 0) {
-      gameState = 1;
-      stopMusic(musicMenu);
-      playMusic(musicCalm);
-      playMusic(musicCombat);
+      startRun();
       SCORE.resetScore();
       runElapsed = 0;
     }
@@ -3446,16 +3046,16 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // 1800-cube tessellated grid. Shader handles Gerstner-wave
   // displacement, per-vertex normal, Fresnel-blended refraction (from
   // the scene-colour snapshot), sky reflection, and foam on crests.
-  if (matWater > 0) {
-    drawMeshWithMaterial(matWater, matWaterMesh,
-      vec3(WATER_CX, WATER_Y, WATER_CZ), 1.0,
+  if (ENV.matWater > 0) {
+    drawMeshWithMaterial(ENV.matWater, ENV.matWaterMesh,
+      vec3(ENV.WATER_CX, ENV.WATER_Y, ENV.WATER_CZ), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
   // Phase 10 â€” glass pane in the south-wall door opening of house h1.
   // Second consumer of the material ABI, proves the infrastructure
   // works for a different shader without any engine change.
-  if (matGlass > 0) {
-    drawMeshWithMaterial(matGlass, matGlassMesh,
+  if (ENV.matGlass > 0) {
+    drawMeshWithMaterial(ENV.matGlass, ENV.matGlassMesh,
       vec3(-21, 0, -10), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
@@ -3464,16 +3064,16 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // times against the per-instance pos/rot/scale/tint buffer. Wind
   // sway reads frame.wind (EN-013); cascade shadows come through
   // sample_sun_shadow (EN-016) â€” both folded into the material.
-  if (matGrass > 0 && matGrassInstances > 0) {
-    drawMeshWithMaterialInstanced(matGrass, matGrassMesh, 0,
-      matGrassInstances, GRASS_INSTANCE_COUNT);
+  if (ENV.matGrass > 0 && ENV.matGrassInstances > 0) {
+    drawMeshWithMaterialInstanced(ENV.matGrass, ENV.matGrassMesh, 0,
+      ENV.matGrassInstances, ENV.GRASS_INSTANCE_COUNT);
   }
   // Building stone â€” single drawMeshWithMaterial covers all
   // category-1 boxes; the noise + horizontal-band material in
   // the fragment turns them from flat beige into something that
   // reads as plastered stone.
-  if (matBuilding > 0) {
-    drawMeshWithMaterial(matBuilding, matBuildingMesh,
+  if (ENV.matBuilding > 0) {
+    drawMeshWithMaterial(ENV.matBuilding, ENV.matBuildingMesh,
       vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
@@ -3524,7 +3124,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // tint (0 generic / 1 building / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
-    // Buildings (category 1) are rendered through the baked matBuilding
+    // Buildings (category 1) are rendered through the baked ENV.matBuilding
     // mesh below â€” skip them here to avoid a coplanar double-draw. This
     // must cover BOTH the placeholder boxes AND real GLBs: the textured
     // building_floor.glb used to slip through to the drawModel branch
@@ -3532,7 +3132,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // rows flickered through the plaster whenever the TAA jitter
     // flipped the per-pixel depth winner (the long-hunted "gray lines"
     // flicker on the building).
-    if (W.MESH_CATEGORY[i] === 1 && matBuilding > 0) continue;
+    if (W.MESH_CATEGORY[i] === 1 && ENV.matBuilding > 0) continue;
     if (W.MODEL_IS_BOX[mi] === 1) {
       const c = W.MESH_CATEGORY[i];
       const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
@@ -3706,11 +3306,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Muzzle flash â€” additive material at the true muzzle. The particle system
     // now layers smoke and a shell on top of this (SH-033); the flash card
     // stays because it is what makes the HDR spike.
-    if (muzzleFlashT > 0 && matMuzzleFlash > 0) {
+    if (muzzleFlashT > 0 && ENV.matMuzzleFlash > 0) {
       const k = muzzleFlashT / MUZZLE_FLASH_DUR;
       const flashScale = 0.40 + (1 - k) * 0.18;
       const intensity255 = Math.min(255, Math.floor(k * 255));
-      drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+      drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
         vec3(muzzleX, muzzleY, muzzleZ), flashScale,
         { r: 255, g: 200, b: 120, a: intensity255 });
     }
@@ -3876,10 +3476,10 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     if (sparkT[i] > 0) {
       const t = sparkT[i] / 0.35;
       const a = Math.min(255, Math.floor(t * 255));
-      if (matMuzzleFlash > 0) {
+      if (ENV.matMuzzleFlash > 0) {
         // Same additive material as the muzzle flash â€” radial warm
         // burst with HDR intensity scaled by per-draw alpha.
-        drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+        drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
           vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.45 * t + 0.10,
           { r: 255, g: 230, b: 140, a });
       } else {
@@ -3893,8 +3493,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // shader already produces the soft glow shape.
   for (let i = 0; i < MAX_PROJ; i++) {
     if (pLife[i] > 0) {
-      if (matMuzzleFlash > 0) {
-        drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+      if (ENV.matMuzzleFlash > 0) {
+        drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
           vec3(pX[i], pY[i], pZ[i]), 0.30,
           { r: 110, g: 200, b: 255, a: 255 });
       } else {
@@ -3909,11 +3509,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   for (let i = 0; i < MAX_EPROJ; i++) {
     if (eLife[i] <= 0) continue;
     const adv = eKind[i] === K_ADV_DRAGOON;
-    if (matMuzzleFlash > 0) {
+    if (ENV.matMuzzleFlash > 0) {
       const col = adv
         ? { r: 200, g: 120, b: 255, a: 255 }    // dragoon barb — violet
         : { r: 150, g: 255, b: 120, a: 255 };   // marauder zap — acid green
-      drawMeshWithMaterial(matMuzzleFlash, matMuzzleFlashMesh,
+      drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
         vec3(eX[i], eY[i], eZ[i]), adv ? 0.34 : 0.24, col);
     }
     addPointLight(eX[i], eY[i], eZ[i], 4,
@@ -3932,243 +3532,221 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // established above. On desktop uiScale is 1 and this is a no-op.
   if (MOBILE) beginMode2DRaw(0, 0, 0, 0, 0, uiScale);
 
-  // ---- Crosshair (SH-028) -------------------------------------------------
-  // The gap between the arms IS the current spread. A crosshair that doesn't
-  // move while your cone triples is lying to the player about where the bullet
-  // is going, and it is the reason spread feels "random" instead of earned.
-  {
-    const spreadDeg = WPN.spreadRad() * 180 / Math.PI;
-    const gap = 4 + spreadDeg * 5.5;
-    const arm = 7;
-    const crossA = muzzleFlashT > 0 ? 250 : 190;
-    const col = { r: 255, g: 255, b: 255, a: crossA };
-    const cx = sw / 2;
-    const cy = sh / 2;
-    drawRect(cx - gap - arm, cy - 1, arm, 2, col);
-    drawRect(cx + gap,       cy - 1, arm, 2, col);
-    drawRect(cx - 1, cy - gap - arm, 2, arm, col);
-    drawRect(cx - 1, cy + gap,       2, arm, col);
-    drawCircle(cx, cy, 1.5, col);
-
-    // SH-043 â€” hit confirmation is a white FLASH + a tick, not a colour change:
-    // a colourblind player gets the same information as anyone else.
-    if (hitMarkT > 0) {
-      const ha = Math.floor((hitMarkT / 0.18) * 255);
-      const hc = { r: 255, g: 255, b: 255, a: ha };
-      const d = 10;
-      drawRect(cx - d, cy - d, 6, 2, hc);
-      drawRect(cx + d - 6, cy - d, 6, 2, hc);
-      drawRect(cx - d, cy + d - 2, 6, 2, hc);
-      drawRect(cx + d - 6, cy + d - 2, 6, 2, hc);
-    }
-  }
-
-  // Damage vignette â€” red screen edges when the player takes a hit.
-  if (damageFlashT > 0) {
-    const fa = Math.floor((damageFlashT / 0.5) * 120);
-    drawRect(0, 0, sw, 60, { r: 200, g: 20, b: 20, a: fa });
-    drawRect(0, sh - 60, sw, 60, { r: 200, g: 20, b: 20, a: fa });
-    drawRect(0, 0, 60, sh, { r: 200, g: 20, b: 20, a: fa });
-    drawRect(sw - 60, 0, 60, sh, { r: 200, g: 20, b: 20, a: fa });
-  }
-
-  // SH-029/SH-043 â€” damage direction arc. Encodes WHERE the hit came from as
-  // a position (a shape you can see), not just a colour you have to interpret.
-  if (lastHitT > 0) {
-    const a = Math.floor((lastHitT / 1.4) * 200);
-    const r = Math.min(sw, sh) * 0.22;
-    const cx = sw / 2;
-    const cy = sh / 2;
-    // Screen-space: +x right, -y up. The angle is relative to where you face.
-    const ax = cx + Math.sin(lastHitAngle) * r;
-    const ay = cy - Math.cos(lastHitAngle) * r;
-    drawCircle(ax, ay, 9, { r: 235, g: 70, b: 55, a: a });
-    drawCircle(ax, ay, 4, { r: 255, g: 220, b: 210, a: a });
-  }
-
-  // Player HP bar â€” bottom-left. Low health pulses, so the state is legible
-  // without reading the number.
-  const phpW = 220;
-  const phpFill = Math.max(0, Math.floor(phpW * (playerHP / PLAYER_HP_MAX)));
-  const lowT = playerHP < 25 ? (0.6 + 0.4 * Math.sin(getTime() * 9)) : 1;
-  drawRect(10, sh - 68, phpW, 18, { r: 30, g: 10, b: 10, a: 180 });
-  drawRect(10, sh - 68, phpFill, 18,
-    { r: Math.floor(180 * lowT + 60), g: 60, b: 50, a: 230 });
-  drawText('HP ' + playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
-
-  // Dodge cooldown â€” a thin bar under HP, so you know when you can commit.
-  {
-    const cd = dodgeCooldownFrac();
-    if (cd > 0) {
-      drawRect(10, sh - 46, phpW, 4, { r: 20, g: 20, b: 24, a: 160 });
-      drawRect(10, sh - 46, phpW * (1 - cd), 4, { r: 120, g: 190, b: 235, a: 220 });
-    }
-  }
-
-  // ---- Score + combo (SH-041) ---------------------------------------------
+  // The gameplay HUD belongs to a RUN. On the main menu it was still drawing
+  // the health bar, the ammo readout and the crosshair over a game that had
+  // not started — which is exactly the tell that a "title screen" was really
+  // just the game with the input switched off.
   if (gameState === 1) {
-    const st = 'SCORE ' + SCORE.score();
-    drawText(st, 14, 44, 22, { r: 245, g: 235, b: 195, a: 235 });
-    const cmb = SCORE.combo();
-    if (cmb > 1.001) {
-      const ct = 'x' + cmb.toFixed(2);
-      drawText(ct, 14, 70, 26, { r: 255, g: 200, b: 90, a: 255 });
-      // The combo's remaining life, as a draining bar â€” the pressure made
-      // visible is what makes players push forward instead of hiding.
-      const cw = 90;
-      drawRect(14, 100, cw, 4, { r: 30, g: 25, b: 15, a: 180 });
-      drawRect(14, 100, cw * SCORE.comboFrac(), 4, { r: 255, g: 190, b: 70, a: 240 });
+    // ---- Crosshair (SH-028) -------------------------------------------------
+    // The gap between the arms IS the current spread. A crosshair that doesn't
+    // move while your cone triples is lying to the player about where the bullet
+    // is going, and it is the reason spread feels "random" instead of earned.
+    {
+      const spreadDeg = WPN.spreadRad() * 180 / Math.PI;
+      const gap = 4 + spreadDeg * 5.5;
+      const arm = 7;
+      const crossA = muzzleFlashT > 0 ? 250 : 190;
+      const col = { r: 255, g: 255, b: 255, a: crossA };
+      const cx = sw / 2;
+      const cy = sh / 2;
+      drawRect(cx - gap - arm, cy - 1, arm, 2, col);
+      drawRect(cx + gap,       cy - 1, arm, 2, col);
+      drawRect(cx - 1, cy - gap - arm, 2, arm, col);
+      drawRect(cx - 1, cy + gap,       2, arm, col);
+      drawCircle(cx, cy, 1.5, col);
+
+      // SH-043 â€” hit confirmation is a white FLASH + a tick, not a colour change:
+      // a colourblind player gets the same information as anyone else.
+      if (hitMarkT > 0) {
+        const ha = Math.floor((hitMarkT / 0.18) * 255);
+        const hc = { r: 255, g: 255, b: 255, a: ha };
+        const d = 10;
+        drawRect(cx - d, cy - d, 6, 2, hc);
+        drawRect(cx + d - 6, cy - d, 6, 2, hc);
+        drawRect(cx - d, cy + d - 2, 6, 2, hc);
+        drawRect(cx + d - 6, cy + d - 2, 6, 2, hc);
+      }
+    }
+
+    // Damage vignette â€” red screen edges when the player takes a hit.
+    if (damageFlashT > 0) {
+      const fa = Math.floor((damageFlashT / 0.5) * 120);
+      drawRect(0, 0, sw, 60, { r: 200, g: 20, b: 20, a: fa });
+      drawRect(0, sh - 60, sw, 60, { r: 200, g: 20, b: 20, a: fa });
+      drawRect(0, 0, 60, sh, { r: 200, g: 20, b: 20, a: fa });
+      drawRect(sw - 60, 0, 60, sh, { r: 200, g: 20, b: 20, a: fa });
+    }
+
+    // SH-029/SH-043 â€” damage direction arc. Encodes WHERE the hit came from as
+    // a position (a shape you can see), not just a colour you have to interpret.
+    if (lastHitT > 0) {
+      const a = Math.floor((lastHitT / 1.4) * 200);
+      const r = Math.min(sw, sh) * 0.22;
+      const cx = sw / 2;
+      const cy = sh / 2;
+      // Screen-space: +x right, -y up. The angle is relative to where you face.
+      const ax = cx + Math.sin(lastHitAngle) * r;
+      const ay = cy - Math.cos(lastHitAngle) * r;
+      drawCircle(ax, ay, 9, { r: 235, g: 70, b: 55, a: a });
+      drawCircle(ax, ay, 4, { r: 255, g: 220, b: 210, a: a });
+    }
+
+    // Player HP bar â€” bottom-left. Low health pulses, so the state is legible
+    // without reading the number.
+    const phpW = 220;
+    const phpFill = Math.max(0, Math.floor(phpW * (playerHP / PLAYER_HP_MAX)));
+    const lowT = playerHP < 25 ? (0.6 + 0.4 * Math.sin(getTime() * 9)) : 1;
+    drawRect(10, sh - 68, phpW, 18, { r: 30, g: 10, b: 10, a: 180 });
+    drawRect(10, sh - 68, phpFill, 18,
+      { r: Math.floor(180 * lowT + 60), g: 60, b: 50, a: 230 });
+    drawText('HP ' + playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
+
+    // Dodge cooldown â€” a thin bar under HP, so you know when you can commit.
+    {
+      const cd = dodgeCooldownFrac();
+      if (cd > 0) {
+        drawRect(10, sh - 46, phpW, 4, { r: 20, g: 20, b: 24, a: 160 });
+        drawRect(10, sh - 46, phpW * (1 - cd), 4, { r: 120, g: 190, b: 235, a: 220 });
+      }
+    }
+
+    // ---- Score + combo (SH-041) ---------------------------------------------
+    if (gameState === 1) {
+      const st = 'SCORE ' + SCORE.score();
+      drawText(st, 14, 44, 22, { r: 245, g: 235, b: 195, a: 235 });
+      const cmb = SCORE.combo();
+      if (cmb > 1.001) {
+        const ct = 'x' + cmb.toFixed(2);
+        drawText(ct, 14, 70, 26, { r: 255, g: 200, b: 90, a: 255 });
+        // The combo's remaining life, as a draining bar â€” the pressure made
+        // visible is what makes players push forward instead of hiding.
+        const cw = 90;
+        drawRect(14, 100, cw, 4, { r: 30, g: 25, b: 15, a: 180 });
+        drawRect(14, 100, cw * SCORE.comboFrac(), 4, { r: 255, g: 190, b: 70, a: 240 });
+      }
+    }
+
+    // Render-pass debug status line. Top-left, always on â€” but there are no
+    // function keys on a phone, so it's just clutter over the play area there.
+    if (!MOBILE) {
+      const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
+        + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
+        + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
+        + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
+        // The vN suffix is a build tag: bump it with each PT engine drop
+        // so a stale main.exe is identifiable at a glance in the HUD.
+        + '   F9 PT ' + (!ptSupported ? 'n/a' : (SET.get(SET.SET_PT) === 0 ? 'off' : (SET.get(SET.SET_PT) === 1 ? 'PROG' : 'RT'))) + ' v11';
+      drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
+      drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
+    }
+
+    // ---- Weapon + ammo + reload + charge (SH-028 / SH-042) ------------------
+    {
+      const w = WPN.currentWeapon();
+      const curAmmo = WPN.currentAmmo();
+      // MAGAZINE / RESERVE — the standard readout, and now an honest one: the mag
+      // is what you can fire before reloading, the reserve is what a reload costs.
+      const res = WPN.currentReserve();
+      const wtxt = WPN.WEAPON_NAMES[w] + '  ' + curAmmo + ' / ' + res;
+      // On touch the ammo readout sits above the fire button rather than in the
+      // corner, where the thumb would cover it.
+      const wy = MOBILE ? sh - 210 : sh - 68;
+      drawRect(sw - 260, wy, 250, 18, { r: 0, g: 0, b: 0, a: 150 });
+      // Empty mags read red â€” the one piece of info you need at a glance.
+      const ammoCol = curAmmo === 0
+        ? { r: 235, g: 90, b: 70, a: 255 }
+        : { r: 240, g: 230, b: 180, a: 255 };
+      const pad = input.padActive;
+      const hint = MOBILE ? '' : (pad ? '   [Y switch  X reload]' : '   [1-4 switch  R reload]');
+      drawText(wtxt + hint, sw - 252, wy + 3, 13, ammoCol);
+
+      // Reload progress. A timed reload the player cannot SEE is just an
+      // unexplained dead trigger; the bar is what turns it into a decision about
+      // when to take cover.
+      if (WPN.isReloading()) {
+        const rp = WPN.reloadProgress();
+        drawRect(sw - 260, wy - 12, 250, 8, { r: 25, g: 25, b: 30, a: 200 });
+        drawRect(sw - 260, wy - 12, 250 * rp, 8, { r: 120, g: 200, b: 235, a: 240 });
+        const rt = 'RELOADING';
+        drawText(rt, sw - 260, wy - 32, 15, { r: 190, g: 225, b: 245, a: 230 });
+      }
+
+      // Charge meter (cannon). Turns red-hot at full so you can feel the release
+      // point without staring at the bar.
+      const chg = WPN.chargeLevel();
+      if (chg > 0.01) {
+        const full = chg > 0.98;
+        const bw = 160;
+        const cx = sw / 2 - bw / 2;
+        const cy = sh / 2 + 44;
+        drawRect(cx, cy, bw, 8, { r: 20, g: 20, b: 24, a: 190 });
+        drawRect(cx, cy, bw * chg, 8,
+          full ? { r: 255, g: 120, b: 60, a: 255 } : { r: 255, g: 210, b: 110, a: 235 });
+      }
+
+      // Chaingun spool â€” the ramp you have to pay before the first round leaves.
+      const spool = WPN.spinup();
+      if (spool > 0.01 && spool < 0.99) {
+        const bw = 120;
+        const cx = sw / 2 - bw / 2;
+        const cy = sh / 2 + 60;
+        drawRect(cx, cy, bw, 5, { r: 20, g: 20, b: 24, a: 180 });
+        drawRect(cx, cy, bw * spool, 5, { r: 200, g: 200, b: 210, a: 220 });
+      }
+    }
+
+    // Wave HUD â€” top-center. Shows "WAVE X â€” enemies K/N" while spawning,
+    // or a "NEXT WAVE IN ..." countdown between waves.
+    const aliveNow = countAlive();
+    if (gameState === 1 && !gameOver && !gameWon) {
+      if (waveBreakTimer > 0 && waveIdx < wavePlan.length) {
+        const label = 'WAVE ' + (waveIdx + 1) + ' IN ' + waveBreakTimer.toFixed(1) + 's';
+        const lw = measureText(label, 22);
+        drawText(label, (sw - lw) / 2, 18, 22, { r: 230, g: 220, b: 160, a: 230 });
+      } else if (waveIdx < wavePlan.length) {
+        const waveSize = wavePlan[waveIdx];
+        const remaining = (waveSize - waveSpawned) + aliveNow;
+        const label = 'WAVE ' + (waveIdx + 1) + ' â€” ' + remaining + ' / ' + waveSize;
+        const lw = measureText(label, 20);
+        drawText(label, (sw - lw) / 2, 18, 20, { r: 230, g: 220, b: 160, a: 230 });
+      }
+    }
+
+    // SH-041 â€” end-of-wave report card. Shows what the wave EARNED, which is what
+    // turns "I survived" into "I could have done that better".
+    if (waveBonusT > 0 && gameState === 1) {
+      const a = Math.min(1, waveBonusT / 0.6);
+      const alpha = Math.floor(a * 235);
+      const cardY = sh * 0.28;
+      const cardW = 320;
+      const cardX = (sw - cardW) / 2;
+      drawRect(cardX, cardY, cardW, 118, { r: 12, g: 12, b: 16, a: Math.floor(a * 200) });
+      const head = 'WAVE ' + waveIdx + ' CLEAR';
+      const hw = measureText(head, 26);
+      drawText(head, (sw - hw) / 2, cardY + 10, 26,
+        { r: 235, g: 220, b: 150, a: alpha });
+      const acc = Math.round(SCORE.accuracy() * 100);
+      drawText('KILLS      ' + SCORE.waveKills(), cardX + 24, cardY + 46, 17,
+        { r: 220, g: 220, b: 225, a: alpha });
+      drawText('ACCURACY   ' + acc + '%', cardX + 24, cardY + 68, 17,
+        { r: 220, g: 220, b: 225, a: alpha });
+      drawText('BONUS     +' + waveBonus, cardX + 24, cardY + 90, 17,
+        { r: 255, g: 205, b: 100, a: alpha });
+    }
+
+    // Unlock banner.
+    if (unlockBannerT > 0) {
+      const a = Math.floor(Math.min(1, unlockBannerT / 1.0) * 245);
+      const msg = 'CHAINGUN UNLOCKED';
+      const mw = measureText(msg, 30);
+      drawText(msg, (sw - mw) / 2, sh * 0.20, 30, { r: 255, g: 215, b: 120, a: a });
     }
   }
 
-  // Render-pass debug status line. Top-left, always on â€” but there are no
-  // function keys on a phone, so it's just clutter over the play area there.
-  if (!MOBILE) {
-    const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
-      + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
-      + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
-      + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
-      // The vN suffix is a build tag: bump it with each PT engine drop
-      // so a stale main.exe is identifiable at a glance in the HUD.
-      + '   F9 PT ' + (!ptSupported ? 'n/a' : (SET.get(SET.SET_PT) === 0 ? 'off' : (SET.get(SET.SET_PT) === 1 ? 'PROG' : 'RT'))) + ' v11';
-    drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
-    drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
-  }
-
-  // ---- Weapon + ammo + reload + charge (SH-028 / SH-042) ------------------
-  {
-    const w = WPN.currentWeapon();
-    const curAmmo = WPN.currentAmmo();
-    // MAGAZINE / RESERVE — the standard readout, and now an honest one: the mag
-    // is what you can fire before reloading, the reserve is what a reload costs.
-    const res = WPN.currentReserve();
-    const wtxt = WPN.WEAPON_NAMES[w] + '  ' + curAmmo + ' / ' + res;
-    // On touch the ammo readout sits above the fire button rather than in the
-    // corner, where the thumb would cover it.
-    const wy = MOBILE ? sh - 210 : sh - 68;
-    drawRect(sw - 260, wy, 250, 18, { r: 0, g: 0, b: 0, a: 150 });
-    // Empty mags read red â€” the one piece of info you need at a glance.
-    const ammoCol = curAmmo === 0
-      ? { r: 235, g: 90, b: 70, a: 255 }
-      : { r: 240, g: 230, b: 180, a: 255 };
-    const pad = input.padActive;
-    const hint = MOBILE ? '' : (pad ? '   [Y switch  X reload]' : '   [1-4 switch  R reload]');
-    drawText(wtxt + hint, sw - 252, wy + 3, 13, ammoCol);
-
-    // Reload progress. A timed reload the player cannot SEE is just an
-    // unexplained dead trigger; the bar is what turns it into a decision about
-    // when to take cover.
-    if (WPN.isReloading()) {
-      const rp = WPN.reloadProgress();
-      drawRect(sw - 260, wy - 12, 250, 8, { r: 25, g: 25, b: 30, a: 200 });
-      drawRect(sw - 260, wy - 12, 250 * rp, 8, { r: 120, g: 200, b: 235, a: 240 });
-      const rt = 'RELOADING';
-      drawText(rt, sw - 260, wy - 32, 15, { r: 190, g: 225, b: 245, a: 230 });
-    }
-
-    // Charge meter (cannon). Turns red-hot at full so you can feel the release
-    // point without staring at the bar.
-    const chg = WPN.chargeLevel();
-    if (chg > 0.01) {
-      const full = chg > 0.98;
-      const bw = 160;
-      const cx = sw / 2 - bw / 2;
-      const cy = sh / 2 + 44;
-      drawRect(cx, cy, bw, 8, { r: 20, g: 20, b: 24, a: 190 });
-      drawRect(cx, cy, bw * chg, 8,
-        full ? { r: 255, g: 120, b: 60, a: 255 } : { r: 255, g: 210, b: 110, a: 235 });
-    }
-
-    // Chaingun spool â€” the ramp you have to pay before the first round leaves.
-    const spool = WPN.spinup();
-    if (spool > 0.01 && spool < 0.99) {
-      const bw = 120;
-      const cx = sw / 2 - bw / 2;
-      const cy = sh / 2 + 60;
-      drawRect(cx, cy, bw, 5, { r: 20, g: 20, b: 24, a: 180 });
-      drawRect(cx, cy, bw * spool, 5, { r: 200, g: 200, b: 210, a: 220 });
-    }
-  }
-
-  // Wave HUD â€” top-center. Shows "WAVE X â€” enemies K/N" while spawning,
-  // or a "NEXT WAVE IN ..." countdown between waves.
-  const aliveNow = countAlive();
-  if (gameState === 1 && !gameOver && !gameWon) {
-    if (waveBreakTimer > 0 && waveIdx < wavePlan.length) {
-      const label = 'WAVE ' + (waveIdx + 1) + ' IN ' + waveBreakTimer.toFixed(1) + 's';
-      const lw = measureText(label, 22);
-      drawText(label, (sw - lw) / 2, 18, 22, { r: 230, g: 220, b: 160, a: 230 });
-    } else if (waveIdx < wavePlan.length) {
-      const waveSize = wavePlan[waveIdx];
-      const remaining = (waveSize - waveSpawned) + aliveNow;
-      const label = 'WAVE ' + (waveIdx + 1) + ' â€” ' + remaining + ' / ' + waveSize;
-      const lw = measureText(label, 20);
-      drawText(label, (sw - lw) / 2, 18, 20, { r: 230, g: 220, b: 160, a: 230 });
-    }
-  }
-
-  // SH-041 â€” end-of-wave report card. Shows what the wave EARNED, which is what
-  // turns "I survived" into "I could have done that better".
-  if (waveBonusT > 0 && gameState === 1) {
-    const a = Math.min(1, waveBonusT / 0.6);
-    const alpha = Math.floor(a * 235);
-    const cardY = sh * 0.28;
-    const cardW = 320;
-    const cardX = (sw - cardW) / 2;
-    drawRect(cardX, cardY, cardW, 118, { r: 12, g: 12, b: 16, a: Math.floor(a * 200) });
-    const head = 'WAVE ' + waveIdx + ' CLEAR';
-    const hw = measureText(head, 26);
-    drawText(head, (sw - hw) / 2, cardY + 10, 26,
-      { r: 235, g: 220, b: 150, a: alpha });
-    const acc = Math.round(SCORE.accuracy() * 100);
-    drawText('KILLS      ' + SCORE.waveKills(), cardX + 24, cardY + 46, 17,
-      { r: 220, g: 220, b: 225, a: alpha });
-    drawText('ACCURACY   ' + acc + '%', cardX + 24, cardY + 68, 17,
-      { r: 220, g: 220, b: 225, a: alpha });
-    drawText('BONUS     +' + waveBonus, cardX + 24, cardY + 90, 17,
-      { r: 255, g: 205, b: 100, a: alpha });
-  }
-
-  // Unlock banner.
-  if (unlockBannerT > 0) {
-    const a = Math.floor(Math.min(1, unlockBannerT / 1.0) * 245);
-    const msg = 'CHAINGUN UNLOCKED';
-    const mw = measureText(msg, 30);
-    drawText(msg, (sw - mw) / 2, sh * 0.20, 30, { r: 255, g: 215, b: 120, a: a });
-  }
-
-  // Title screen â€” the live world renders as the backdrop, menu.wav plays,
-  // waves/firing/movement are gated off. Any input starts the run.
-  if (gameState === 0) {
-    // Round-2 audit: measureText is exact in the current engine (verified
-    // measure â‰¡ draw advance down to the binary) â€” the old 0.58 hand
-    // estimate was itself the source of the visible off-centering.
-    const title = 'BLOOM SHOOTER';
-    const tw = measureText(title, 54);
-    drawText(title, (sw - tw) / 2, 170, 54, { r: 236, g: 226, b: 178, a: 255 });
-    // Which arena you are about to drop into (SH-040) — pick a different one
-    // from the pause menu.
-    const an = W.ARENAS[W.ARENA_INDEX].name;
-    const anw = measureText(an, 20);
-    drawText(an, (sw - anw) / 2, 232, 20, { r: 200, g: 190, b: 150, a: 210 });
-
-    const sub = MOBILE ? 'tap to start' : 'press any key';
-    const subw = measureText(sub, 22);
-    const pulse = Math.floor(175 + Math.sin(getTime() * 3.0) * 70);
-    drawText(sub, (sw - subw) / 2, 268, 22, { r: 225, g: 225, b: 225, a: pulse });
-    if (isAnyInputPressed()) {
-      gameState = 1;
-      stopMusic(musicMenu);
-      playMusic(musicCalm);
-      playMusic(musicCombat);
-      // Swallow the starting press so it isn't also read as a shot.
-      WPN.selectWeapon(WPN.W_BLASTER);
-      WPN.selectWeapon(WPN.W_RIFLE);
-      waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
-      SCORE.resetScore();
-      runElapsed = 0;
-    }
-  }
+  // (The title screen used to live here: a wordmark and "press any key". It is
+  // now the MAIN MENU — same live-world backdrop, but with somewhere to go. It
+  // is drawn by drawMenu() with every other menu, and starts the run through
+  // ACT_PLAY -> startRun() rather than by swallowing a keypress.)
 
   // Game over overlay â€” now with the run's numbers on it.
   if (gameOver) {
@@ -4305,6 +3883,15 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   if (PERFTEST && perfDone) break;
 }
+
+// Why did the game stop? The loop has several exits (window close, the ESC
+// break above, ACT_QUIT) and from the outside they are indistinguishable — the
+// process just vanishes. Write the reason down.
+writeFile('tools/.testout/exit_reason.txt',
+  'windowShouldClose=' + (windowShouldClose() ? 1 : 0)
+  + ' frames=' + testFrame
+  + ' gameState=' + gameState
+  + ' menuOpen=' + (menuOpen() ? 1 : 0) + '\n');
 
 
 

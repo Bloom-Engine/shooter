@@ -30,6 +30,10 @@ export const MENU_NONE     = 0;
 export const MENU_PAUSE    = 1;
 export const MENU_SETTINGS = 2;
 export const MENU_LEVELS   = 3;
+/// SH-046 — the front door. Same rows, same focus model, same draw code as the
+/// pause menu: a main menu that is a SEPARATE screen is a second thing to keep
+/// working, and it always rots.
+export const MENU_MAIN     = 4;
 
 // Row kinds.
 const ROW_ACTION = 0;
@@ -39,7 +43,11 @@ const ROW_TOGGLE = 2;
 const ROW_TRI    = 3;
 
 //   0 current menu   1 selected row   2 stick-repeat cooldown
-const S = [MENU_NONE, 0, 0];
+//   3 where SETTINGS / LEVEL SELECT go back TO — they are reachable from both
+//     the main menu and the pause menu, and BACK has to mean the right thing in
+//     both. Without this the settings screen strands you in a pause menu over a
+//     game that never started.
+const S = [MENU_NONE, 0, 0, MENU_PAUSE];
 
 // The action a click/confirm produced this frame, read by main.ts.
 export const ACT_NONE     = 0;
@@ -49,6 +57,8 @@ export const ACT_QUIT     = 3;
 /// A level was chosen. The choice is already written; the game relaunches into
 /// it (the world's colliders/scatters/GI proxies are all built at startup).
 export const ACT_LEVEL    = 4;
+/// Start the run from the main menu.
+export const ACT_PLAY     = 5;
 const A = [ACT_NONE];
 
 // --- row tables --------------------------------------------------------------
@@ -56,6 +66,9 @@ const A = [ACT_NONE];
 // into settings.ts for slider/toggle rows.
 const PAUSE_LABELS = ['RESUME', 'SETTINGS', 'LEVEL SELECT', 'RESTART RUN', 'QUIT'];
 const PAUSE_COUNT = 5;
+
+const MAIN_LABELS = ['PLAY', 'LEVEL SELECT', 'SETTINGS', 'QUIT'];
+const MAIN_COUNT = 4;
 
 // GRAPHICS rows come first: on a 4K display they are the difference between a
 // locked frame rate and a pretty one, and which of those a player wants is not
@@ -131,19 +144,30 @@ const SET_STEP: number[] = [
 const SET_COUNT_ROWS = 21;
 
 export function initMenus(): void {
-  S[0] = MENU_NONE; S[1] = 0; S[2] = 0;
+  S[0] = MENU_NONE; S[1] = 0; S[2] = 0; S[3] = MENU_PAUSE;
   A[0] = ACT_NONE;
 }
 
 export function menuOpen(): boolean { return S[0] !== MENU_NONE; }
 export function currentMenu(): number { return S[0]; }
-export function openPause(): void { S[0] = MENU_PAUSE; S[1] = 0; }
+export function openPause(): void { S[0] = MENU_PAUSE; S[1] = 0; S[3] = MENU_PAUSE; }
+export function openMain(): void { S[0] = MENU_MAIN; S[1] = 0; S[3] = MENU_MAIN; }
 export function closeMenu(): void {
   if (S[0] === MENU_SETTINGS) SET.saveSettings();
   S[0] = MENU_NONE;
 }
 
+/// Leave a sub-screen for whichever menu opened it. Settings are written on the
+/// way out, so BACK is also SAVE — there is no separate "apply", and a settings
+/// screen with an apply button you can forget to press is a trap.
+function back(): void {
+  if (S[0] === MENU_SETTINGS) SET.saveSettings();
+  S[0] = S[3];
+  S[1] = 0;
+}
+
 function rowCount(): number {
+  if (S[0] === MENU_MAIN) return MAIN_COUNT;
   if (S[0] === MENU_PAUSE) return PAUSE_COUNT;
   if (S[0] === MENU_LEVELS) return ARENA_COUNT + 1;   // + BACK
   return SET_COUNT_ROWS;
@@ -218,6 +242,14 @@ export function applyGraphicsSettings(): void {
 }
 
 function confirm(): void {
+  if (S[0] === MENU_MAIN) {
+    MIX.uiSelect();
+    if (S[1] === 0) { A[0] = ACT_PLAY; closeMenu(); }
+    else if (S[1] === 1) { S[0] = MENU_LEVELS; S[1] = 0; }
+    else if (S[1] === 2) { S[0] = MENU_SETTINGS; S[1] = 0; }
+    else if (S[1] === 3) { A[0] = ACT_QUIT; }
+    return;
+  }
   if (S[0] === MENU_PAUSE) {
     MIX.uiSelect();
     if (S[1] === 0) { A[0] = ACT_RESUME; closeMenu(); }
@@ -229,7 +261,7 @@ function confirm(): void {
   }
   if (S[0] === MENU_LEVELS) {
     MIX.uiSelect();
-    if (S[1] >= ARENA_COUNT) { S[0] = MENU_PAUSE; S[1] = 0; return; }
+    if (S[1] >= ARENA_COUNT) { back(); return; }
     // Picking a level writes the choice and asks the game to restart into it.
     // A mid-run swap would mean tearing down every collider, scatter and GI
     // proxy the world built at startup — see selectArena().
@@ -240,9 +272,7 @@ function confirm(): void {
   if (S[0] === MENU_SETTINGS) {
     if (SET_KINDS[S[1]] === ROW_ACTION) {
       MIX.uiSelect();
-      SET.saveSettings();
-      S[0] = MENU_PAUSE;
-      S[1] = 0;
+      back();
     } else if (SET_KINDS[S[1]] === ROW_TOGGLE) {
       adjust(1);
     } else if (SET_KINDS[S[1]] === ROW_TRI) {
@@ -276,9 +306,11 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
   if (isKeyPressed(Key.RIGHT) || isKeyPressed(Key.D)) adjust(1);
   if (isKeyPressed(Key.ENTER) || isKeyPressed(Key.SPACE)) confirm();
   if (isKeyPressed(Key.ESCAPE)) {
-    if (S[0] === MENU_SETTINGS) { SET.saveSettings(); S[0] = MENU_PAUSE; S[1] = 0; }
-    else if (S[0] === MENU_LEVELS) { S[0] = MENU_PAUSE; S[1] = 0; }
-    else { A[0] = ACT_RESUME; closeMenu(); }
+    // On the MAIN menu there is nothing behind to go back to — the game has not
+    // started. Escape there does nothing rather than dumping the player into an
+    // unstarted run (which is what closeMenu() would do).
+    if (S[0] === MENU_SETTINGS || S[0] === MENU_LEVELS) back();
+    else if (S[0] !== MENU_MAIN) { A[0] = ACT_RESUME; closeMenu(); }
   }
 
   // --- gamepad. D-pad is discrete; the stick needs a repeat timer or one flick
@@ -290,10 +322,14 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
     if (isGamepadButtonPressed(13)) adjust(1);  // dpad right
     if (isGamepadButtonPressed(0)) confirm();   // A
     if (isGamepadButtonPressed(1)) {            // B = back
-      if (S[0] === MENU_SETTINGS) { SET.saveSettings(); S[0] = MENU_PAUSE; S[1] = 0; }
-      else { A[0] = ACT_RESUME; closeMenu(); }
+      if (S[0] === MENU_SETTINGS || S[0] === MENU_LEVELS) back();
+      else if (S[0] !== MENU_MAIN) { A[0] = ACT_RESUME; closeMenu(); }
     }
-    if (isGamepadButtonPressed(7)) { A[0] = ACT_RESUME; closeMenu(); }  // Start
+    // Start resumes — but only out of a menu that has a game behind it.
+    if (isGamepadButtonPressed(7) && S[0] !== MENU_MAIN) {
+      A[0] = ACT_RESUME;
+      closeMenu();
+    }
 
     if (S[2] > 0) S[2] = S[2] - dt;
     const ly = getGamepadAxis(1);
@@ -355,22 +391,42 @@ export function drawMenu(sw: number, sh: number): void {
   if (S[0] === MENU_NONE) return;
 
   // Dim the world behind. This is the whole reason the sim is frozen and not
-  // merely hidden — the player should still see the fight they paused.
-  drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: 170 });
+  // merely hidden — the player should still see the fight they paused, and the
+  // main menu gets to show off the arena it is about to drop you into.
+  // The front door dims LESS: it is a hero shot, not an interruption.
+  const dim = S[0] === MENU_MAIN ? 120 : 170;
+  drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: dim });
 
   const geo = layout(sw, sh);
   const x0 = geo[0], y0 = geo[1], rowW = geo[2], rowH = geo[3];
   const n = rowCount();
 
   let title = 'PAUSED';
+  if (S[0] === MENU_MAIN)     title = 'BLOOM SHOOTER';
   if (S[0] === MENU_SETTINGS) title = 'SETTINGS';
   if (S[0] === MENU_LEVELS)   title = 'SELECT ARENA';
-  const ts = 44;
+  const ts = S[0] === MENU_MAIN ? 64 : 44;
   const tw = measureText(title, ts);
   // Anchored to the TOP OF THE LIST, not to a fixed offset from screen centre. The
   // list is centred, so it grows upward as rows are added — and the graphics rows
   // pushed it straight through a title that was nailed to `sh * 0.5 - 200`.
-  drawText(title, (sw - tw) / 2, y0 - 70, ts, { r: 255, g: 240, b: 210, a: 255 });
+  drawText(title, (sw - tw) / 2, y0 - (S[0] === MENU_MAIN ? 130 : 70), ts,
+    { r: 255, g: 240, b: 210, a: 255 });
+
+  if (S[0] === MENU_MAIN) {
+    // Under the wordmark: which arena PLAY drops you into, and your best there.
+    // Both are things you want to know BEFORE pressing play, which is exactly
+    // why they belong on the front door and not two screens deep.
+    const rule = tw * 0.9;
+    drawRect((sw - rule) / 2, y0 - 130 + ts * 0.62, rule, 2,
+      { r: 255, g: 200, b: 110, a: 140 });
+
+    const an = ARENAS[ARENA_INDEX].name;
+    const best = SET.bestScore(ARENA_INDEX);
+    const sub = best > 0 ? an + '   •   BEST ' + best : an;
+    const sws = measureText(sub, 20);
+    drawText(sub, (sw - sws) / 2, y0 - 46, 20, { r: 205, g: 195, b: 160, a: 210 });
+  }
 
   for (let i = 0; i < n; i++) {
     const ry = y0 + i * rowH;
@@ -383,7 +439,9 @@ export function drawMenu(sw: number, sh: number): void {
       : { r: 200, g: 200, b: 205, a: 220 };
 
     let label = '';
-    if (S[0] === MENU_PAUSE) {
+    if (S[0] === MENU_MAIN) {
+      label = MAIN_LABELS[i];
+    } else if (S[0] === MENU_PAUSE) {
       label = PAUSE_LABELS[i];
     } else if (S[0] === MENU_LEVELS) {
       label = i < ARENA_COUNT ? ARENAS[i].name : 'BACK';
