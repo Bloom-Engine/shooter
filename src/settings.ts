@@ -48,7 +48,12 @@ export const SET_SSAO       = 15;  // 0/1 — ambient occlusion
 export const SET_SSR        = 16;  // 0/1 — screen-space reflections
 export const SET_SSGI       = 17;  // 0/1 — global illumination
 export const SET_BLOOM      = 18;  // 0/1
-export const SET_COUNT      = 19;
+// PT-5 — hardware path tracing: 0 off, 1 progressive (converges while
+// the camera is still — stills/photo mode), 2 realtime (SVGF-denoised
+// gameplay mode). Applied only when the device reports ray-query
+// support; on anything else the setting is inert and the menu says so.
+export const SET_PT         = 19;
+export const SET_COUNT      = 20;
 
 const V = new Array<number>(SET_COUNT);
 
@@ -81,6 +86,9 @@ function defaults(): void {
   V[SET_SSR]        = 1;
   V[SET_SSGI]       = 1;
   V[SET_BLOOM]      = 1;
+  // Off by default: Lumen is the default GI everywhere; path tracing is
+  // opt-in (it trades ~half the frame rate for traced lighting).
+  V[SET_PT]         = 0;
   for (let i = 0; i < MAX_ARENAS; i++) best[i] = 0;
   M[0] = 0;
 }
@@ -171,6 +179,7 @@ export function loadSettings(): void {
   V[SET_SSR]     = num(vd, 'ssr', V[SET_SSR]);
   V[SET_SSGI]    = num(vd, 'ssgi', V[SET_SSGI]);
   V[SET_BLOOM]   = num(vd, 'bloom', V[SET_BLOOM]);
+  V[SET_PT]      = num(vd, 'pathTracing', V[SET_PT]);
 
   const ac: any = o['access'];
   V[SET_SHAKE]      = num(ac, 'shake',      V[SET_SHAKE]);
@@ -203,7 +212,8 @@ export function saveSettings(): void {
         + ', "ssao": ' + V[SET_SSAO]
         + ', "ssr": ' + V[SET_SSR]
         + ', "ssgi": ' + V[SET_SSGI]
-        + ', "bloom": ' + V[SET_BLOOM] + ' },\n';
+        + ', "bloom": ' + V[SET_BLOOM]
+        + ', "pathTracing": ' + V[SET_PT] + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]
         + ', "colorblind": ' + V[SET_COLORBLIND]
         + ', "captions": ' + V[SET_CAPTIONS] + ' },\n';

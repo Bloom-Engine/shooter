@@ -19,6 +19,7 @@ import {
 import {
   setOutputScale, setRenderScale, setShadowsEnabled,
   setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
+  setPathTracing, isPathTracingSupported,
 } from 'bloom/core';
 import * as SET from './settings';
 import * as MIX from './audio-mix';
@@ -34,6 +35,8 @@ export const MENU_LEVELS   = 3;
 const ROW_ACTION = 0;
 const ROW_SLIDER = 1;
 const ROW_TOGGLE = 2;
+// Three named states (the path-tracing row: OFF / QUALITY / REALTIME).
+const ROW_TRI    = 3;
 
 //   0 current menu   1 selected row   2 stick-repeat cooldown
 const S = [MENU_NONE, 0, 0];
@@ -65,6 +68,7 @@ const PAUSE_COUNT = 5;
 const SET_LABELS: string[] = [
   'DISPLAY RESOLUTION', 'RENDER RESOLUTION',
   'SHADOWS', 'AMBIENT OCCLUSION', 'REFLECTIONS', 'GLOBAL ILLUMINATION', 'BLOOM',
+  'PATH TRACING',
   'MASTER VOLUME', 'MUSIC VOLUME', 'SFX VOLUME',
   'LOOK SENSITIVITY', 'PAD SENSITIVITY', 'INVERT Y',
   'FIELD OF VIEW', 'CAMERA SHAKE',
@@ -75,6 +79,7 @@ const SET_LABELS: string[] = [
 const SET_KINDS: number[] = [
   ROW_SLIDER, ROW_SLIDER,
   ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE,
+  ROW_TRI,
   ROW_SLIDER, ROW_SLIDER, ROW_SLIDER,
   ROW_SLIDER, ROW_SLIDER, ROW_TOGGLE,
   ROW_SLIDER, ROW_SLIDER,
@@ -85,6 +90,7 @@ const SET_KINDS: number[] = [
 const SET_IDX: number[] = [
   SET.SET_OUTPUT_SCALE, SET.SET_RENDER_SCALE,
   SET.SET_SHADOWS, SET.SET_SSAO, SET.SET_SSR, SET.SET_SSGI, SET.SET_BLOOM,
+  SET.SET_PT,
   SET.SET_MASTER_VOL, SET.SET_MUSIC_VOL, SET.SET_SFX_VOL,
   SET.SET_SENS, SET.SET_PAD_SENS, SET.SET_INVERT_Y,
   SET.SET_FOV, SET.SET_SHAKE,
@@ -98,6 +104,7 @@ const SET_IDX: number[] = [
 const SET_MIN:  number[] = [
   0.5, 0.5,
   0, 0, 0, 0, 0,
+  0,
   0, 0, 0,
   0.2, 0.2, 0,
   60, 0,
@@ -106,6 +113,7 @@ const SET_MIN:  number[] = [
 const SET_MAX:  number[] = [
   1.0, 1.0,
   1, 1, 1, 1, 1,
+  2,
   1, 1, 1,
   3.0, 3.0, 1,
   100, 1,
@@ -114,12 +122,13 @@ const SET_MAX:  number[] = [
 const SET_STEP: number[] = [
   0.05, 0.05,
   1, 1, 1, 1, 1,
+  1,
   0.05, 0.05, 0.05,
   0.1, 0.1, 1,
   5, 0.1,
   1, 1,
   1, 1, 0];
-const SET_COUNT_ROWS = 20;
+const SET_COUNT_ROWS = 21;
 
 export function initMenus(): void {
   S[0] = MENU_NONE; S[1] = 0; S[2] = 0;
@@ -150,6 +159,10 @@ function adjust(dir: number): void {
   let v = SET.get(idx);
   if (kind === ROW_TOGGLE) {
     v = v !== 0 ? 0 : 1;
+  } else if (kind === ROW_TRI) {
+    v = v + dir;
+    if (v < SET_MIN[r]) v = SET_MIN[r];
+    if (v > SET_MAX[r]) v = SET_MAX[r];
   } else {
     v = v + dir * SET_STEP[r];
     if (v < SET_MIN[r]) v = SET_MIN[r];
@@ -183,6 +196,10 @@ function applyLive(idx: number): void {
     setSsgiEnabled(SET.get(SET.SET_SSGI) !== 0);
   } else if (idx === SET.SET_BLOOM) {
     setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
+  } else if (idx === SET.SET_PT) {
+    // No-op on devices without hardware ray query — the row reads N/A
+    // there and the value is inert (fallback matrix, PT-5).
+    if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
   }
 }
 
@@ -197,6 +214,7 @@ export function applyGraphicsSettings(): void {
   setSsrEnabled(SET.get(SET.SET_SSR) !== 0);
   setSsgiEnabled(SET.get(SET.SET_SSGI) !== 0);
   setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
+  if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
 }
 
 function confirm(): void {
@@ -227,6 +245,13 @@ function confirm(): void {
       S[1] = 0;
     } else if (SET_KINDS[S[1]] === ROW_TOGGLE) {
       adjust(1);
+    } else if (SET_KINDS[S[1]] === ROW_TRI) {
+      // Confirm/click cycles through the three states (wrapping);
+      // left/right arrows still step and clamp like a slider.
+      const idx = SET_IDX[S[1]];
+      SET.set(idx, (SET.get(idx) + 1) % 3);
+      applyLive(idx);
+      MIX.uiMove();
     }
   }
 }
@@ -393,6 +418,20 @@ export function drawMenu(sw: number, sh: number): void {
       const on = v !== 0;
       drawText(on ? 'ON' : 'OFF', barX, ry + 8, 24,
         on ? { r: 150, g: 235, b: 150, a: 255 } : { r: 150, g: 150, b: 155, a: 200 });
+    } else if (kind === ROW_TRI) {
+      // Path tracing. QUALITY = progressive (converges standing still,
+      // for screenshots); REALTIME = denoised gameplay mode. On a GPU
+      // without ray query the row is inert and says why.
+      if (!isPathTracingSupported()) {
+        drawText('N/A (NO RAY TRACING)', barX, ry + 8, 20,
+          { r: 140, g: 140, b: 145, a: 180 });
+      } else if (v === 0) {
+        drawText('OFF', barX, ry + 8, 24, { r: 150, g: 150, b: 155, a: 200 });
+      } else if (v === 1) {
+        drawText('QUALITY (STILLS)', barX, ry + 8, 24, { r: 235, g: 210, b: 140, a: 255 });
+      } else {
+        drawText('REALTIME', barX, ry + 8, 24, { r: 150, g: 235, b: 150, a: 255 });
+      }
     } else {
       const t = (v - SET_MIN[i]) / (SET_MAX[i] - SET_MIN[i]);
       drawRect(barX, ry + 16, barW, 8, { r: 70, g: 70, b: 76, a: 220 });
