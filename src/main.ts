@@ -313,14 +313,15 @@ setWind(0.85, 0.50, WIND_AMP, 1.6);
 setCloudShadows(0.45, 150, 0.008, 6);
 // TAA + TSR reconstruction. Setting the scale explicitly opts out of the
 // legacy TAA coupling (which would otherwise silently halve the internal
-// resolution). 0.5 at 4K output = 1920Ã—1080 internal, reconstructed to
-// native by the TSR upscale inside the TAA pass â€” the pixel-bound passes
-// (material/G-buffer/GTAO/SSR/SSGI) run at quarter cost while the output
-// (and the HUD) stays native-sharp. Measured on the 4K dev box: ~20 fps at
-// native internal vs ~45 fps here, with the composite sharpen covering the
-// reconstruction softness.
+// resolution). 0.75 at 4K output = 2880x1620 internal, reconstructed to
+// native by the TSR upscale inside the TAA pass. Re-measured 2026-07-14
+// on the 4K dev box after the perf rounds: 0.5 ~46 fps but visibly
+// upscale-soft, 0.75 ~30 fps and dramatically sharper, 1.0 ~19 fps
+// (stills territory - selectable in the video menu). The PT realtime
+// trace grid is budget-capped engine-side, so this scale does not
+// multiply the ray cost.
 setTaaEnabled(true);
-setRenderScale(0.5);
+setRenderScale(0.75);
 // 2026-07-06 fullscreen-lag investigation: the Lumen SW-GI camera-follow
 // bakes (SDF clipmap + WSRC) used to re-run as single full-volume
 // dispatches whenever the view moved â€” a 1-2.4 s GPU stall every ~5 s of
@@ -3764,7 +3765,7 @@ while (!windowShouldClose() && !aitestDone) {
       + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
       // The vN suffix is a build tag: bump it with each PT engine drop
       // so a stale main.exe is identifiable at a glance in the HUD.
-      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v7';
+      + '   F9 PT ' + (!ptSupported ? 'n/a' : (dbgPtMode === 0 ? 'off' : (dbgPtMode === 1 ? 'PROG' : 'RT'))) + ' v8';
     drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
     drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
   }
