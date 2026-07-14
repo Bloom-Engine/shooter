@@ -34,7 +34,7 @@ import {
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
-  setManualExposure, gamepadRumble, readFile, writeFile,
+  setManualExposure, gamepadRumble, readFile,
 } from 'bloom/core';
 import {
   addPointLight, enableShadows,
@@ -1586,19 +1586,13 @@ function perfStageApply(s: number): void {
 // and come up on the main menu over the live arena. The cursor is FREE here —
 // it is a menu, not a game; PLAY takes it back (see ACT_PLAY below).
 bootStage(BOOT_READY);
-writeFile('tools/.testout/breadcrumb.txt', 'ready\n');
 bootOutro();
-writeFile('tools/.testout/breadcrumb.txt', 'outro\n');
 openMain();
 enableCursor();
 cursorLocked = false;
-writeFile('tools/.testout/breadcrumb.txt', 'menu-open\n');
 
 while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   beginDrawing();
-  if (testFrame === 1) writeFile('tools/.testout/breadcrumb.txt', 'frame1\n');
-  if (testFrame === 30) writeFile('tools/.testout/breadcrumb.txt', 'frame30\n');
-  if (testFrame === 120) writeFile('tools/.testout/breadcrumb.txt', 'frame120\n');
   if (PERFTEST) {
     const nowTop = getTime();
     perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
@@ -3883,15 +3877,6 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   if (PERFTEST && perfDone) break;
 }
-
-// Why did the game stop? The loop has several exits (window close, the ESC
-// break above, ACT_QUIT) and from the outside they are indistinguishable — the
-// process just vanishes. Write the reason down.
-writeFile('tools/.testout/exit_reason.txt',
-  'windowShouldClose=' + (windowShouldClose() ? 1 : 0)
-  + ' frames=' + testFrame
-  + ' gameState=' + gameState
-  + ' menuOpen=' + (menuOpen() ? 1 : 0) + '\n');
 
 
 
