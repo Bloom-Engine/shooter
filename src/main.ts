@@ -762,6 +762,9 @@ const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 // read on screen as "the weapon isn't rendering at all". Sockets fail silently
 // like that; an exact tag is the whole defence.
 const playerHandJoint = findJoint(animPlayer, 'tag_weapon');
+// ANIMDBG only â€” a joint that swings hard in any gait, so "is the pose actually
+// moving?" is a number and not an opinion.
+const dbgAnkle = findJoint(animPlayer, 'ankle.R');
 
 // SH-033 â€” VFX. Cosmetic, so a failure here must never take the game down:
 // initVfx() returns false and every emit call becomes a no-op.
@@ -1764,6 +1767,26 @@ let waterTestT0 = -1;
 const AITEST = false;
 let aitestDone = false;
 
+// ---- ANIMDBG harness (temporary diagnostic) ---------------------------------
+// The walk clip looks dead and sprint looks dead. Rather than guess which of the
+// three links is broken (input -> controller -> clip select -> mixer), drive a
+// scripted 3 s walk / 3 s sprint cycle and print, side by side:
+//   rep_spd   what playerSpeed() REPORTS
+//   real_spd  what the world actually did (position delta / dt)
+//   ankleAmp  how far the ankle joint MOVED in the pose this window
+// If rep_spd is 0 while real_spd is 4.5, the accessor is lying (the Perry
+// small-numeric-fn miscompile, EN-050/051). If they agree and ankleAmp is ~0,
+// the mixer never advances the clip. Each answer accuses a different file.
+// MUST be false in shipped builds.
+// (Re-armed 2026-07-14: this was left true in a merge — it suppresses
+// every enemy wave and spams ANIMDBG lines, so main didn't actually
+// play. Flip back locally to resume the walk/sprint investigation.)
+const ANIMDBG = false;
+let animDbgDone = false;
+let dbgSprint = 0;
+// 0 prevX  1 prevZ  2 have-prev  3 measured speed  4 ankle min  5 ankle max
+const AD = [0, 0, 0, 0, 1e9, -1e9];
+
 // ---- COMBATSHOT harness -----------------------------------------------------
 // Drives a REAL fight and screenshots it, because the AAA-round systems (VFX,
 // decals, recoil, hit-stop, flinch, HUD) can only be judged in combat and the
@@ -1917,7 +1940,7 @@ function perfStageApply(s: number): void {
 }
 
 
-while (!windowShouldClose() && !aitestDone) {
+while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   beginDrawing();
   if (PERFTEST) {
     const nowTop = getTime();
@@ -2160,6 +2183,29 @@ while (!windowShouldClose() && !aitestDone) {
       // }
       if (tw < 0) { input.moveZ = 0; }        // keep tw referenced
       if ((testFrame % 120) === 0) console.log('WATERTEST fps=' + getFPS());
+    }
+  }
+  // ANIMDBG â€” scripted walk/sprint cycle. See the harness block above.
+  if (ANIMDBG) {
+    if (testFrame === 20 && gameState === 0) gameState = 1;
+    playerHP = PLAYER_HP_MAX;
+    gameOver = false;
+    waveBreakTimer = 9999;      // no enemies: this walk must not be shoved
+    CAM[0] = 0;                 // face -Z, the same convention SELFTEST uses
+    CAM[1] = 0.35;
+    if (gameState === 1) {
+      const tA = getTime();
+      const seg = Math.floor(tA / 3);
+      // 3 s walk fwd, 3 s sprint fwd, 3 s walk back, 3 s sprint back â€” so the
+      // player stays near spawn instead of walking into the far wall (a wall
+      // would zero the speed and the probe would read that as the bug).
+      dbgSprint = (seg % 2) === 1 ? 1 : 0;
+      input.moveX = 0;
+      input.moveZ = (seg % 4) < 2 ? -1 : 1;
+      input.sprintDown = dbgSprint !== 0;
+      input.aimDown = false;    // both cancel sprint â€” see wantSprint below
+      input.fireDown = false;
+      if (testFrame > 1200) animDbgDone = true;
     }
   }
   // AITEST â€” see the harness block above WATERTEST.
@@ -3451,6 +3497,57 @@ while (!windowShouldClose() && !aitestDone) {
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
               PLAYER_SCALE, WHITE);
+
+    // ANIMDBG readback â€” must run AFTER animUpdate, or the joint query reads
+    // last frame's pose and the amplitude is a frame late.
+    if (ANIMDBG) {
+      if (AD[2] !== 0 && dtReal > 0) {
+        const mdx = pp.x - AD[0];
+        const mdz = pp.z - AD[1];
+        AD[3] = Math.sqrt(mdx * mdx + mdz * mdz) / dtReal;
+      }
+      AD[0] = pp.x;
+      AD[1] = pp.z;
+      AD[2] = 1;
+      const ay = jointWorld(animPlayer, dbgAnkle, 13);
+      if (ay < AD[4]) AD[4] = ay;
+      if (ay > AD[5]) AD[5] = ay;
+      // Per-frame trace through one steady walk segment. A windowed min/max
+      // cannot tell "advancing smoothly" from "jumping around", and that is
+      // exactly the distinction in question.
+      if (testFrame >= 400 && testFrame < 470) {
+        const azT = jointWorld(animPlayer, dbgAnkle, 14);
+        const spdT = playerSpeed();
+        console.log('ANIMTRACE f=' + testFrame
+          + ' dt=' + dtReal.toFixed(4)
+          + ' spd=' + spdT.toFixed(2)
+          + ' clip=' + wantClip
+          + ' rate=' + rate.toFixed(3)
+          + ' ankleY=' + ay.toFixed(4)
+          + ' ankleZ=' + azT.toFixed(4));
+      }
+      if ((testFrame % 30) === 0) {
+        // Compute into locals, then print: a call nested inside a log
+        // concatenation has given a different answer than the same call
+        // assigned first (see docs/perry-quirks.md).
+        const repSpd = playerSpeed();
+        const realSpd = AD[3];
+        const spr = isSprinting() ? 1 : 0;
+        const gnd = playerGrounded() ? 1 : 0;
+        const amp = AD[5] - AD[4];
+        console.log('ANIMDBG f=' + testFrame
+          + ' want_sprint=' + dbgSprint
+          + ' rep_spd=' + repSpd.toFixed(2)
+          + ' real_spd=' + realSpd.toFixed(2)
+          + ' sprinting=' + spr
+          + ' grounded=' + gnd
+          + ' clip=' + wantClip
+          + ' rate=' + rate.toFixed(2)
+          + ' ankleAmp=' + amp.toFixed(4));
+        AD[4] = 1e9;
+        AD[5] = -1e9;
+      }
+    }
 
     // SH-027 â€” the real weapon model, at the transform computed once above.
     // Recoil is a short kick BACK along the barrel; the squared falloff reads
