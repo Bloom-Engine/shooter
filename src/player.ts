@@ -52,6 +52,11 @@ const MIN_GROUND_NY = 0.35;
 // SH-032 — sprint + dodge. The enemies (mantis darts, dragoon pounces) were
 // more mobile than the player, which is exactly backwards for a power fantasy.
 const SPRINT_MUL = 2.0;   // 4.5 -> 9.0 m/s; top speed unchanged from the old 6.0 x 1.5
+// SH-048 — crouch. Slower, steadier movement; the smaller silhouette + the
+// crouch pose are the read. Cosmetic-plus-speed for now: the capsule is NOT
+// resized, so it does not yet shrink the hitbox or fit under low geometry (there
+// is none in the arena) — that would be setCharacterShape, a follow-up.
+const CROUCH_MUL = 0.45;  // 4.5 -> ~2.0 m/s
 const DODGE_SPEED = 18.0;    // m/s during the burst
 const DODGE_TIME = 0.25;     // seconds
 const DODGE_COOLDOWN = 1.2;
@@ -61,8 +66,8 @@ let shape: ShapeHandle = 0;
 
 // Mutable state in a flat array — the same reason feel.ts does it.
 //   0 dodge time left   1 dodge cooldown   2 dodge dir x   3 dodge dir z
-//   4 grounded (0/1)    5 horizontal speed  6 sprinting (0/1)
-const P = [0, 0, 0, 0, 0, 0, 0];
+//   4 grounded (0/1)    5 horizontal speed  6 sprinting (0/1)  7 crouching (0/1)
+const P = [0, 0, 0, 0, 0, 0, 0, 0];
 
 export function createPlayer(world: WorldHandle, spawn: Vec3): void {
   shape = capsuleShape(HALF_HEIGHT, RADIUS);
@@ -80,6 +85,7 @@ export function playerGrounded(): boolean { return P[4] !== 0; }
 export function playerSpeed(): number { return P[5]; }
 export function isDodging(): boolean { return P[0] > 0; }
 export function isSprinting(): boolean { return P[6] !== 0; }
+export function isCrouching(): boolean { return P[7] !== 0; }
 export function dodgeCooldownFrac(): number {
   if (P[1] > 0) return P[1] / DODGE_COOLDOWN;
   return 0;
@@ -105,6 +111,7 @@ export function updatePlayerController(
   forwardFlat: Vec3, rightFlat: Vec3,
   jumpPressed: boolean,
   sprint: boolean,
+  crouch: boolean,
 ): void {
   const grounded = isCharacterGrounded(character);
   const v = getCharacterLinearVelocity(character);
@@ -122,13 +129,20 @@ export function updatePlayerController(
     P[4] = grounded ? 1 : 0;
     P[5] = Math.sqrt(pv.x * pv.x + pv.z * pv.z);
     P[6] = 0;
+    P[7] = 0;
     return;
   }
 
-  const sprinting = sprint && grounded && (moveX !== 0 || moveZ !== 0);
+  // Crouch wins over sprint — you cannot do both, and holding crouch is the more
+  // deliberate intent. It applies airborne too (you stay crouched over a lip),
+  // but the speed penalty only bites the grounded base like sprint's bonus does.
+  const crouching = crouch && grounded;
+  const sprinting = !crouching && sprint && grounded && (moveX !== 0 || moveZ !== 0);
   P[6] = sprinting ? 1 : 0;
+  P[7] = crouching ? 1 : 0;
   const base = grounded ? MOVE_SPEED : AIR_SPEED;
-  const speed = sprinting ? base * SPRINT_MUL : base;
+  const speed = crouching ? base * CROUCH_MUL
+              : (sprinting ? base * SPRINT_MUL : base);
   const targetX = (forwardFlat.x * -moveZ + rightFlat.x * moveX) * speed;
   const targetZ = (forwardFlat.z * -moveZ + rightFlat.z * moveX) * speed;
 
@@ -185,7 +199,7 @@ export function updatePlayerController(
 }
 
 export function resetPlayerMotion(): void {
-  P[0] = 0; P[1] = 0; P[5] = 0; P[6] = 0;
+  P[0] = 0; P[1] = 0; P[5] = 0; P[6] = 0; P[7] = 0;
 }
 
 export function playerPosition(): Vec3 {
