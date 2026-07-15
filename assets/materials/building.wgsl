@@ -1,17 +1,50 @@
-// Stone / plaster material for building walls + slabs. Replaces
-// the flat beige drawCube path. Sampled-noise variation + slight
-// horizontal banding (every ~3 m, suggests floor-edge mortar
-// lines) gives the surfaces enough detail to read as material
-// instead of solid colour.
+// Stone / plaster material for building walls + slabs.
+//
+// SH-050 — REAL TEXTURES. This used to be two octaves of value noise over a
+// flat sandstone colour, plus a procedural mortar line every 3 m. That gave the
+// surface variation, which is not the same thing as material: there was nothing
+// underneath the noise to resolve, so the house read as a beige box with
+// stripes while standing in a forest of scanned bark and leaves.
+//
+// Now it samples two CC0 photoscan slices, picked by which way the face points:
+//
+//   slice 0  WALL  concrete_wall_008 — board-formed concrete
+//   slice 1  SLAB  concrete_floor_02     — floors and the roof terrace
+//
+// The wall/slab split is the reason to bother. Every face used to get identical
+// beige noise, so the roof terrace read as a wall lying down. Face direction
+// was ALREADY being computed here to project the noise; it now also picks the
+// material, which costs nothing and is what a floor being a floor looks like.
+//
+// PROJECTION: world-space planar, not full triplanar. The building is axis-
+// aligned boxes (see BUILDING_VERTS in environment.ts), so the dominant face
+// plane IS the exact projection — a 3-tap triplanar blend would spend 3x the
+// taps to reproduce what one tap already gets right. This is the one place that
+// shortcut is honest; terrain cannot take it, because terrain has slopes.
 
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
 #include "common/shadows.wgsl"
 
+// Array slices — the ABI shared with tools/build-building-textures.ts. Change
+// these and that tool's SLICES order together, or the house gets a concrete
+// facade and plaster floors.
+const SLICE_WALL: i32 = 0;
+const SLICE_SLAB: i32 = 1;
+
 struct BldgParams {
-  base:   vec4<f32>,  // xyz base colour, w noise mix amount (0..1)
+  // xyz = base TINT, multiplied into the sampled albedo (the scan carries the
+  // colour now; this only nudges it). w = macro tone-variation strength.
+  base:   vec4<f32>,
   band:   vec4<f32>,  // xyz band colour, w band tightness (higher = sharper line)
-  knobs:  vec4<f32>,  // x = noise_freq, y = band_period (m), z = roof_dim, w = unused
+  // x = macro noise freq, y = band_period (m),
+  // z = WALL scan size (m), w = SLAB scan size (m) — real-world extents, so
+  // each slice tiles at 1:1 physical scale. These two were dead fields ("roof_dim,
+  // unused") before SH-050.
+  knobs:  vec4<f32>,
+  // x = normal-map strength (1.0 = the scan's measured relief, as authored),
+  // y/z/w reserved.
+  misc:   vec4<f32>,
 };
 @group(2) @binding(11) var<uniform> bp: BldgParams;
 
@@ -55,25 +88,52 @@ fn value_noise(p: vec2<f32>) -> f32 {
 @fragment
 fn fs_main(in: VsOut) -> OpaqueOut {
   let n = normalize(in.world_normal);
-
-  // Project the wall sample onto its dominant face plane so noise
-  // is consistent across the wall regardless of which axis the
-  // face faces. Use whichever pair (xy / xz / yz) has the
-  // smallest normal component.
-  var sample_uv: vec2<f32>;
+  let p = in.world_pos;
   let absn = abs(n);
+
+  // Pick the face plane. This chooses THREE things at once: the UV projection,
+  // which material slice the face gets, and how a tangent normal maps back to
+  // world space. The axis pairs match terrain.wgsl's triplanar convention
+  // (zy / xz / xy) so the tangent->world mapping below is the same swizzle it
+  // uses, rather than a second convention to keep straight.
+  var sample_uv: vec2<f32>;
+  var slice:     i32;
+  var size_m:    f32;
+  var is_slab:   bool;
   if (absn.y > absn.x && absn.y > absn.z) {
-    sample_uv = in.world_pos.xz;             // top / bottom faces
+    sample_uv = p.xz;                         // top / bottom — floors, roof terrace
+    slice     = SLICE_SLAB;
+    size_m    = bp.knobs.w;
+    is_slab   = true;
   } else if (absn.x > absn.z) {
-    sample_uv = in.world_pos.yz;             // east / west walls
+    sample_uv = p.zy;                         // east / west walls
+    slice     = SLICE_WALL;
+    size_m    = bp.knobs.z;
+    is_slab   = false;
   } else {
-    sample_uv = in.world_pos.xy;             // north / south walls
+    sample_uv = p.xy;                         // north / south walls
+    slice     = SLICE_WALL;
+    size_m    = bp.knobs.z;
+    is_slab   = false;
   }
 
-  // Two-octave noise speckle.
+  // Tiles-per-metre from the slice's real scan size — 1:1 physical scale.
+  let s  = 1.0 / max(size_m, 0.01);
+  let uv = sample_uv * s;
+
+  let tex = textureSample(albedo_array, albedo_array_samp, uv, slice).rgb;
+
+  // Macro tone break-up. The scan tiles every ~2 m; without a low-frequency
+  // multiply on top, a 24 m facade announces that period as a grid. Same trick
+  // terrain.wgsl uses, and the reason the two-octave noise SURVIVED the texture
+  // swap instead of being deleted with the rest of the procedural material.
   let nz = value_noise(sample_uv * bp.knobs.x) * 0.7
          + value_noise(sample_uv * bp.knobs.x * 2.5) * 0.3;
-  let speckled = mix(bp.base.rgb, bp.base.rgb * 1.18, nz);
+  // `macro_v`, not `macro` — the latter is a WGSL reserved keyword and the
+  // parser rejects the module outright (terrain.wgsl names it the same way for
+  // the same reason).
+  let macro_v  = mix(1.0 - bp.base.w * 0.18, 1.0 + bp.base.w * 0.18, nz);
+  let speckled = tex * bp.base.rgb * macro_v;
 
   // Horizontal mortar lines every `band_period` metres, analytically
   // antialiased. The old form — pow(max(cos(y·f),0), band.w·8) — was a
@@ -93,14 +153,38 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let band_hw    = 0.5 / (bp.band.w * 8.0 + 1.0);
   let band_edge  = 1.0 - smoothstep(band_hw - band_fw, band_hw + band_fw, band_dist);
   let band_cov   = clamp(band_hw / band_fw, 0.0, 1.0);   // fade when sub-pixel
-  let band_t     = band_edge * band_cov;
-  let albedo     = mix(speckled, bp.band.rgb, band_t * 0.6);
+  // WALLS ONLY. The band is a function of world Y, and a floor or roof face has
+  // CONSTANT world Y — so every texel of it lands at the same point in the band
+  // period and the entire slab tints uniformly (or not) depending on where its
+  // height happens to fall. That was live before SH-050 and read as an
+  // inexplicably darker roof. A mortar line is a wall feature; scope it to walls.
+  let band_t     = select(band_edge * band_cov, 0.0, is_slab);
+  // 0.6 -> 0.35: the band used to be drawn over flat colour and was the only
+  // thing on the wall. Over a real plaster scan it competes with the material,
+  // and a hard painted stripe is exactly the "simple" read we are removing.
+  let albedo     = mix(speckled, bp.band.rgb, band_t * 0.35);
+
+  // ---- normal -------------------------------------------------------------
+  // Tangent -> world by the same swizzle the face plane chose, matching
+  // terrain.wgsl's whiteout convention. This is what makes the stones in the
+  // plaster catch the sun as relief instead of reading as a photo pasted on a
+  // flat box.
+  let t = textureSample(normal_array, albedo_array_samp, uv, slice).rgb * 2.0 - 1.0;
+  var nw: vec3<f32>;
+  if (is_slab) {
+    nw = vec3<f32>(t.x, 0.0, t.y);
+  } else if (absn.x > absn.z) {
+    nw = vec3<f32>(0.0, t.y, t.x);
+  } else {
+    nw = vec3<f32>(t.x, t.y, 0.0);
+  }
+  let nrm = normalize(n + nw * bp.misc.x);
 
   // Lambert vs the engine sun + ambient, with the same cloud-shadow
   // modulation as terrain + grass. Walls dim to match the ground
   // when overcast patches drift over them.
   let sun_dir = normalize(view.sun_dir.xyz);
-  let n_dot_l = max(dot(n, sun_dir), 0.0);
+  let n_dot_l = max(dot(nrm, sun_dir), 0.0);
   let cp = in.world_pos.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
   let cn = value_noise(cp);
   let cloud  = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
@@ -114,12 +198,19 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // walls pick up directional sky colour + ground bounce from the HDRI
   // rather than reading flat grey. A small flat floor keeps interiors and
   // overhangs from going pitch black.
-  let fill   = sample_env_diffuse(n) + view.ambient.rgb * 0.20;
+  let fill   = sample_env_diffuse(nrm) + view.ambient.rgb * 0.20;
   let lit    = albedo * (fill + direct);
+
+  // Roughness from the scan's measured map (glTF ORM convention: G = rough)
+  // instead of one constant 0.78 for every surface of the building. Damp and
+  // dry patches of plaster catch the sun differently, and that variation is
+  // most of what separates a surface from a picture of one. The floor slab
+  // brings its own — polished concrete is not plaster.
+  let rough = textureSample(mr_array, albedo_array_samp, uv, slice).g;
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
-  out.material = vec2<f32>(0.0, 0.78);  // non-metal, mid-roughness stone
+  out.material = vec2<f32>(0.0, clamp(rough, 0.15, 1.0));  // non-metal
   // EN-022 — real motion vectors (see terrain.wgsl).
   out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);
   out.albedo   = vec4<f32>(albedo, 1.0);

@@ -1414,3 +1414,112 @@ the bottom of the frame loop — a dev-quit binding that predated the pause menu
 It fired on every ESC regardless of state, so Escaping out of the settings screen
 *killed the process*. ESC now means pause in a run and back in a menu; QUIT is a
 menu row.
+
+---
+
+## SH-050 — The ground, the house and the grass stop being cartoons ✅ *(shipped 2026-07-15)*
+
+**Why:** the report was "the grass is too cartoonish (big), the house has no real
+textures, and the riverbank should be a natural brown, not too simple". All three
+were true, and all three had the same root cause: **everything the player stands
+on or next to was synthesised, while the trees next to it were photographed.**
+Round 5 gave the forest real scanned bark and leaf cards; the ground, the
+riverbank and the building never got that pass, so they sat in the same frame at
+two different fidelities and lost.
+
+### What shipped
+
+**Terrain (closes ASSET-TODO T1).** The four splat layers are real CC0 Poly Haven
+photoscans instead of two octaves of value noise:
+
+| layer | scan | real size |
+|---|---|---|
+| 0 grass_lush | `forrest_ground_01` | 2.0 m |
+| 1 grass_dry | `withered_grass` | 2.0 m |
+| 2 dirt — **the riverbank** | `brown_mud_dry` | 1.3 m |
+| 3 rock | `cliff_side` | 1.83 m |
+
+SH-009 promised the swap would be a file drop and it genuinely was — the layer
+ORDER was already the ABI. The procedural generators stay as the fallback for a
+checkout without `assets/textures/external/`. **Normals are now MEASURED**, which
+matters more than the 512→1024 bump: the old ones were Sobel'd from albedo
+luminance, which assumes dark = deep — false for grass, so the relief fought the
+light.
+
+**Each layer tiles at its scan's real physical size.** The unused 4th component of
+each layer tint now carries the source's extent in metres. One shared UV scale had
+the 1.3 m mud stretched to 2.86 m — a pebble 54% too big is exactly what reads as
+"toy".
+
+**Building.** Was two octaves of noise over flat sandstone plus a mortar stripe —
+i.e. *variation*, not *material*: nothing underneath the noise to resolve. Now two
+photoscan slices picked by face direction (which the shader already computed for
+its noise projection), with measured normals and **real roughness** (the MR array
+slot is free here; terrain's holds the splat map):
+
+- slice 0 WALL ← `concrete_wall_008` (board-formed concrete)
+- slice 1 SLAB ← `concrete_floor_02` (floors + roof terrace)
+
+Floors and walls used to be the same beige noise, so the roof terrace read as a
+wall lying down.
+
+**Grass.** Blades were 12.4 cm wide and 55 cm tall at ~7/m² — a leaf, not a blade,
+and you could count them. Now 3.6 cm / 34 cm at ~21/m² (40k → 120k).
+
+Round-9 widened the mesh (0.045→0.062) to stop distant blades aliasing into
+speckle, and that fix was real — but it was paid for by *every blade at every
+distance* to solve a problem that only exists past ~9 m, where the shader's
+distance ramp already had it covered. So: narrow the mesh, and widen the ramp
+(1.6→3.4, starting at 6 m) so the far field still gets its pixel. The anti-grit
+constraint is intact; it is just no longer charged to the blades you are standing
+in.
+
+**Grass colour, re-tuned against a ground that is now a photograph.** Measured
+mean albedo: ground `0.568 0.529 0.365` (saturation 0.36, red-dominant) vs blade
+tip `0.286 0.467 0.137` (saturation **0.71**, green-dominant). Twice the
+saturation of the soil it grows from, biased the opposite way. Against flat colour
+stops that passed; against a photograph it is a neon spike in dirt — the most
+cartoonish thing left in frame the moment the terrain got real. The old base also
+broke the palette rule the terrain generator states in its own header ("green
+stays close to red"): r 0.30 vs g 0.42. Now `0.44 0.45 0.38`.
+
+### Bug found and fixed on the way
+
+**SH-010's detail normal has been a flat no-op since it shipped.** `fbm` read
+`vnoise(x * f / SIZE * SIZE, ...)`, which parses as `((x*f)/SIZE)*SIZE` — exactly
+`x*f`. With integer pixel coords in, every sample landed on a lattice point and
+the hash wraps at period `f`, where `(x*f) % f` is 0 for every x. Every texel of
+every octave returned `hash(0,0)`. The output was a uniform `(127,127,255)` — the
+precise encoding of "flat". A no-op normal map does not look broken, it looks like
+nothing, which is why the "last order of magnitude of ground detail" pass has been
+doing nothing for its whole life. Detail strength was retuned (0.35 → 0.22)
+because the old value was tuned against a texture that did nothing.
+
+### Measured, not assumed
+
+- Grass 40k → 120k: **26.64 → 26.21 fps**. 0.4 fps for 3x the blades — the
+  engine's grass-tile culling means what is on screen sets the price, not what is
+  scattered. The old note's "past ~40k the scatter saturates" was never measured
+  and is wrong: it places 120000/120000 (there is a boot log for it now).
+- Textures 512 → 1024, same binary, only the PNGs swapped: **26.69 → 26.50 fps**.
+  ~37 MB more VRAM, no measurable frame time.
+- Whole change end to end, title screen: **27 → 26 fps.**
+
+### Traps recorded (see `assets/textures/external/SOURCES.md`)
+
+1. **Poly Haven names lie about colour.** `brown_mud` and `brown_mud_02` are
+   *grey*. The brief said "natural brown"; picking by name ships the opposite.
+2. **Judge a texture at the tiling it will really get, not at 2x2.** The walls
+   first shipped `plaster_stone_wall_01` — fine at 2x2, and a stamped GRID of
+   identical stones across a 24 x 8 m facade (10 x 4 tiles), worse than the flat
+   colour it replaced. Sparse distinctive features cannot survive repetition.
+   Board-formed concrete can: its seams and tie-holes are *supposed* to repeat at
+   ~2 m.
+3. `macro` is a **reserved word in WGSL** — the module fails to parse. (Recorded
+   in round 4, re-learned here.)
+
+**Not changed: the trees.** They already have real scanned textures from round 5
+(Poly Haven `pine_bark` + ambientCG `LeafSet004`). Nothing to do.
+
+**New tools:** `bun tools/fetch-external-textures.ts` (idempotent; `--force` to
+re-download) and `bun tools/build-building-textures.ts`.
