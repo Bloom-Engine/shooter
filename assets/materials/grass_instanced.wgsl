@@ -13,10 +13,11 @@
 // viewing angle even with backface culling on (the Opaque bucket rule
 // for instanced pipelines).
 //
-// IMPORTANT: this file is the source of truth, but the engine's
-// `compileMaterialInstanced` takes a WGSL string (not a path), so
-// `main.ts` inlines an identical copy. Until a from-file variant
-// lands they need to stay in sync.
+// This file is the SOLE source of truth. It used to be duplicated inline in
+// main.ts as a binary-only fallback and the two drifted (the copy had to be
+// hand-patched during EN-022), so SH-005 deleted the copy: environment.ts now
+// does `compileMaterialInstanced(readFile('assets/materials/grass_instanced.wgsl'))`.
+// There is nothing to keep in sync — edit here and relaunch.
 
 #include "material_abi.wgsl"
 #include "common/shadows.wgsl"
@@ -66,9 +67,21 @@ fn vs_main(in: InstancedVertexInput) -> VsOut {
   // the 0.5 render-scale TSR and read as grit. Widen blades with camera
   // distance so they stay >= ~1 internal pixel; dist_fade lets the
   // fragment stage flatten per-blade contrast at range too.
+  //
+  // SH-050 — ramp 1.6 -> 3.4, and it starts closer (9 m -> 6 m). This is the
+  // other half of narrowing the base blade by 3.4x: the far field still needs
+  // its ~1 internal pixel, and now the ONLY thing supplying it is this ramp
+  // rather than a permanently fat mesh. Near blades keep their true width; the
+  // widening is spent exactly where the aliasing is, which is what Round-9
+  // wanted and paid for everywhere.
+  //
+  // The far end is not a cheat: past ~40 m a blade is sub-pixel, so a wider card
+  // at lower contrast (see dist_fade in the fragment stage) is a better estimate
+  // of the meadow's average colour than a needle that flickers between grass and
+  // ground every frame.
   let d_cam = length(view.camera_pos.xz - in.instance_pos.xz);
-  let fade  = smoothstep(9.0, 42.0, d_cam);
-  let wide  = 1.0 + fade * 1.6;
+  let fade  = smoothstep(6.0, 42.0, d_cam);
+  let wide  = 1.0 + fade * 3.4;
 
   // Scale + Y-axis rotate the canonical local position.
   let scaled = vec3<f32>(in.position.x * wide, in.position.y, in.position.z * wide)

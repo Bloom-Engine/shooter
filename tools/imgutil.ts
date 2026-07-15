@@ -11,8 +11,10 @@
 // strictly larger set than sips handled. So: one helper, used everywhere.
 
 import { execSync } from 'child_process';
-import { existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
+import { dirname, join, basename } from 'path';
+import { tmpdir } from 'os';
+import { decodePng } from './png';
 
 let checked = false;
 
@@ -46,4 +48,25 @@ export function resizeMax(src: string, dst: string, max: number): void {
   const vf = `scale='min(${max},iw)':'min(${max},ih)':force_original_aspect_ratio=decrease`;
   execSync(`ffmpeg -y -loglevel error -i "${src}" -vf "${vf}" "${dst}"`,
            { stdio: 'inherit' });
+}
+
+/// Decode any ffmpeg-readable image (JPEG/PNG/TGA/...) to RGBA at EXACTLY
+/// `size` x `size`, for the texture-layer builders.
+///
+/// Exact, not aspect-preserving: a texture ARRAY requires every slice to share
+/// one extent (EN-014), so "mostly the right size" is not a thing the array can
+/// accept. The CC0 photoscans this feeds are square anyway; a non-square source
+/// gets squashed rather than silently dropped, which is the louder failure.
+///
+/// Goes through a temp PNG because png.ts decodes PNG and nothing else, and
+/// teaching it JPEG to save one file write would be a decoder, not a helper.
+export function loadRgbaExact(src: string, size: number): { width: number; height: number; rgba: Uint8Array } {
+  requireFfmpeg();
+  if (!existsSync(src)) throw new Error(`loadRgbaExact: no such file: ${src}`);
+  const tmp = join(tmpdir(), `bloom_tex_${basename(src)}_${size}.png`);
+  execSync(`ffmpeg -y -loglevel error -i "${src}" -vf "scale=${size}:${size}:flags=lanczos" -pix_fmt rgba "${tmp}"`,
+           { stdio: 'inherit' });
+  const png = decodePng(readFileSync(tmp));
+  try { unlinkSync(tmp); } catch { /* a leftover temp file is not worth failing a build over */ }
+  return png;
 }

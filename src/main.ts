@@ -748,18 +748,40 @@ function replaceSuffix(s: string, from: string, to: string): string {
 const TERRAIN_PARAMS = [
   // Per-layer tint (multiplied into the sampled albedo), so the palette stays
   // tunable without regenerating the art. Kept near 1 — the textures already
-  // carry the colour; these only nudge it.
-  0.92, 0.96, 0.84,  0.0,   // lush
-  0.98, 0.94, 0.80,  0.0,   // dry
-  0.95, 0.92, 0.88,  0.0,   // dirt
-  0.92, 0.93, 0.95,  0.0,   // rock
+  // carry the colour; these only nudge it. Keep them OLIVE, not emerald: the
+  // round-4 de-cartoonification pass exists because saturated greens read as a
+  // plastic lawn, and a tint is the easiest place to walk back into that.
+  //
+  // The 4th component is NOT a tint — it is the layer's SOURCE SCAN SIZE IN
+  // METRES (Poly Haven `dimensions`), which terrain.wgsl turns into that
+  // layer's UV scale so every scan tiles at 1:1 physical size. It was 0.0 when
+  // the field was unused; a 0 now would divide by zero (the shader clamps, and
+  // you would get one texel smeared over the arena). If you swap a layer's
+  // texture, put its real size here.
+  0.92, 0.96, 0.84,  2.0,    // lush — forrest_ground_01,     2.0 m
+  0.98, 0.94, 0.80,  2.0,    // dry  — withered_grass,        2.0 m
+  1.00, 0.94, 0.82,  1.3,    // dirt — brown_mud_dry,         1.3 m (warmed to brown)
+  0.88, 0.90, 0.96,  1.83,   // rock — cliff_side,            1.83 m (cooled — the
+                             //        scan is a warm orange sandstone)
   // macro noise freq, slope threshold (cos), ridge height, pale strength
   0.18, 0.72, 4.0,   0.45,
   // river: centre z, half-width, bank fade width, waterline y.
   // Matches the arena_02 river volume (z=12, carve half-width 2.6).
-  12.0, 2.4, 1.8,    0.12,
-  // macro UV scale (tiles/m), detail UV scale, detail strength, normal strength
-  0.35, 6.0, 0.35,   0.85,
+  // SH-050 — bank fade 1.8 -> 3.0: the brown mud now has to READ as a bank, and
+  // a 1.8 m fade put the whole grass->mud transition inside a stride.
+  12.0, 2.4, 3.0,    0.12,
+  // global tiling multiplier, detail UV scale, detail strength, normal strength
+  //
+  // 1.0 = every layer at its true physical size. This replaces the old 0.35
+  // "tiles/metre", which tiled all four layers on one 2.86 m period regardless
+  // of what they were scanned at.
+  //
+  // Detail strength 0.35 -> 0.22: the detail normal was a CONSTANT (a flat
+  // no-op) until SH-050 fixed the fbm that generates it, so 0.35 was tuned
+  // against a texture that did nothing. Now that it has relief, and the layers
+  // under it carry measured normals of their own, the old value double-counts
+  // the grit.
+  1.0, 6.0, 0.22,   0.85,
   // Splat UV: u = p.x * su + ou, v = p.z * sv + ov. Filled in below — it depends
   // on the world's terrain grid, so it cannot be a literal here.
   0.0, 0.0, 0.0, 0.0,
@@ -1079,6 +1101,27 @@ const AD = [0, 0, 0, 0, 1e9, -1e9];
 // shipped builds.
 const COMBATSHOT = false;
 
+// ---- FPSPROBE harness (temporary diagnostic) --------------------------------
+// One number, for A/B-ing a change that might cost frames: wall-clock FPS over
+// a fixed window on the TITLE SCREEN, which renders the whole world as its
+// backdrop from a fixed camera (pos 0,1,20 — see the title path) and so is
+// deterministic between runs in a way gameplay is not.
+//
+// PERFTEST already measures fps, but it is a staged ELEVEN-config bisect with a
+// profiler dump; this is for "did that one change cost anything", where the
+// answer has to be comparable across two builds and nothing else may vary.
+//
+// Wall clock over a frame window, NOT getFPS() sampled once: a single sample
+// off the smoothed counter is noise, and the round-2 audit found the profiler's
+// own averages go stale. Prints one FPSPROBE line to stdout — run batch with
+// output redirected. Same dormancy contract as SELFTEST/PERFTEST: MUST be false
+// in shipped builds.
+const FPSPROBE = false;
+const FPSPROBE_SETTLE = 240;   // frames to let boot + TAA + the GI clipmap settle
+const FPSPROBE_MEASURE = 240;  // frames in the measured window
+let fpsProbeT0 = 0;
+let fpsProbeDone = false;
+
 // ---- PERFTEST harness (temporary diagnostic) --------------------------------
 // Bisects the fullscreen slowdown: measures wall-clock FPS over 120-frame
 // windows on the title screen (full world renders as the backdrop), toggling
@@ -1324,6 +1367,19 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
+
+  // FPSPROBE stage driver — one wall-clock window on the title screen, printed
+  // once. See the harness block above the loop.
+  if (FPSPROBE && !fpsProbeDone) {
+    if (testFrame === FPSPROBE_SETTLE) fpsProbeT0 = getTime();
+    if (testFrame === FPSPROBE_SETTLE + FPSPROBE_MEASURE) {
+      const wall = getTime() - fpsProbeT0;
+      console.log('FPSPROBE fps=' + (FPSPROBE_MEASURE / wall).toFixed(2)
+        + ' ms=' + (1000 * wall / FPSPROBE_MEASURE).toFixed(2)
+        + ' grass=' + ENV.GRASS_INSTANCE_COUNT);
+      fpsProbeDone = true;
+    }
+  }
 
   // KEYPROBE — latch each modifier ever-down and dump it (see the flag above).
   if (KEYPROBE) {
@@ -2468,6 +2524,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   if (PERFTEST && perfDone) break;
 }
+
 
 
 

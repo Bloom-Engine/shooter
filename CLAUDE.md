@@ -74,6 +74,9 @@ perry compile src/main.ts -o main      # raw compile
 bun tools/convert-aliens-anim.ts       # regenerate animated alien GLBs
 bun tools/convert-arena.ts             # regenerate textured arena
 bun tools/validate-glb.ts <path>       # glTF-validator report
+bun tools/fetch-external-textures.ts   # re-download the CC0 photoscan sources
+bun tools/build-terrain-textures.ts    # rebuild the 4 terrain splat layers
+bun tools/build-building-textures.ts   # rebuild the building wall/slab slices
 ./tools/deploy-ios.sh                  # build + sign + install + launch on iPhone
 ./tools/deploy-ios.sh --console        # ...and stream the device's stdout/stderr
 ```

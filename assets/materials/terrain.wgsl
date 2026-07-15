@@ -30,7 +30,18 @@
 #include "common/clouds.wgsl"
 
 struct TerrainParams {
-  // Per-layer tint, so the palette stays tunable without regenerating art.
+  // Per-layer tint (xyz), so the palette stays tunable without regenerating art.
+  //
+  // SH-050 — .w is each layer's SOURCE SIZE IN METRES: the real-world extent the
+  // photoscan covers, straight off Poly Haven's `dimensions`. It is not a knob,
+  // it is a measurement, and it is what lets every layer tile at 1:1 physical
+  // scale despite being scanned at different sizes (2.0 m of grass, 1.3 m of
+  // mud). One shared UV scale meant the mud's pebbles came out 54% oversized —
+  // and a pebble that is not pebble-sized is exactly what reads as "toy".
+  //
+  // A world that authors `terrain.layers` overrides the TEXTURES but not these:
+  // an authored layer gets the built-in size for its slot. Same caveat the tints
+  // have always had.
   tint_lush: vec4<f32>,
   tint_dry:  vec4<f32>,
   tint_dirt: vec4<f32>,
@@ -41,8 +52,9 @@ struct TerrainParams {
   // x = river centre z, y = river half-width, z = bank fade width,
   // w = waterline y
   river:     vec4<f32>,
-  // x = macro UV scale (tiles/metre), y = detail UV scale, z = detail strength,
-  // w = normal strength
+  // x = GLOBAL tiling multiplier (1.0 = every layer at its true physical size;
+  // <1 stretches, which trades texel density for a longer repeat period),
+  // y = detail UV scale, z = detail strength, w = normal strength
   scales:    vec4<f32>,
   // Splat-map UV transform: u = p.x * x + y, v = p.z * z + w. Precomputed on the
   // CPU from the terrain's origin, cell size and grid width so the shader does
@@ -122,12 +134,24 @@ fn tri_normal(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32, n: vec3<f32>) -> v
   return normalize(nx * w.x + ny * w.y + nz * w.z);
 }
 
+/// Tiles-per-metre for a layer whose source scan covers `size_m` metres, scaled
+/// by the global multiplier. `max` guards a zero — a params block that forgot a
+/// size would otherwise divide by zero and smear one texel across the arena.
+fn layer_scale(size_m: f32) -> f32 {
+  return tp.scales.x / max(size_m, 0.01);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> OpaqueOut {
   let n = normalize(in.world_normal);
   let p = in.world_pos;
   let w = triplanar_weights(n);
-  let s = tp.scales.x;
+  // Per-layer UV scale — each scan tiles at the real size it was photographed
+  // at, not at one scale shared by all four.
+  let s_lush = layer_scale(tp.tint_lush.w);
+  let s_dry  = layer_scale(tp.tint_dry.w);
+  let s_dirt = layer_scale(tp.tint_dirt.w);
+  let s_rock = layer_scale(tp.tint_rock.w);
 
   // ---- layer weights ------------------------------------------------------
   // Same masks the colour-stop version used; they just drive textures now.
@@ -184,10 +208,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   }
 
   // ---- albedo -------------------------------------------------------------
-  var albedo = tri_albedo(0, p, w, s) * tp.tint_lush.rgb * w_lush
-             + tri_albedo(1, p, w, s) * tp.tint_dry.rgb  * w_dry
-             + tri_albedo(2, p, w, s) * tp.tint_dirt.rgb * w_dirt
-             + tri_albedo(3, p, w, s) * tp.tint_rock.rgb * w_rock;
+  var albedo = tri_albedo(0, p, w, s_lush) * tp.tint_lush.rgb * w_lush
+             + tri_albedo(1, p, w, s_dry)  * tp.tint_dry.rgb  * w_dry
+             + tri_albedo(2, p, w, s_dirt) * tp.tint_dirt.rgb * w_dirt
+             + tri_albedo(3, p, w, s_rock) * tp.tint_rock.rgb * w_rock;
 
   // Macro variation — a low-frequency multiply so the tiling doesn't read as a
   // grid from the air. Without this, any tileable texture announces its period
@@ -204,13 +228,13 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // washes them all out; picking by weight keeps the relief crisp).
   var nrm = n;
   if (w_rock > 0.5) {
-    nrm = tri_normal(3, p, w, s, n);
+    nrm = tri_normal(3, p, w, s_rock, n);
   } else if (w_dirt > 0.4) {
-    nrm = tri_normal(2, p, w, s, n);
+    nrm = tri_normal(2, p, w, s_dirt, n);
   } else if (w_dry > 0.5) {
-    nrm = tri_normal(1, p, w, s, n);
+    nrm = tri_normal(1, p, w, s_dry, n);
   } else {
-    nrm = tri_normal(0, p, w, s, n);
+    nrm = tri_normal(0, p, w, s_lush, n);
   }
   nrm = normalize(mix(n, nrm, tp.scales.w));
 

@@ -26,6 +26,11 @@ import {
 } from 'bloom';
 import { readFile } from 'bloom/core';
 import {
+  createTextureArrayFromFiles, setMaterialTextureArray,
+  TEXTURE_ARRAY_ALBEDO, TEXTURE_ARRAY_NORMAL, TEXTURE_ARRAY_MR,
+  TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
+} from 'bloom/models';
+import {
   createSceneNode, attachModelToNode, setSceneNodeTrs,
   setSceneNodeGiOnly, setSceneNodeCastShadow, setSceneNodeColor,
 } from 'bloom/scene';
@@ -177,8 +182,25 @@ export function initEnvironment(): void {
   const matGrass = compileMaterialInstanced(
     readFile('assets/materials/grass_instanced.wgsl'));
   const GRASS_PARAMS = [
-    // base hue rgb (Round-4: slightly desaturated), transmission strength
-    0.30, 0.42, 0.20,  0.40,
+    // base hue rgb, transmission strength.
+    //
+    // SH-050 — RE-TUNED AGAINST THE GROUND, which is now a photoscan rather than
+    // two colour stops. Measured, mean albedo:
+    //   ground (forrest_ground_01)  RGB 0.568 0.529 0.365 — saturation 0.36, RED-dominant
+    //   blade tip, old base         RGB 0.286 0.467 0.137 — saturation 0.71, GREEN-dominant
+    // Twice the saturation of the ground it grows out of, 40% darker, and biased
+    // the opposite way down the spectrum. Against flat colour stops that passed;
+    // against a photograph of real ground it is a neon spike stuck in soil, and it
+    // became the most cartoonish thing left in the frame the moment the terrain
+    // got real.
+    //
+    // The old base also quietly broke the palette rule the terrain generator
+    // states in its own header — "green channel stays close to red" — with
+    // r 0.30 vs g 0.42. This obeys it: r ≈ g, blue low but present, which is the
+    // olive the round-4 de-cartoonification pass was after. Grass still reads
+    // greener than soil; it no longer reads as a different art style.
+    // Target tip ≈ RGB 0.42 0.50 0.26 (saturation 0.48) — in the ground's family.
+    0.44, 0.45, 0.38,  0.40,
   ];
   if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
   // Blades are sub-pixel in the 512Â² water probe but cost the full 20k-
@@ -194,15 +216,31 @@ export function initEnvironment(): void {
   // back of 3 quads/tips per plane). color.r is the tip weight (0 at
   // root â†’ 1 at tip) which the vertex shader uses for wind sway and
   // the fragment shader for the rootâ†’tip colour gradient.
-  // Round-9 anti-grit: wider blades (0.045/0.026 â†’ 0.062/0.038) â€” the old
-  // needle-thin cards fell below a pixel a few metres out and the field
-  // read as gritty speckle rather than foliage.
-  const GB_W0 = 0.062;   // root half-width
-  const GB_W1 = 0.038;   // mid half-width
-  const GB_H1 = 0.26;    // mid height
-  const GB_H2 = 0.55;    // tip height
-  const GB_B1 = 0.028;   // bow at mid
-  const GB_B2 = 0.090;   // bow at tip
+  // SH-050 — BLADE SIZE. Round-9 widened these (0.045/0.026 -> 0.062/0.038)
+  // because needle-thin cards fell below a pixel a few metres out and the field
+  // read as gritty speckle. That fix was real, but it paid for it in the near
+  // field: a 12.4 cm-wide, 55 cm-tall blade is a leaf, not a blade of grass, and
+  // at ~7 per m² you could count them. That is what "cartoonish" was.
+  //
+  // The anti-grit constraint is still respected — it is just no longer paid for
+  // by the blades you are standing next to. The vertex shader ALREADY widens
+  // blades with camera distance (`wide = 1 + fade * 1.6`, ramping 9 m -> 42 m),
+  // which is what actually keeps the far field above a pixel. Round-9 widened
+  // the base mesh — every blade at every distance — to fix a problem that only
+  // exists past ~9 m, where the distance ramp had it covered.
+  //
+  // So: narrow the mesh, and let the ramp (widened below to compensate) hold the
+  // far field. 3.6 cm at the root is still ~5x a real blade, deliberately — it
+  // is the floor set by the 0.5-render-scale TSR path (SH-045's output-scale
+  // knob), where a 2 cm blade at 20 m lands under one internal pixel and the
+  // speckle comes back.
+  const GB_W0 = 0.018;   // root half-width (was 0.062)
+  const GB_W1 = 0.010;   // mid half-width  (was 0.038)
+  const GB_H1 = 0.16;    // mid height      (was 0.26)
+  const GB_H2 = 0.34;    // tip height      (was 0.55) — ~22-45 cm after per-blade
+                         //                   scale: meadow, not waist-high reeds
+  const GB_B1 = 0.020;   // bow at mid
+  const GB_B2 = 0.065;   // bow at tip
   const GRASS_BLADE_VERTS: number[] = [
     // Plane 1 (XY plane, normal +Z, bows toward +Z)
     -GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   0,   0,
@@ -243,10 +281,28 @@ export function initEnvironment(): void {
   // would flag the same day. Raising the uniform density gets the same look for a
   // one-off cost.
   //
-  // 70k was also measured: still 33 fps, but no denser to look at. Past ~40k the
-  // scatter saturates against its keep-outs, so the limit here is the scatter, not
-  // the GPU. No reason to pay for instances that never get placed.
-  const GRASS_INSTANCE_COUNT_MAX = 40000;
+  // SH-050 — 40k -> 120k. The old note said "70k was measured: still 33 fps, but
+  // no denser to look at. Past ~40k the scatter saturates against its keep-outs."
+  // The fps half of that still holds and the look half no longer does — it was
+  // measured with blades 3.4x WIDER than they are now. At that width the field
+  // saturated visually long before the scatter did: fat blades overlap, so extra
+  // instances hid behind the ones in front. Narrow blades stop hiding each other,
+  // and 40k of them is bare ground with stubble on it.
+  //
+  // "The scatter saturates" was not measured, and it is wrong: the loop gets
+  // COUNT_MAX*3 attempts and only rejects on keep-outs (water + building, a small
+  // fraction of a 76 m square), so it places what it is asked for. The boot log
+  // below prints the placed count — check it rather than assuming. Measured at
+  // 120000: it places 120000/120000.
+  //
+  // The FPS half of the old note DOES hold, re-measured for this change with the
+  // FPSPROBE harness (title screen, 240-frame wall-clock window, same build):
+  //   40k  -> 26.64 fps
+  //   120k -> 26.21 fps
+  // 0.4 fps for 3x the blades. The engine's grass-tile culling (aeb3228) throws
+  // away everything off-screen before it costs anything, so what is on screen —
+  // not what is scattered — sets the price.
+  const GRASS_INSTANCE_COUNT_MAX = 120000;
   const GRASS_INSTANCE_FLOATS    = 9;
   const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
   let GRASS_INSTANCE_COUNT = 0;
@@ -335,6 +391,12 @@ export function initEnvironment(): void {
   const matGrassInstances = matGrass > 0
     ? createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT)
     : 0;
+  // SH-050 — how many blades actually got PLACED, vs asked for. The claim that
+  // "past ~40k the scatter saturates against its keep-outs" was never measured;
+  // this is the number that settles it. A placed count well under the max means
+  // the rejection loop really is the limit and raising the max buys nothing; a
+  // count that matches means the density is exactly what was asked for.
+  console.log('[grass] placed ' + GRASS_INSTANCE_COUNT + ' / ' + GRASS_INSTANCE_COUNT_MAX + ' blades');
   
   // ---- Building stone material â€” bake all box-placeholder building
   // entries into a single static mesh, drawn once per frame against
@@ -343,14 +405,59 @@ export function initEnvironment(): void {
   bootStage(BOOT_PROPS);
   const matBuilding = compileMaterialFromFile('assets/materials/building.wgsl', 'opaque');
   const BUILDING_PARAMS = [
-    // base rgb (warm sandstone)        noise mix
-    0.72, 0.66, 0.55,                   0.55,
+    // SH-050 — base rgb is now a TINT on the concrete scan, not the wall colour.
+    // The photoscan carries the colour; the old 0.72/0.66/0.55 sandstone
+    // multiplied into it would darken the house by a third. Pushed WARM
+    // (r > g > b) because concrete_wall_008 scans grey-green and the arena's
+    // palette — and this building's own history — is warm sandstone. This tint
+    // is what keeps a concrete wall from turning the plaza cold.
+    // w = macro tone-variation strength (breaks up the 2 m tile).
+    1.10, 1.02, 0.90,                   0.55,
     // band rgb (darker mortar line)    band tightness (higher = sharper)
     0.40, 0.34, 0.28,                   1.4,
-    // noise_freq, band_period (m), unused, unused
-    0.50, 3.0,                          0.0,   0.0,
+    // noise_freq, band_period (m), WALL scan size (m), SLAB scan size (m).
+    // The last two are real-world extents from Poly Haven's `dimensions` —
+    // both sources are 2.0 m across — so each slice tiles at 1:1 physical
+    // scale. They were dead fields before ("roof_dim, unused").
+    0.50, 3.0,                          2.0,   2.0,
+    // normal-map strength, reserved x3.
+    1.0,  0.0, 0.0, 0.0,
   ];
   if (matBuilding > 0) setMaterialParams(matBuilding, BUILDING_PARAMS);
+
+  // SH-050 — the building's photoscan slices. ORDER IS THE ABI: building.wgsl
+  // indexes SLICE_WALL = 0, SLICE_SLAB = 1, and tools/build-building-textures.ts
+  // emits them in that order.
+  //
+  // Bound BEFORE any further setMaterialParams on this material, matching the
+  // order main.ts uses for terrain: engine EN-014 once had set_user_params
+  // rebuild the bind group with the 1x1 stub array hardcoded, silently
+  // unbinding the art. That is fixed, but binding first is still the honest
+  // order.
+  if (matBuilding > 0) {
+    const bldgAlbedo = createTextureArrayFromFiles([
+      'assets/textures/building_wall_albedo.png',
+      'assets/textures/building_slab_albedo.png',
+    ], TEX_ARRAY_FORMAT_SRGB, 4);
+    // Normals and roughness MUST be linear — sRGB-decoding an encoded normal
+    // corrupts it, and roughness is a measurement, not a colour.
+    const bldgNormal = createTextureArrayFromFiles([
+      'assets/textures/building_wall_normal.png',
+      'assets/textures/building_slab_normal.png',
+    ], TEX_ARRAY_FORMAT_LINEAR, 4);
+    const bldgRough = createTextureArrayFromFiles([
+      'assets/textures/building_wall_rough.png',
+      'assets/textures/building_slab_rough.png',
+    ], TEX_ARRAY_FORMAT_LINEAR, 4);
+    if (bldgAlbedo > 0) {
+      setMaterialTextureArray(matBuilding, TEXTURE_ARRAY_ALBEDO, bldgAlbedo);
+      setMaterialTextureArray(matBuilding, TEXTURE_ARRAY_NORMAL, bldgNormal);
+      // The MR slot is free here — unlike terrain, whose splat map lives in it.
+      setMaterialTextureArray(matBuilding, TEXTURE_ARRAY_MR, bldgRough);
+    } else {
+      console.log('[building] textures missing - run: bun tools/build-building-textures.ts');
+    }
+  }
   
   // Count the building boxes first so we can size the arrays.
   let _bldgCount = 0;
