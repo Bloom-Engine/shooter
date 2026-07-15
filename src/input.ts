@@ -27,6 +27,7 @@ export interface InputState {
   // SH-028 / SH-032 / SH-038
   aimDown: boolean;         // RMB / LT — shoulder aim
   sprintDown: boolean;      // Shift / LS-click
+  crouchDown: boolean;      // C — hold to crouch (SH-048)
   dodgePressed: boolean;    // Ctrl / B
   pausePressed: boolean;    // Esc / Start
   /// True when a pad was the last thing touched — the HUD swaps its glyphs.
@@ -274,6 +275,7 @@ function readTouch(): InputState {
     swapWeapon: swapPressedNow,
     aimDown: false,
     sprintDown: sprinting,
+    crouchDown: false,        // no touch crouch control yet
     dodgePressed: false,
     pausePressed: false,
     padActive: false,
@@ -304,6 +306,7 @@ export function readInput(dt: number): InputState {
   let fireDown = isMouseButtonDown(0);
   let aimDown = isMouseButtonDown(1);
   let sprintDown = isKeyDown(Key.LEFT_SHIFT) || isKeyDown(Key.RIGHT_SHIFT);
+  let crouchDown = isKeyDown(Key.C);
   let dodgePressed = isKeyPressed(Key.LEFT_CONTROL) || isKeyPressed(Key.RIGHT_CONTROL);
   let reloadPressed = isKeyPressed(Key.R);
   let swapWeapon = isKeyPressed(Key.Q);
@@ -366,6 +369,7 @@ export function readInput(dt: number): InputState {
     swapWeapon: swapWeapon,
     aimDown: aimDown,
     sprintDown: sprintDown,
+    crouchDown: crouchDown,
     dodgePressed: dodgePressed,
     pausePressed: pausePressed,
     padActive: padWasActive,
