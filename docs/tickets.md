@@ -815,7 +815,20 @@ unlock gate works end-to-end.
 
 ---
 
-## SH-042 — Content expansion: +2 weapons, +2 enemy kinds ✅ *(shipped — 4 weapons, 7 kinds, 2 of them RANGED)*
+## SH-042 — Content expansion: +2 weapons, +2 enemy kinds ✅ *(shipped — 4 weapons, 7 kinds, 2 of them RANGED; MAX_CONCURRENT 6→8 done 2026-07-15)*
+
+> **The `MAX_CONCURRENT` 6 → 8 sub-item is now done, and measuring it was worth
+> more than the change.** It was gated on "re-verify combat frame time"
+> (acceptance: ≥ 35 fps at 4K/TSR). Measured on the dev box at the shipped
+> defaults: **0 enemies → ~28 fps, 3 enemies → ~27.5 fps**. Enemies cost about
+> **0.2 fps each**, so 8 concurrent is worth well under 1 fps. Bumped.
+>
+> But the acceptance **fails on the baseline** — ~28 fps with nothing on screen
+> to fight. That is a rendering-cost problem (4K at 0.75 render scale, the
+> forest, the house, the shadow/GI stack), not a director one, and it is not
+> this ticket's to fix. See `docs/perf-audit-2026-07.md`, which now records the
+> re-measurement. Do not "fix" the frame rate by lowering enemy counts: the
+> numbers say it would buy nothing.
 
 **Why:** 2 weapons and 5 enemy kinds is one encounter's worth of
 variety; the run is ~3 minutes. The Unvanquished source packs carry
