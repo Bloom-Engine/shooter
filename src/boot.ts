@@ -1,4 +1,4 @@
-// SH-046 — the boot sequence: splash, loading screen, and the fade into the menu.
+// SH-049 — the boot sequence: splash, loading screen, and the fade into the menu.
 //
 // The game used to open a black window, freeze for several seconds while every
 // GLB, sound and shader loaded on the main thread, and then snap to a title

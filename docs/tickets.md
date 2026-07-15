@@ -261,7 +261,16 @@ is what makes 30 seconds of footage read as AAA.
 
 ---
 
-## SH-027 — Real weapon models ✅ *(shipped — Unvanquished MD3 → glTF; v2 hand-bone attach still gated on EN-033)*
+## SH-027 — Real weapon models ✅ *(shipped; v2 complete 2026-07-15 — hand-bone attach + the gun tilts with aim)*
+
+> **v2 closed 2026-07-15.** This header claimed v2 was "still gated on EN-033"
+> long after EN-033 landed — the weapon has ridden the `tag_weapon` hand joint
+> via `jointWorld()` since then, with the fixed offset only a fallback. The last
+> real gap was pitch: `drawModelRotated` takes a single Y rotation, so the barrel
+> stayed level while you aimed up or down. **EN-039** (`drawModelTransform`,
+> engine PR #100) landed and this now feeds it the same forward vector the
+> muzzle, tracer and shot ray use — so the gun and the bullet agree by
+> construction. Shooter PR #22.
 
 **Why:** both weapons are **grey `drawCube` primitives**
 (`main.ts:2795-2836`). This is the single most visible "placeholder"
@@ -842,7 +851,23 @@ frame time still ≥ 35 fps on the dev box at 4K/TSR.
 
 ---
 
-## SH-043 — Accessibility & localization scaffolding ✅ *(shipped — `src/strings.ts`, shake slider, colourblind-safe hit cues)*
+## SH-043 — Accessibility & localization scaffolding 🟡 *(partial — see below; the ✅ was wrong)*
+
+> **Corrected 2026-07-15.** This header read
+> *"✅ shipped — `src/strings.ts`, shake slider, colourblind-safe hit cues"*.
+> **`src/strings.ts` has never existed** and there is not one `STRINGS`
+> reference in `src/` — verified, not inferred. `docs/aaa-round-1.md` had the
+> honest version all along ("Partial. Localization table not done."). This was
+> the registry's only false ✅, and it is exactly the kind that costs someone a
+> day: you go looking for a file the docs promise and it isn't there.
+>
+> | Part | Status |
+> |---|---|
+> | Camera-shake slider | ✅ shipped, wired to `FEEL.setShakeScale` |
+> | Colourblind-safe hit cues | ✅ shipped — and **unconditional**: the white flash + tick and the damage arc REPLACED the colour-only versions. The `COLORBLIND CUES` settings row was therefore switching nothing and was removed 2026-07-15. |
+> | Telegraph captions | ✅ shipped 2026-07-15 — the dragoon's roar IS the dodge window; a player who cannot hear it was told nothing. |
+> | **Localization table (`strings.ts`)** | ❌ **NOT DONE** — every user-facing literal is still inline. |
+> | **Rebindable keys** | ❌ **NOT DONE** — the bind list is fixed. |
 
 **Why:** all-or-nothing camera shake, red-only damage cues, hardcoded
 English literals, fixed keybinds. Cheap now, expensive to retrofit.
@@ -1254,3 +1279,85 @@ glTF, and redistributable in a GPL repo**.
 **Reconsider first, honestly:** with the uplift landed, the battlesuit now reads as
 real armour. It may no longer be the weakest thing in frame. Look at it before
 spending on a replacement.
+
+---
+
+## SH-047 — The body turns to face where it moves ✅ *(shipped 2026-07-15)*
+
+**Why:** the player model always faced camera-forward, so strafing read as the
+character sliding sideways while staring ahead — and the forward walk clip's feet
+pointed the wrong way relative to the travel.
+
+**What shipped.** The facing offset is `atan2(moveX, -moveZ)` — literally the
+movement direction relative to the camera. The requested angles fall straight out
+of it because WASD already quantises movement: A/D → 90°, the W-diagonals → 45°,
+W or idle → forward. Eased along the shortest arc (so S+A → S+D turns the near
+way), and kept as an offset RELATIVE to the camera so looking around does not drag
+the body with it. Aiming down sights forces forward — you are pointing the gun,
+not walking.
+
+Because the body faces its travel, the forward walk/run/crouch clips are always
+the correct clip: the directional strafe clips the model ships (`run_left`,
+`crouch_right`, …) are not needed.
+
+**Verified** with a forced strafe + the HUD readout: D moved the player to world
++X with the body in right-facing profile; W+D moved it on a true 45° diagonal.
+
+---
+
+## SH-048 — Crouch 🟡 *(shipped 2026-07-15 — speed + pose; capsule NOT resized)*
+
+**Why:** the only speed states were walk and sprint. Crouch is the third — the
+deliberate, quiet one.
+
+**What shipped.** Hold **C** (Ctrl was already dodge). `CROUCH_MUL` 0.45 takes
+4.5 → ~2.0 m/s, and the crouch clips play (`crouch` idle / `crouch_forward`
+moving — one clip covers every heading thanks to SH-047). Crouch **wins over
+sprint**: you cannot do both, and holding crouch is the more deliberate intent.
+
+**Outstanding, stated plainly:** the physics capsule is **not** resized, so crouch
+does not shrink the hitbox and does not let you fit under low geometry. Harmless
+today — the arena has none — but it means crouch is not yet a *tactical* choice,
+only a movement one. Needs `setCharacterShape`. No touch or gamepad binding yet.
+
+**Verified** through the real C key (not a forced flag): 4.50 → **2.03 m/s**,
+`crouch=1`, mutually exclusive with sprint.
+
+---
+
+## SH-049 — Front end: splash, loading screen, main menu ✅ *(shipped 2026-07-14)*
+
+> **Numbering note.** This work was written as "SH-046" in the code and collided
+> with the existing SH-046 (character fidelity) — two different tickets, one
+> number. Renumbered to SH-049 on 2026-07-15; the code comments now match.
+
+**Why:** boot was a **black, frozen window for ~8 seconds**, then a snap to a
+"press any key" title. That freeze is the first thing a player ever experiences
+and it read as a hang.
+
+**What shipped** (`src/boot.ts`, `MENU_MAIN` in `menu.ts`):
+- **Splash** — owns its own loop, so it is the one part of boot that animates
+  smoothly. Skippable; a splash you cannot skip is one you resent by the third
+  launch.
+- **Loading screen with REAL progress.** There is no async loader (EN-032), so
+  nothing pretends: `bootStage()` is called between groups of synchronous loads
+  and draws a frame each time. Weights are **measured milliseconds**, not
+  guesses — the bar would otherwise lurch, which reads as a broken loader.
+- **Main menu** — PLAY / LEVEL SELECT / SETTINGS / QUIT over the live arena,
+  reusing `menu.ts`'s existing focus model rather than being a second screen to
+  keep working. Settings and level select were previously reachable only from
+  *pause*, i.e. only after starting a run.
+- The gameplay HUD is now gated on being in a run. It used to draw the health bar
+  and ammo over the menu — the tell that the "title screen" was just the game
+  with input switched off.
+
+**What this measured, and it is the useful part:** boot is ~7.9 s of loading and
+**`the aliens` is 5.5 s of it (61%)** — `initEnemyPool()` loads a ModelAnimation
+per enemy SLOT, not per kind. That is the one number to attack if boot time is
+ever worth fixing.
+
+**Also fixed here:** an unconditional `if (isKeyPressed(Key.ESCAPE)) break;` at
+the bottom of the frame loop — a dev-quit binding that predated the pause menu.
+It fired on every ESC regardless of state, so Escaping out of the settings screen
+*killed the process*. ESC now means pause in a run and back in a menu; QUIT is a
+menu row.

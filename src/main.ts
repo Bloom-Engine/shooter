@@ -174,7 +174,7 @@ const cliDbgOff = cliArg('--dbg-off');
 FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
 initMenus();
 
-// ---- SH-046: the boot sequence ---------------------------------------------
+// ---- SH-049: the boot sequence ---------------------------------------------
 // Everything below this line until `bootOutro()` is the game LOADING, and until
 // now it did that behind a black, frozen window for several seconds. The splash
 // runs first (it owns its own loop, so it is the one part of the boot that can
@@ -1034,7 +1034,7 @@ let aitestDone = false;
 //
 // MUST be false in shipped builds: it suppresses every enemy wave.
 // ---- MENUTEST harness (temporary diagnostic) --------------------------------
-// SH-046 verification. Drives the front-end through the REAL input path
+// SH-049 verification. Drives the front-end through the REAL input path
 // (injectKeyDown — OS-synthesised keys do not reach this game) and records what
 // the menu actually did:
 //
@@ -1774,7 +1774,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       // startRun() bypasses the menu's ACT_PLAY handler, and that handler is
       // the only place that sets cursorLocked — without this the fire path
       // (gated on cursorLocked) never triggers and the harness silently
-      // captures a fight with no shots. Broken since SH-046 put a real menu
+      // captures a fight with no shots. Broken since SH-049 put a real menu
       // in front of the game.
       cursorLocked = true;
       SCORE.resetScore();

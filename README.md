@@ -22,16 +22,22 @@ Controls:
 
 | Input            | Action                                    |
 |------------------|-------------------------------------------|
-| WASD             | Move                                      |
+| WASD             | Move (the body turns to face where it moves) |
 | Mouse            | Look                                      |
 | Space            | Jump                                      |
 | Left mouse       | Fire (rifle = full-auto, blaster = tap)   |
-| 1 / 2            | Switch weapon (rifle / blaster)           |
+| Right mouse      | Aim down sights (hold, or toggle — settings) |
+| Shift            | Sprint (hold, or toggle — settings)       |
+| C                | Crouch (hold)                             |
+| Ctrl             | Dodge                                     |
+| 1 / 2 / 3 / 4    | Switch weapon (rifle / blaster / chaingun / cannon) |
+| Q                | Cycle weapon                              |
 | R                | Reload / restart after death              |
 | Tab              | Toggle cursor capture                     |
 | F3               | Profiler overlay (per-pass CPU/GPU µs)    |
-| F12              | Screenshot to `shooter_<N>.png`           |
-| Esc              | Quit                                      |
+| F5–F9            | Render-pass debug toggles / path tracing  |
+| F12              | Screenshot (engine-native; see EN-038)    |
+| Esc              | Pause (menu) — **not** quit; QUIT is a menu row |
 
 ### On an iPhone
 
@@ -54,8 +60,10 @@ actually rests on.
 Requires a paid Apple developer account (Perry's signing flow is App Store
 Connect API-only). See `CLAUDE.md` for the provisioning details.
 
-Survive three waves — dretches, mantises, marauders, dragoons, and a
-tyrant. Ammo crates respawn at the four arena corners.
+Survive three waves — dretches, mantises, marauders, dragoons, a tyrant, and the
+advanced marauder and dragoon (seven kinds; the two advanced ones are RANGED, so
+closing the distance stops being the universal answer). Ammo crates respawn at
+the four arena corners.
 
 ## Prerequisites
 
@@ -135,12 +143,18 @@ Short version of findings accumulated while building this:
   are plain inverses of the resulting world matrices. Conjugating every
   joint individually (a reasonable-looking alternative) conflicts with
   bloom's Y-axis yaw that the renderer applies on top of skin matrices.
-- **Perry 0.5.158 has three codegen bugs** we worked around: reachable
-  `throw new Error` segfaults at startup; object-shorthand returns
-  (`return { ok, errors }`) can corrupt boolean fields; `JSON.parse`
-  arrays have no populated `.length`. World data is hardcoded in TS
-  until JSON.parse is fixed. Details in
-  [docs/perry-quirks.md](docs/perry-quirks.md).
+- **Perry has a running list of codegen bugs** we work around — and the list
+  has moved, so treat any specific version number here as history rather than
+  as current advice. Fixed since: reachable `throw new Error` segfaulting at
+  startup, and `JSON.parse` arrays reporting no `.length`. **World data is NOT
+  hardcoded any more** — `src/world-runtime.ts` reads
+  `assets/worlds/*.world.json` at startup via the engine's `loadWorld`, there is
+  no `src/generated/`, and there is no bake step. Still live: object-shorthand
+  returns can corrupt fields; never `split()`/`parseFloat()` an FFI string on a
+  per-frame path; some small numeric functions in imported modules silently
+  compile to a constant. The authority is
+  [docs/perry-quirks.md](docs/perry-quirks.md) — this bullet is a pointer, not a
+  second copy of it.
 - **Bloom's deferred pipeline had a debug-green hardcode** in
   `fs_main_3d` that made all 3D geometry render solid green under
   Perry-compiled builds on macOS. Fixed upstream in engine commit

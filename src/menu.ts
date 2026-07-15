@@ -30,7 +30,7 @@ export const MENU_NONE     = 0;
 export const MENU_PAUSE    = 1;
 export const MENU_SETTINGS = 2;
 export const MENU_LEVELS   = 3;
-/// SH-046 — the front door. Same rows, same focus model, same draw code as the
+/// SH-049 — the front door. Same rows, same focus model, same draw code as the
 /// pause menu: a main menu that is a SEPARATE screen is a second thing to keep
 /// working, and it always rots.
 export const MENU_MAIN     = 4;

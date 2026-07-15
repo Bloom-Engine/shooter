@@ -156,7 +156,7 @@ export function resetRun(): void {
   SCORE.beginWave(0);
 }
 
-/// SH-046 — leave the main menu and drop into the arena. This was inline in the
+/// SH-049 — leave the main menu and drop into the arena. This was inline in the
 /// old "press any key" title screen; the main menu's PLAY row calls it now.
 ///
 /// The two selectWeapon() calls look redundant and are not: selecting a second
