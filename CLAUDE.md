@@ -6,9 +6,11 @@ Notes for AI coding assistants working on this repo.
 
 The full picture is in `README.md`. This is a Perry-compiled TypeScript
 **third-person shooter** (over-the-shoulder orbit camera — TPS, not
-FPS) built on the Bloom engine. Five alien kinds, three waves, two
-weapons, textured arena, skeletal-animated enemies, ambient music —
-runnable with `perry compile src/main.ts -o main && ./main`.
+FPS) built on the Bloom engine. Seven alien kinds (two RANGED), three
+waves, four weapons, ONE playable arena (see SH-040 — the manifest lists
+only `arena_02`; the pipeline takes more, the content does not exist),
+textured arena, skeletal-animated enemies, ambient music — runnable with
+`perry compile src/main.ts -o main && ./main`.
 
 ## Where things live
 
@@ -197,8 +199,11 @@ editor, hit Play, and it is there — no bake step.
   for hot-loop state. `.push()` can produce arrays whose `.length`
   reports as the literal initial size.
 - Return `{ ok: boolean, error: string }` instead of throwing.
-- Prefer hardcoded constants over JSON-loaded config until the Perry
-  JSON.parse bug is resolved.
+- JSON-loaded config is fine — the Perry `JSON.parse` bug that forced
+  hardcoded constants is FIXED (verified on 0.5.1208; see the world
+  pipeline section above, which reads the whole level from JSON at
+  runtime). What still binds is WHERE you parse: at load, never on a
+  per-frame path.
 - Data crossing the FFI on a hot path is numbers, not delimited
   strings (perry-quirks #5). Strings that do cross are drawn whole,
   never parsed.
