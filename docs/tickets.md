@@ -23,7 +23,7 @@ or a design decision
 
 | Round | Theme | Tickets | Status |
 |---|---|---|---|
-| 0 | Architecture | SH-025, SH-005, SH-026 | ✅ **CLOSED** — enemy system extracted to `src/enemies.ts` |
+| 0 | Architecture | SH-025, SH-005, SH-026 | ✅ **CLOSED** — module split complete (SH-025a–d, PRs #14–#17); main.ts 4,381 → 2,132 lines |
 | 1 | Combat feel — the biggest perceived jump | SH-027..SH-034 | ✅ shipped, incl. SH-031 ragdolls (EN-025) |
 | 2 | Audio | SH-003, SH-001, SH-035, SH-036 | ✅ SH-001/003/035 shipped (synthesised stand-ins); SH-036 needs real music stems |
 | 3 | Game structure & content | SH-037..SH-043 | ✅ incl. SH-040 level select and SH-042 (4 weapons + 7 enemy kinds, 2 of them RANGED) |
@@ -95,7 +95,36 @@ inline.
 
 ---
 
-## SH-025 — Split `main.ts` into modules ✅ *(enemy system extracted 2026-07-12)*
+## SH-025 — Split `main.ts` into modules ✅ *(COMPLETE 2026-07-15 — slices a–d landed, PRs #14–#17)*
+
+> **Status 2026-07-15 — the split is done.** Four slices, each landed as its
+> own PR with a behavioural probe (a green compile proves nothing here — Perry
+> is silent about unresolved cross-module references and throws ReferenceError
+> at runtime, one identifier at a time):
+>
+> - **a — `environment.ts`** (PR #14): water + planar probe, 20k grass,
+>   building, glass, muzzle material, gi_only Lumen proxies.
+> - **b — `director.ts` + `gamestate.ts`** (PR #15): wave plan/spawn, per-kind
+>   AI, enemy projectiles, damage/death; shared run scalars as `const GS`.
+> - **c — `combat.ts`** (PR #16): weapon transform (SH-027), fire block,
+>   player projectile pool, pickups, explode, startRun/resetRun, combat draws.
+> - **d — `camera.ts` + `hud.ts`** (PR #17): orbit camera with the canopy
+>   occlusion (probe fan + analytic cylinders), pad aim assist; the in-run HUD,
+>   overlays and run summary.
+>
+> `main.ts`: 4,381 → 2,132 lines. What remains is what a main file should be:
+> CLI overrides, asset/world boot in order, the frame loop and its wiring, the
+> dormant test harnesses, and the diagnostics (diag bar, profiler overlay).
+>
+> The patterns that made it safe are written down in the module headers:
+> top-level functions only (nested declarations kill the process silently at
+> boot), state crosses as `const` object/array slots (exported `let`
+> reassignment does not propagate), main-owned handles cross ONCE via
+> `set*Deps()` before the loop, engine calls never at module scope — but
+> `W.*` capture at module scope is fine (world-runtime parses the world file
+> in its own module body, which import order runs first).
+
+### Original notes (first slice, 2026-07-12)
 
 > **The enemy system now lives in `src/enemies.ts`** — seven kinds, their stat
 > lines, animation-clip indices, ranged bands, AI constants, and the ~40 flat

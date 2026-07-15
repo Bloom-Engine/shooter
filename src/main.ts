@@ -44,7 +44,7 @@ import {
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
-  setLayerCollides, raycast, ALL_LAYERS_MASK, BodyHandle,
+  setLayerCollides, BodyHandle,
   setBodyPosition,
 } from 'bloom/physics';
 import {
@@ -55,7 +55,7 @@ import {
   TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
   createRagdoll, activateRagdoll, pushRagdoll, updateRagdoll, releaseRagdoll,
 } from 'bloom/models';
-import { initInput, readInput, drawTouchControls, MOBILE, aimAssistScale } from './input';
+import { initInput, readInput, drawTouchControls, MOBILE } from './input';
 import {
   createPlayer, updatePlayerController, playerPosition,
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting,
@@ -74,6 +74,11 @@ import {
   PICKUP_COUNT, PICKUP_RADIUS, PICKUP_RESPAWN, PICKUP_RIFLE,
   pickupActive, pickupKind, pickupRespawnT, pickupX, pickupZ,
 } from './combat';
+import {
+  CAM, TP_PITCH_MIN, TP_PITCH_MAX, TP_FOVY, CAMDBG,
+  updateCameraLook, updateCameraOrbit,
+} from './camera';
+import { drawHud, drawOverlays } from './hud';
 import {
   KIND_COUNT, KIND_NAME, mdlAliens, ALIEN_GLB, animAliens,
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
@@ -296,7 +301,6 @@ setLayerCollides(physics, Layer.MOVING, Layer.MOVING, true);
 // The editor can read/write the same JSON â†’ one source of truth.
 
 const spawnPos: Vec3 = vec3(W.SPAWN_X, W.SPAWN_Y, W.SPAWN_Z);
-const spawnYaw = W.SPAWN_YAW;
 
 // Apply environment settings from the world file. Tier-1 visual
 // quality work (see docs/visual-quality.md) layers IBL + shadows +
@@ -565,33 +569,8 @@ for (let i = 0; i < FOREST_COUNT; i++) {
   });
 }
 
-// ---- Camera occlusion: the canopy ------------------------------------------
-// The trunk box above is the ONLY collider a tree has â€” the canopy is
-// shoot-through on purpose â€” so the orbit camera's raycast could never see the
-// leaves. It happily parked the camera inside a wall of foliage, which is the
-// one place a third-person camera must never be. The canopy is not physics, so
-// the camera tests it analytically (below, in the orbit block).
-//
-// Leaf-card bounds MEASURED from the GLBs â€” mesh primitive 3 of each
-// prop_tree*.glb IS the leaf-card set, and glTF stores each accessor's min/max,
-// so these are the asset's own numbers, not a guess. Model units: multiply by
-// FOREST_SCALE. Indexed by FOREST_VAR (same order as treeVariants).
-// Re-measure if the tree art changes.
-const CANOPY_Y0 = [1.70, 2.33, 0.66];   // leaves start (tree3's hang near the ground)
-const CANOPY_Y1 = [5.64, 6.06, 5.02];   // ...and end
-const CANOPY_R  = [2.69, 2.44, 3.23];   // leaf-tip horizontal extent
-// How much of that measured radius actually counts as "in the way".
-//
-// This started at 0.70, on the theory that the bounds reach the outermost leaf
-// TIP while the opaque mass is smaller. A screenshot killed that theory: the
-// camera dutifully stopped just outside the shrunken cylinder and a leaf card
-// filled half the frame, because a leaf tip occludes exactly as well as a leaf
-// centre does. The camera has to clear the foliage it can SEE, so the measured
-// extent is the right number and 1.0 is the right factor.
-//
-// Lower it only if the camera turns out to zoom for foliage that was never in
-// the way; the cost of that is a leaf in the lens.
-const CANOPY_SOLID_FRAC = 1.0;
+// (Camera occlusion — the trunk-only collider problem and the measured canopy
+// cylinders — lives in src/camera.ts now, with the orbit follow it feeds.)
 
 let treePropIdx = -1;
 let terrainPropIdx = -1;
@@ -754,31 +733,9 @@ const worldStatus = W.WORLD_NAME + ' (' + W.COLLIDER_COUNT + '+' + W.MESH_COUNT 
 
 createPlayer(physics, spawnPos);
 
-// ---- Third-person orbit camera (inline; see perry-quirks.md) --------------
-// Array-slot state because Perry 0.5.158 doesn't propagate module-scope
-// `let` reassignments across function calls. Cross-module array writes
-// are even more fragile; keeping everything local to main.ts so the
-// compiler has no excuse to lose the writes.
-//   CAM[0] yaw           CAM[5] tgtX
-//   CAM[1] pitch         CAM[6] tgtY
-//   CAM[2] camX          CAM[7] tgtZ
-//   CAM[3] camY          CAM[8] initialised (0/1)
-//   CAM[4] camZ
-const CAM = [spawnYaw, 0.35, 0, 0, 0, 0, 0, 0, 0];
-const TP_PITCH_MIN = -0.25;
-const TP_PITCH_MAX = 1.20;
-const TP_ORBIT_DIST = 6.0;
-// How close the camera may be shoved before it gives up. It has to be able to
-// get properly close, or "zoom in past the obstacle" degrades into "sit inside
-// the obstacle" the moment the player backs into a wall.
-const TP_ORBIT_MIN = 0.8;
-// Radius of the swept volume the camera occupies for occlusion purposes. Roughly
-// the player capsule's radius: big enough that a trunk grazing the view pushes
-// the camera in, small enough not to zoom for a fence post two metres to the side.
-const CAM_PROBE_R = 0.30;
-const TP_EYE_HEIGHT = 1.4;
-const TP_SMOOTH = 10.0;
-const TP_FOVY = 70;
+// (The third-person orbit camera — the CAM array-slot state, pitch/orbit
+// constants, aim assist and the occlusion-aware follow — is src/camera.ts,
+// SH-025d. CAM is imported above; element writes cross modules reliably.)
 
 // ---- Third-person player model (human_bsuit) -----------------------------
 // Converted via tools/convert-aliens-anim.ts. Drawn at the physics-character
@@ -802,6 +759,24 @@ const PLAYER_ANIM_ATTACK = 7;
 const PLAYER_SCALE = 1.0;
 const PLAYER_MODEL_Y_OFFSET = -0.95;    // character capsule center -> feet
 let playerAnimT = 0;
+
+// SH-047 — the body turns to face where it is MOVING, relative to the camera's
+// forward. Strafing left (A) faces the body 90° left, A+W faces it 45°, and
+// releasing turns it back to forward. This is the natural "face the movement
+// direction" model — the requested angles fall straight out of the input, since
+// WASD already quantises the movement vector to those directions.
+//
+// Smoothed, not snapped: `playerFaceOffset` is the current facing offset (in
+// radians, relative to camera-forward) and it eases toward the input each frame,
+// so a turn and a release both READ as the body repositioning rather than
+// popping. The offset is kept relative to the camera, not as an absolute world
+// yaw, so looking around does not drag the body with it.
+//
+// The AIM/weapon still points along the camera (see combat.ts) — only the body
+// turns. When aiming down sights the body snaps back to forward, because at that
+// point you are pointing the gun, not walking somewhere.
+let playerFaceOffset = 0;
+const PLAYER_TURN_RATE = 14;   // higher = snappier reposition
 
 // SH-027 â€” real weapon models, replacing the two grey drawCube primitives that
 // were the most visible placeholder left in the game. Built by
@@ -873,38 +848,8 @@ initDirector(physics);
 // 0.15 s at lower strength holds it near 1.0 instead.
 let splatCooldown = 0;
 
-/// SH-041 â€” the run's numbers, shown on both the death and the victory screen.
-/// A run with no score attached is a run you can't get better at.
-function drawRunSummary(sw: number, y: number): void {
-  const cardW = 340;
-  const x = (sw - cardW) / 2;
-  drawRect(x, y, cardW, 118, { r: 10, g: 10, b: 14, a: 190 });
-
-  const s = SCORE.score();
-  const best = SET.bestScore(0);
-  const isBest = s >= best && s > 0;
-
-  drawText('SCORE', x + 24, y + 12, 17, { r: 190, g: 190, b: 195, a: 220 });
-  const st = '' + s;
-  const stw = measureText(st, 30);
-  drawText(st, x + cardW - 24 - stw, y + 6, 30,
-    isBest ? { r: 255, g: 215, b: 110, a: 255 } : { r: 235, g: 235, b: 240, a: 245 });
-
-  drawText('BEST', x + 24, y + 46, 15, { r: 160, g: 160, b: 165, a: 200 });
-  const bt = '' + best;
-  const btw = measureText(bt, 18);
-  drawText(bt, x + cardW - 24 - btw, y + 44, 18, { r: 200, g: 200, b: 205, a: 220 });
-
-  const acc = Math.round(SCORE.accuracy() * 100);
-  drawText('KILLS  ' + SCORE.kills() + '    ACCURACY  ' + acc + '%'
-           + '    BEST COMBO  x' + SCORE.comboPeak().toFixed(2),
-           x + 24, y + 76, 15, { r: 200, g: 200, b: 205, a: 220 });
-
-  if (isBest) {
-    const nb = 'NEW BEST';
-    drawText(nb, x + 24, y + 96, 15, { r: 255, g: 205, b: 100, a: 245 });
-  }
-}
+// (drawRunSummary — the SH-041 score card — is src/hud.ts now, with the
+// overlays that draw it.)
 
 // (The old impact-spark ring buffer that lived here is gone: nothing had
 // called spawnSpark since SH-033 — VFX.emitImpactHard IS the impact spark
@@ -1016,9 +961,8 @@ const ANIMDBG = false;
 const CAMHOLD = false;
 let animDbgDone = false;
 let dbgSprint = 0;
-// Camera occlusion readback: what the orbit was shortened TO, and what it wanted.
-let dbgOrbit = 0;
-let dbgWant = 0;
+// (Camera occlusion readback — orbit shortened-to vs. wanted — is CAMDBG,
+// exported by src/camera.ts and written every frame.)
 // 0 prevX  1 prevZ  2 have-prev  3 measured speed  4 ankle min  5 ankle max
 const AD = [0, 0, 0, 0, 1e9, -1e9];
 
@@ -1546,29 +1490,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // cursor settling into the captured state), which can fling the camera
   // to a useless angle before the player even sees the scene.
   if (cursorLocked && testFrame > 10 && !menuOpen()) {
-    // SH-039 â€” pad aim assist: slow the look stick inside a narrow cone of the
-    // nearest enemy. Not magnetism; the stick still does all the aiming.
-    let assist = 1;
-    if (input.padActive) {
-      const ppA = playerPosition();
-      const cyA = Math.cos(CAM[1]);
-      const fxA = Math.sin(CAM[0]) * cyA;
-      const fzA = -Math.cos(CAM[0]) * cyA;
-      let bestCos = -1;
-      for (let i = 0; i < MAX_ENEMIES; i++) {
-        if (enAlive[i] === 0) continue;
-        const ex = enX[i] - ppA.x;
-        const ez = enZ[i] - ppA.z;
-        const el = Math.sqrt(ex * ex + ez * ez);
-        if (el < 0.5) continue;
-        const c = (ex / el) * fxA + (ez / el) * fzA;
-        if (c > bestCos) bestCos = c;
-      }
-      assist = aimAssistScale(bestCos);
-    }
-    CAM[0] = CAM[0] + input.lookX * assist;
-    const np = CAM[1] + input.lookY * assist;
-    CAM[1] = np < TP_PITCH_MIN ? TP_PITCH_MIN : (np > TP_PITCH_MAX ? TP_PITCH_MAX : np);
+    // SH-039 pad aim assist + look application — camera.ts.
+    updateCameraLook(input.lookX, input.lookY, input.padActive);
   }
 
   const playing = GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen();
@@ -1670,147 +1593,9 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     MIX.updateWindAmbience(dtReal, pp.x, pp.z, WIND_AMP);
   }
 
-  // Smooth orbit camera follow after physics step.
-  // Inline orbit-camera follow with wall-aware distance.
-  {
-    const pp0 = playerPosition();
-    // SH-029 â€” shake/flinch are applied to the camera basis, NOT to CAM[0]/[1]
-    // themselves. Writing them back into the player's aim would mean recoil
-    // permanently walked your crosshair and shake would fight your mouse.
-    const tShake = getTime();
-    const ya = CAM[0] + FEEL.shakeYaw(tShake);
-    const pi = CAM[1] + FEEL.shakePitch(tShake);
-    const cpi = Math.cos(pi), spi = Math.sin(pi);
-    const fX = pp0.x;
-    const fY = pp0.y + TP_EYE_HEIGHT;
-    const fZ = pp0.z;
-    // Direction from focus to ideal camera position.
-    const dxRaw = -Math.sin(ya) * cpi;
-    const dyRaw =  Math.sin(pi);
-    const dzRaw =  Math.cos(ya) * cpi;
-    // Raycast from the focus point outward toward the orbit
-    // direction. If anything (wall, tree trunk, terrain) is closer
-    // than TP_ORBIT_DIST, shorten the orbit so the camera zooms
-    // in instead of clipping through geometry. Leave a small skin
-    // so we don't kiss the wall exactly.
-    // Round-2 audit (F11): STATIC geometry only. Enemy bodies are in the
-    // MOVING layer; letting them shorten the orbit pulled the camera
-    // inside the mob whenever the player got surrounded â€” near-plane
-    // clipping filled the screen with polygon soup. Enemies briefly
-    // occluding the camera reads far better than being inside them.
-    // SH-028 â€” shoulder aim pulls the camera in from 6.0 m to 2.6 m. The
-    // wall-aware raycast below still applies, so aiming into a corner behaves.
-    const aimT = WPN.aimBlend();
-    const wantDist = TP_ORBIT_DIST + (2.6 - TP_ORBIT_DIST) * aimT;
-    let blockDist = wantDist;
-
-    // (a) Static geometry, as a PROBE FAN rather than one hairline ray. The
-    // camera is a volume, not a point: a single centre ray slips past a trunk or
-    // a wall corner that then fills a third of the screen. Jolt has no shape
-    // cast exposed, so sweep a cylinder of radius CAM_PROBE_R the honest way â€”
-    // four rays offset perpendicular to the orbit direction, plus the centre.
-    // Cheap: five raycasts against static bodies only.
-    //
-    // The orbit direction never points straight up (pitch is clamped well below
-    // vertical), so (-dz, 0, dx) is always a safe perpendicular.
-    const perpL = Math.sqrt(dxRaw * dxRaw + dzRaw * dzRaw);
-    const uX = -dzRaw / perpL, uY = 0, uZ = dxRaw / perpL;      // right, level
-    const vX = uY * dzRaw - uZ * dyRaw;                          // u x d = up-ish
-    const vY = uZ * dxRaw - uX * dzRaw;
-    const vZ = uX * dyRaw - uY * dxRaw;
-    for (let p = 0; p < 5; p++) {
-      let oX = fX, oY = fY, oZ = fZ;
-      if (p === 1) { oX += uX * CAM_PROBE_R; oY += uY * CAM_PROBE_R; oZ += uZ * CAM_PROBE_R; }
-      if (p === 2) { oX -= uX * CAM_PROBE_R; oY -= uY * CAM_PROBE_R; oZ -= uZ * CAM_PROBE_R; }
-      if (p === 3) { oX += vX * CAM_PROBE_R; oY += vY * CAM_PROBE_R; oZ += vZ * CAM_PROBE_R; }
-      if (p === 4) { oX -= vX * CAM_PROBE_R; oY -= vY * CAM_PROBE_R; oZ -= vZ * CAM_PROBE_R; }
-      const hit = raycast(physics, vec3(oX, oY, oZ),
-        vec3(dxRaw, dyRaw, dzRaw), wantDist, 1 << Layer.NON_MOVING);
-      if (hit !== null) {
-        const d = hit.fraction * wantDist;
-        if (d < blockDist) blockDist = d;
-      }
-    }
-
-    // (b) Tree canopies, which are not in the physics world at all (the leaves
-    // are deliberately shoot-through, so a raycast sails straight through them
-    // and the camera ends up inside a bush). Ray vs. the canopy cylinder,
-    // analytically. The cheap XZ reject drops ~85 of the 88 trees before any
-    // real work, so this is a handful of multiplies per frame.
-    for (let i = 0; i < FOREST_COUNT; i++) {
-      const s = FOREST_SCALE[i];
-      const vI = FOREST_VAR[i];
-      const cr = CANOPY_R[vI] * s * CANOPY_SOLID_FRAC;
-      const cx = FOREST_X[i] - fX;
-      const cz = FOREST_Z[i] - fZ;
-      const reach = blockDist + cr;
-      if (cx * cx + cz * cz > reach * reach) continue;          // far: cannot block
-
-      // Interval of the ray inside the canopy's XZ circle.
-      const a = dxRaw * dxRaw + dzRaw * dzRaw;
-      if (a < 1e-6) continue;                                    // ray is vertical
-      const b = -2 * (cx * dxRaw + cz * dzRaw);
-      const c = cx * cx + cz * cz - cr * cr;
-      const disc = b * b - 4 * a * c;
-      if (disc <= 0) continue;                                   // misses the circle
-      const sq = Math.sqrt(disc);
-      let ta = (-b - sq) / (2 * a);
-      let tb = (-b + sq) / (2 * a);
-      if (ta < 0) ta = 0;
-      if (tb > blockDist) tb = blockDist;
-      if (ta > tb) continue;
-
-      // ...and of the ray inside the canopy's height band. y(t) is linear, so
-      // both intervals are ranges and the block starts where they overlap.
-      const y0 = FOREST_Y[i] + CANOPY_Y0[vI] * s;
-      const y1 = FOREST_Y[i] + CANOPY_Y1[vI] * s;
-      let tEnter = ta;
-      let tExit = tb;
-      if (Math.abs(dyRaw) < 1e-6) {
-        if (fY < y0 || fY > y1) continue;                        // passes above/below
-      } else {
-        const tA = (y0 - fY) / dyRaw;
-        const tB = (y1 - fY) / dyRaw;
-        const tLo = tA < tB ? tA : tB;
-        const tHi = tA < tB ? tB : tA;
-        if (tLo > tEnter) tEnter = tLo;
-        if (tHi < tExit) tExit = tHi;
-        if (tEnter > tExit) continue;                            // never in the band
-      }
-      if (tEnter < blockDist) blockDist = tEnter;
-    }
-
-    // Leave a small skin so the camera does not kiss the surface it stopped at.
-    let orbitDist = wantDist;
-    if (blockDist < wantDist) {
-      orbitDist = Math.max(TP_ORBIT_MIN, blockDist - 0.25);
-    }
-    if (ANIMDBG) { dbgOrbit = orbitDist; dbgWant = wantDist; }
-    const wX = fX + dxRaw * orbitDist;
-    const wY = fY + dyRaw * orbitDist;
-    const wZ = fZ + dzRaw * orbitDist;
-    if (CAM[8] === 0) {
-      CAM[2] = wX; CAM[3] = wY; CAM[4] = wZ;
-      CAM[5] = fX; CAM[6] = fY; CAM[7] = fZ;
-      CAM[8] = 1;
-    } else {
-      // Snap inward fast (zoom-in is responsive) but lerp outward
-      // smoothly so the camera doesn't suddenly fly back when the
-      // player rounds a corner.
-      const desired = vec3(wX, wY, wZ);
-      const curDist = Math.hypot(CAM[2] - fX, CAM[3] - fY, CAM[4] - fZ);
-      const tIn  = 1 - Math.exp(-TP_SMOOTH * 2.5 * dt);
-      const tOut = 1 - Math.exp(-TP_SMOOTH * dt);
-      const t = orbitDist < curDist ? tIn : tOut;
-      CAM[2] = CAM[2] + (desired.x - CAM[2]) * t;
-      CAM[3] = CAM[3] + (desired.y - CAM[3]) * t;
-      CAM[4] = CAM[4] + (desired.z - CAM[4]) * t;
-      const tF = 1 - Math.exp(-TP_SMOOTH * dt);
-      CAM[5] = CAM[5] + (fX - CAM[5]) * tF;
-      CAM[6] = CAM[6] + (fY - CAM[6]) * tF;
-      CAM[7] = CAM[7] + (fZ - CAM[7]) * tF;
-    }
-  }
+  // Smooth orbit camera follow after the physics step: occlusion-aware
+  // (probe fan vs. static bodies + analytic canopy cylinders) - camera.ts.
+  updateCameraOrbit(dt, physics);
   playerAnimT = playerAnimT + dt;
 
   // SH-027 / EN-033: where the gun actually is — computed ONCE per frame and
@@ -2122,7 +1907,28 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // through the same path). The bsuit's only "attack" animation is a
     // melee swing â€” a ranged shooter shouldn't use it; keep the walk/idle
     // pose and fake recoil + muzzle flash on the weapon.
-    const modelYaw = Math.PI / 2 - camYaw;
+    //
+    // SH-047 — turn the BODY to face its movement direction (see playerFaceOffset).
+    // Offset relative to camera-forward: atan2(moveX, -moveZ) gives 0 for W,
+    // ±90° for A/D, ±45° for the W diagonals — exactly the requested angles,
+    // because that IS the movement direction. Guarded on `moving`: with no input
+    // the target is 0 (forward), which also dodges atan2(0, -0) = π (idle would
+    // otherwise face backward). Aiming down sights forces forward — you are
+    // pointing the gun, not walking. `playing` gates it so the menu backdrop and
+    // the death pose don't spin.
+    let faceTarget = 0;
+    if (playing && !input.aimDown && (input.moveX !== 0 || input.moveZ !== 0)) {
+      faceTarget = Math.atan2(input.moveX, -input.moveZ);
+    }
+    // Ease along the SHORTEST arc, so S+A -> S+D turns the near way, not 270°.
+    let dOff = faceTarget - playerFaceOffset;
+    while (dOff > Math.PI) dOff = dOff - Math.PI * 2;
+    while (dOff < -Math.PI) dOff = dOff + Math.PI * 2;
+    playerFaceOffset = playerFaceOffset + dOff * (1 - Math.exp(-PLAYER_TURN_RATE * dt));
+
+    // Rendered facing = camYaw + offset (the sign quirk above inverts rotY, so
+    // the offset is SUBTRACTED here to add it to the rendered facing).
+    const modelYaw = Math.PI / 2 - camYaw - playerFaceOffset;
 
     // SH-034 / EN-028 — locomotion through the mixer instead of hard clip swaps.
     // animPlay is idempotent, so we state the clip we want every frame and the
@@ -2192,7 +1998,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
           + ' clip=' + wantClip
           + ' rate=' + rate.toFixed(2)
           + ' ankleAmp=' + amp.toFixed(4)
-          + ' orbit=' + dbgOrbit.toFixed(2) + '/' + dbgWant.toFixed(2)
+          + ' orbit=' + CAMDBG.orbit.toFixed(2) + '/' + CAMDBG.want.toFixed(2)
           + ' px=' + pp.x.toFixed(1) + ' pz=' + pp.z.toFixed(1));
         AD[4] = 1e9;
         AD[5] = -1e9;
@@ -2362,258 +2168,19 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // established above. On desktop uiScale is 1 and this is a no-op.
   if (MOBILE) beginMode2DRaw(0, 0, 0, 0, 0, uiScale);
 
-  // The gameplay HUD belongs to a RUN. On the main menu it was still drawing
-  // the health bar, the ammo readout and the crosshair over a game that had
-  // not started — which is exactly the tell that a "title screen" was really
-  // just the game with the input switched off.
-  if (GS.gameState === 1) {
-    // ---- Crosshair (SH-028) -------------------------------------------------
-    // The gap between the arms IS the current spread. A crosshair that doesn't
-    // move while your cone triples is lying to the player about where the bullet
-    // is going, and it is the reason spread feels "random" instead of earned.
-    {
-      const spreadDeg = WPN.spreadRad() * 180 / Math.PI;
-      const gap = 4 + spreadDeg * 5.5;
-      const arm = 7;
-      const crossA = GS.muzzleFlashT > 0 ? 250 : 190;
-      const col = { r: 255, g: 255, b: 255, a: crossA };
-      const cx = sw / 2;
-      const cy = sh / 2;
-      drawRect(cx - gap - arm, cy - 1, arm, 2, col);
-      drawRect(cx + gap,       cy - 1, arm, 2, col);
-      drawRect(cx - 1, cy - gap - arm, 2, arm, col);
-      drawRect(cx - 1, cy + gap,       2, arm, col);
-      drawCircle(cx, cy, 1.5, col);
-
-      // SH-043 â€” hit confirmation is a white FLASH + a tick, not a colour change:
-      // a colourblind player gets the same information as anyone else.
-      if (GS.hitMarkT > 0) {
-        const ha = Math.floor((GS.hitMarkT / 0.18) * 255);
-        const hc = { r: 255, g: 255, b: 255, a: ha };
-        const d = 10;
-        drawRect(cx - d, cy - d, 6, 2, hc);
-        drawRect(cx + d - 6, cy - d, 6, 2, hc);
-        drawRect(cx - d, cy + d - 2, 6, 2, hc);
-        drawRect(cx + d - 6, cy + d - 2, 6, 2, hc);
-      }
-    }
-
-    // Damage vignette â€” red screen edges when the player takes a hit.
-    if (GS.damageFlashT > 0) {
-      const fa = Math.floor((GS.damageFlashT / 0.5) * 120);
-      drawRect(0, 0, sw, 60, { r: 200, g: 20, b: 20, a: fa });
-      drawRect(0, sh - 60, sw, 60, { r: 200, g: 20, b: 20, a: fa });
-      drawRect(0, 0, 60, sh, { r: 200, g: 20, b: 20, a: fa });
-      drawRect(sw - 60, 0, 60, sh, { r: 200, g: 20, b: 20, a: fa });
-    }
-
-    // SH-029/SH-043 â€” damage direction arc. Encodes WHERE the hit came from as
-    // a position (a shape you can see), not just a colour you have to interpret.
-    if (GS.lastHitT > 0) {
-      const a = Math.floor((GS.lastHitT / 1.4) * 200);
-      const r = Math.min(sw, sh) * 0.22;
-      const cx = sw / 2;
-      const cy = sh / 2;
-      // Screen-space: +x right, -y up. The angle is relative to where you face.
-      const ax = cx + Math.sin(GS.lastHitAngle) * r;
-      const ay = cy - Math.cos(GS.lastHitAngle) * r;
-      drawCircle(ax, ay, 9, { r: 235, g: 70, b: 55, a: a });
-      drawCircle(ax, ay, 4, { r: 255, g: 220, b: 210, a: a });
-    }
-
-    // Player HP bar â€” bottom-left. Low health pulses, so the state is legible
-    // without reading the number.
-    const phpW = 220;
-    const phpFill = Math.max(0, Math.floor(phpW * (GS.playerHP / PLAYER_HP_MAX)));
-    const lowT = GS.playerHP < 25 ? (0.6 + 0.4 * Math.sin(getTime() * 9)) : 1;
-    drawRect(10, sh - 68, phpW, 18, { r: 30, g: 10, b: 10, a: 180 });
-    drawRect(10, sh - 68, phpFill, 18,
-      { r: Math.floor(180 * lowT + 60), g: 60, b: 50, a: 230 });
-    drawText('HP ' + GS.playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
-
-    // Dodge cooldown â€” a thin bar under HP, so you know when you can commit.
-    {
-      const cd = dodgeCooldownFrac();
-      if (cd > 0) {
-        drawRect(10, sh - 46, phpW, 4, { r: 20, g: 20, b: 24, a: 160 });
-        drawRect(10, sh - 46, phpW * (1 - cd), 4, { r: 120, g: 190, b: 235, a: 220 });
-      }
-    }
-
-    // ---- Score + combo (SH-041) ---------------------------------------------
-    if (GS.gameState === 1) {
-      const st = 'SCORE ' + SCORE.score();
-      drawText(st, 14, 44, 22, { r: 245, g: 235, b: 195, a: 235 });
-      const cmb = SCORE.combo();
-      if (cmb > 1.001) {
-        const ct = 'x' + cmb.toFixed(2);
-        drawText(ct, 14, 70, 26, { r: 255, g: 200, b: 90, a: 255 });
-        // The combo's remaining life, as a draining bar â€” the pressure made
-        // visible is what makes players push forward instead of hiding.
-        const cw = 90;
-        drawRect(14, 100, cw, 4, { r: 30, g: 25, b: 15, a: 180 });
-        drawRect(14, 100, cw * SCORE.comboFrac(), 4, { r: 255, g: 190, b: 70, a: 240 });
-      }
-    }
-
-    // Render-pass debug status line. Top-left, always on â€” but there are no
-    // function keys on a phone, so it's just clutter over the play area there.
-    if (!MOBILE) {
-      const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
-        + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
-        + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')
-        + '   F8 SHADOW ' + (dbgShadow ? 'ON ' : 'off')
-        // The vN suffix is a build tag: bump it with each PT engine drop
-        // so a stale main.exe is identifiable at a glance in the HUD.
-        + '   F9 PT ' + (!ptSupported ? 'n/a' : (SET.get(SET.SET_PT) === 0 ? 'off' : (SET.get(SET.SET_PT) === 1 ? 'PROG' : 'RT'))) + ' v11';
-      drawRect(6, 6, 760, 30, { r: 0, g: 0, b: 0, a: 170 });
-      drawText(dbgLine, 14, 12, 18, { r: 255, g: 240, b: 120, a: 255 });
-    }
-
-    // ---- Weapon + ammo + reload + charge (SH-028 / SH-042) ------------------
-    {
-      const w = WPN.currentWeapon();
-      const curAmmo = WPN.currentAmmo();
-      // MAGAZINE / RESERVE — the standard readout, and now an honest one: the mag
-      // is what you can fire before reloading, the reserve is what a reload costs.
-      const res = WPN.currentReserve();
-      const wtxt = WPN.WEAPON_NAMES[w] + '  ' + curAmmo + ' / ' + res;
-      // On touch the ammo readout sits above the fire button rather than in the
-      // corner, where the thumb would cover it.
-      const wy = MOBILE ? sh - 210 : sh - 68;
-      drawRect(sw - 260, wy, 250, 18, { r: 0, g: 0, b: 0, a: 150 });
-      // Empty mags read red â€” the one piece of info you need at a glance.
-      const ammoCol = curAmmo === 0
-        ? { r: 235, g: 90, b: 70, a: 255 }
-        : { r: 240, g: 230, b: 180, a: 255 };
-      const pad = input.padActive;
-      const hint = MOBILE ? '' : (pad ? '   [Y switch  X reload]' : '   [1-4 switch  R reload]');
-      drawText(wtxt + hint, sw - 252, wy + 3, 13, ammoCol);
-
-      // Reload progress. A timed reload the player cannot SEE is just an
-      // unexplained dead trigger; the bar is what turns it into a decision about
-      // when to take cover.
-      if (WPN.isReloading()) {
-        const rp = WPN.reloadProgress();
-        drawRect(sw - 260, wy - 12, 250, 8, { r: 25, g: 25, b: 30, a: 200 });
-        drawRect(sw - 260, wy - 12, 250 * rp, 8, { r: 120, g: 200, b: 235, a: 240 });
-        const rt = 'RELOADING';
-        drawText(rt, sw - 260, wy - 32, 15, { r: 190, g: 225, b: 245, a: 230 });
-      }
-
-      // Charge meter (cannon). Turns red-hot at full so you can feel the release
-      // point without staring at the bar.
-      const chg = WPN.chargeLevel();
-      if (chg > 0.01) {
-        const full = chg > 0.98;
-        const bw = 160;
-        const cx = sw / 2 - bw / 2;
-        const cy = sh / 2 + 44;
-        drawRect(cx, cy, bw, 8, { r: 20, g: 20, b: 24, a: 190 });
-        drawRect(cx, cy, bw * chg, 8,
-          full ? { r: 255, g: 120, b: 60, a: 255 } : { r: 255, g: 210, b: 110, a: 235 });
-      }
-
-      // Chaingun spool â€” the ramp you have to pay before the first round leaves.
-      const spool = WPN.spinup();
-      if (spool > 0.01 && spool < 0.99) {
-        const bw = 120;
-        const cx = sw / 2 - bw / 2;
-        const cy = sh / 2 + 60;
-        drawRect(cx, cy, bw, 5, { r: 20, g: 20, b: 24, a: 180 });
-        drawRect(cx, cy, bw * spool, 5, { r: 200, g: 200, b: 210, a: 220 });
-      }
-    }
-
-    // Wave HUD â€” top-center. Shows "WAVE X â€” enemies K/N" while spawning,
-    // or a "NEXT WAVE IN ..." countdown between waves.
-    const aliveNow = countAlive();
-    if (GS.gameState === 1 && !GS.gameOver && !DIR.gameWon) {
-      if (DIR.waveBreakTimer > 0 && DIR.waveIdx < wavePlan.length) {
-        const label = 'WAVE ' + (DIR.waveIdx + 1) + ' IN ' + DIR.waveBreakTimer.toFixed(1) + 's';
-        const lw = measureText(label, 22);
-        drawText(label, (sw - lw) / 2, 18, 22, { r: 230, g: 220, b: 160, a: 230 });
-      } else if (DIR.waveIdx < wavePlan.length) {
-        const waveSize = wavePlan[DIR.waveIdx];
-        const remaining = (waveSize - DIR.waveSpawned) + aliveNow;
-        const label = 'WAVE ' + (DIR.waveIdx + 1) + ' â€” ' + remaining + ' / ' + waveSize;
-        const lw = measureText(label, 20);
-        drawText(label, (sw - lw) / 2, 18, 20, { r: 230, g: 220, b: 160, a: 230 });
-      }
-    }
-
-    // SH-041 â€” end-of-wave report card. Shows what the wave EARNED, which is what
-    // turns "I survived" into "I could have done that better".
-    if (GS.waveBonusT > 0 && GS.gameState === 1) {
-      const a = Math.min(1, GS.waveBonusT / 0.6);
-      const alpha = Math.floor(a * 235);
-      const cardY = sh * 0.28;
-      const cardW = 320;
-      const cardX = (sw - cardW) / 2;
-      drawRect(cardX, cardY, cardW, 118, { r: 12, g: 12, b: 16, a: Math.floor(a * 200) });
-      const head = 'WAVE ' + DIR.waveIdx + ' CLEAR';
-      const hw = measureText(head, 26);
-      drawText(head, (sw - hw) / 2, cardY + 10, 26,
-        { r: 235, g: 220, b: 150, a: alpha });
-      const acc = Math.round(SCORE.accuracy() * 100);
-      drawText('KILLS      ' + SCORE.waveKills(), cardX + 24, cardY + 46, 17,
-        { r: 220, g: 220, b: 225, a: alpha });
-      drawText('ACCURACY   ' + acc + '%', cardX + 24, cardY + 68, 17,
-        { r: 220, g: 220, b: 225, a: alpha });
-      drawText('BONUS     +' + GS.waveBonus, cardX + 24, cardY + 90, 17,
-        { r: 255, g: 205, b: 100, a: alpha });
-    }
-
-    // Unlock banner.
-    if (GS.unlockBannerT > 0) {
-      const a = Math.floor(Math.min(1, GS.unlockBannerT / 1.0) * 245);
-      const msg = 'CHAINGUN UNLOCKED';
-      const mw = measureText(msg, 30);
-      drawText(msg, (sw - mw) / 2, sh * 0.20, 30, { r: 255, g: 215, b: 120, a: a });
-    }
-  }
+  // The in-run HUD - crosshair/spread, hit marker, damage vignette + arc,
+  // HP + dodge, score + combo, render-toggle status, ammo/reload/charge,
+  // wave banner + report card, unlock banner - hud.ts (gated on a run inside).
+  drawHud(sw, sh, input.padActive, dbgSsgi, dbgSsao, dbgSsr, dbgShadow,
+          ptSupported, SET.get(SET.SET_PT));
 
   // (The title screen used to live here: a wordmark and "press any key". It is
   // now the MAIN MENU — same live-world backdrop, but with somewhere to go. It
   // is drawn by drawMenu() with every other menu, and starts the run through
   // ACT_PLAY -> startRun() rather than by swallowing a keypress.)
 
-  // Game over overlay â€” now with the run's numbers on it.
-  if (GS.gameOver) {
-    drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: 170 });
-    const msg = 'YOU DIED';
-    const mw = measureText(msg, 56);
-    drawText(msg, (sw - mw) / 2, sh * 0.30, 56, { r: 220, g: 60, b: 50, a: 255 });
-    drawRunSummary(sw, sh * 0.30 + 76);
-    const sub = 'Reached wave ' + (DIR.waveIdx + 1)
-      + (MOBILE ? ' â€” tap R to restart' : ' â€” press R to restart');
-    const sww = measureText(sub, 22);
-    drawText(sub, (sw - sww) / 2, sh * 0.30 + 210, 22, { r: 220, g: 220, b: 220, a: 230 });
-  }
-
-  // Victory overlay.
-  if (DIR.gameWon) {
-    drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: 170 });
-    const msg = 'ARENA CLEARED';
-    const mw = measureText(msg, 52);
-    drawText(msg, (sw - mw) / 2, sh * 0.28, 52, { r: 180, g: 230, b: 180, a: 255 });
-    drawRunSummary(sw, sh * 0.28 + 72);
-    const sub = 'Survived all ' + wavePlan.length + ' waves'
-      + (MOBILE ? ' â€” tap R to play again' : ' â€” press R to play again');
-    const sww = measureText(sub, 22);
-    drawText(sub, (sw - sww) / 2, sh * 0.28 + 206, 22, { r: 220, g: 220, b: 220, a: 230 });
-  }
-
-  // SH-040 — level chosen, but it loads on the next launch. Say so plainly
-  // rather than letting the player wonder why nothing happened.
-  if (GS.levelChangeT > 0) {
-    const a = Math.floor(Math.min(1, GS.levelChangeT / 0.5) * 240);
-    const msg = 'ARENA SET - RESTART THE GAME TO PLAY IT';
-    const mw = measureText(msg, 22);
-    drawRect((sw - mw) / 2 - 16, sh * 0.16 - 8, mw + 32, 40,
-             { r: 10, g: 10, b: 14, a: Math.floor(a * 0.8) });
-    drawText(msg, (sw - mw) / 2, sh * 0.16, 22, { r: 255, g: 215, b: 120, a: a });
-  }
+  // End-of-run overlays + the SH-040 level-change notice - hud.ts.
+  drawOverlays(sw, sh);
 
   // SH-038 — the pause / settings menu draws LAST so it sits over the HUD.
   drawMenu(sw, sh);
