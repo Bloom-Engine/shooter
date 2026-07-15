@@ -1,5 +1,33 @@
 # Performance audit — July 2026 (35 fps investigation)
 
+> ## Re-measured 2026-07-15 — the shipped defaults are at ~28 fps, and enemies are not why
+>
+> Everything below was measured at **render scale 0.5**. The default has since
+> moved to **0.75** (sharper: 0.5 read "visibly upscale-soft at 4K"), and house v2
+> landed. Both were deliberate; this is what they cost. On the dev box today, in
+> a real run at the shipped defaults:
+>
+> | enemies alive | fps |
+> |---|---|
+> | **0** | ~28.0 |
+> | **3** | ~27.5 |
+>
+> **Two things follow, and they matter more than any single pass in the table.**
+>
+> 1. **Enemies are nearly free — about 0.2 fps each.** Concurrency is not the
+>    lever. SH-042's `MAX_CONCURRENT` 6 → 8 was gated on "re-verify combat frame
+>    time"; verified, and it costs well under 1 fps. It went in.
+> 2. **The ≥ 35 fps acceptance now fails on the BASELINE**, with nothing on
+>    screen to fight. "Perf round 3: ~33 → ~54 fps" is still true *at 0.5*; it is
+>    not true of what ships. The gap is the static scene — 4K, the forest, the
+>    house, and the shadow/GI stack the table below already indicts (shadows
+>    alone were 11.4 ms).
+>
+> So the phased 60 fps plan is **not met at shipped defaults**, and the honest
+> framing is a *choice that was made*, not a regression that appeared: sharpness
+> and content were bought with frames. The remaining levers are the ones below
+> plus output scale (1440p output), not gameplay tuning.
+
 Measured on the dev box: AMD Radeon 760M iGPU (Dx12), 3840×2160 borderless
 output, render scale 0.5 (1920×1080 internal), TSR upscale. Data from the
 PERFTEST harness (mode 0 staged bisect on the title screen + mode 1 gameplay

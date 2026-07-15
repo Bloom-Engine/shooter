@@ -94,7 +94,22 @@ export const WAVE_BREAK_DELAY = 2.5;
 // arena felt empty and the measured pool-max load never occurred in play.
 // Waves now mix kinds (see arena_02.world.json), so the concurrency cap
 // is the real limit again.
-const MAX_CONCURRENT = 6;
+//
+// SH-042 asked for 6 -> 8 once skinned VB caching landed, gated on "re-verify
+// combat frame time" (acceptance: >= 35 fps at 4K/TSR). Measured 2026-07-15 on
+// the dev box rather than assumed, and the result reframes the gate:
+//
+//   0 enemies alive -> ~28 fps        3 enemies alive -> ~27.5 fps
+//
+// Enemies cost roughly 0.2 fps EACH. They are not what the frame is spent on —
+// the static scene is (4K at 0.75 render scale, the forest, the house, GI/SSR/
+// SSAO/shadows). So the bump is safe: 8 concurrent is worth well under 1 fps.
+//
+// The honest part: the >= 35 fps acceptance FAILS ANYWAY, on the baseline, with
+// no enemies on screen at all. That is a rendering-cost problem and it is not
+// this constant's to solve — see docs/perf-audit-2026-07.md. Raising this does
+// not cause that gap and lowering it would not close it.
+const MAX_CONCURRENT = 8;
 
 
 
