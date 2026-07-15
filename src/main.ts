@@ -867,8 +867,6 @@ const FIRE_RANGE = 60.0;
 // SH-028/SH-042 â€” weapon state now lives in src/weapons.ts as a stat TABLE, so
 // the chaingun and the cannon are rows rather than branches. What stays here is
 // only what the world/projectile code needs.
-const WEAPON_RIFLE = WPN.W_RIFLE;
-const WEAPON_BLASTER = WPN.W_BLASTER;
 const BLASTER_PROJ_LIFE = 2.5;
 const BLASTER_PROJ_GRAVITY = 9.0;   // m/s^2 â€” lighter than world gravity for a softer arc
 
@@ -896,11 +894,6 @@ let weaponPitch = 0;
 // (steady state ~19Ã— over max â€” a stuck white smear); one splat per
 // 0.15 s at lower strength holds it near 1.0 instead.
 let splatCooldown = 0;
-// Round-7 â€” wading splash SFX cadence (slower than the visual splats
-// or it reads as a drum loop).
-let splashSoundCD = 0;
-let shotsFired = 0;
-let shotsHit = 0;
 
 // ---- Projectile pool (M7) -------------------------------------------------
 // Fixed-size ring buffer. Each slot stores position, velocity, and
@@ -939,8 +932,6 @@ function spawnProjectile(x: number, y: number, z: number,
 // respawn after PICKUP_RESPAWN seconds so long runs don't starve for ammo.
 const PICKUP_RIFLE = 0;
 const PICKUP_BLASTER = 1;
-const PICKUP_RIFLE_AMT = 15;
-const PICKUP_BLASTER_AMT = 8;
 const PICKUP_RADIUS = 1.4;
 const PICKUP_RESPAWN = 18.0;
 const pickupKind = W.PICKUP_KIND;      // 0 = rifle, 1 = blaster
@@ -1091,22 +1082,9 @@ function drawRunSummary(sw: number, y: number): void {
   }
 }
 
-// Impact sparks â€” fixed ring buffer to avoid array growth in the hot loop.
-const SPARK_MAX = 16;
-const sparkX  = new Array<number>(SPARK_MAX);
-const sparkY  = new Array<number>(SPARK_MAX);
-const sparkZ  = new Array<number>(SPARK_MAX);
-const sparkT  = new Array<number>(SPARK_MAX);   // seconds of life remaining; 0 = slot free
-for (let i = 0; i < SPARK_MAX; i++) sparkT[i] = 0;
-let sparkNext = 0;
-
-function spawnSpark(p: Vec3): void {
-  sparkX[sparkNext] = p.x;
-  sparkY[sparkNext] = p.y;
-  sparkZ[sparkNext] = p.z;
-  sparkT[sparkNext] = 0.35;
-  sparkNext = (sparkNext + 1) % SPARK_MAX;
-}
+// (The old impact-spark ring buffer that lived here is gone: nothing had
+// called spawnSpark since SH-033 — VFX.emitImpactHard IS the impact spark
+// now — yet its decay and draw loops still ran every frame.)
 
 let cursorLocked = true;
 let screenshotSeq = 0;
@@ -1389,13 +1367,12 @@ cursorLocked = false;
 // boot position.
 setDirectorDeps({
   CAM, physics,
-  MUZZLE_FLASH_DUR, SPARK_MAX, TP_FOVY,
+  TP_FOVY,
   PICKUP_COUNT, PICKUP_RADIUS, PICKUP_RESPAWN, PICKUP_RIFLE,
   sfxImpactFlesh, sfxPickup, stingDeath, stingVictory, stingWaveClear,
   OBST_X, OBST_Z, OBST_R,
   sfxAlienAttack, sfxAlienDie, sfxAlienPain, sfxPlayerPain, sfxPlayerDie,
   pickupActive, pickupKind, pickupRespawnT, pickupX, pickupZ,
-  sparkT,
 });
 
 while (!windowShouldClose() && !aitestDone && !animDbgDone) {
@@ -2310,9 +2287,6 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   if (GS.levelChangeT > 0) GS.levelChangeT = GS.levelChangeT - dtReal;
   if (GS.waveBonusT > 0) GS.waveBonusT = GS.waveBonusT - dtReal;
   if (GS.unlockBannerT > 0) GS.unlockBannerT = GS.unlockBannerT - dtReal;
-  for (let i = 0; i < SPARK_MAX; i++) {
-    if (sparkT[i] > 0) sparkT[i] = sparkT[i] - dt;
-  }
   // SH-029 â€” low-health grading. Ramps in below 25 HP.
   FEEL.setLowHealth(GS.playerHP < 25 ? (1 - GS.playerHP / 25) : 0);
   MIX.duckForLowHealth(GS.playerHP > 0 && GS.playerHP < 15);
@@ -2800,23 +2774,6 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Glow sphere around the cube for visibility.
     drawSphere(vec3(pickupX[i], bob, pickupZ[i]), 0.55,
       { r: col.r, g: col.g, b: col.b, a: 60 });
-  }
-  // Impact sparks â€” small yellow puffs that fade over 0.35s.
-  for (let i = 0; i < SPARK_MAX; i++) {
-    if (sparkT[i] > 0) {
-      const t = sparkT[i] / 0.35;
-      const a = Math.min(255, Math.floor(t * 255));
-      if (ENV.matMuzzleFlash > 0) {
-        // Same additive material as the muzzle flash â€” radial warm
-        // burst with HDR intensity scaled by per-draw alpha.
-        drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
-          vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.45 * t + 0.10,
-          { r: 255, g: 230, b: 140, a });
-      } else {
-        drawSphere(vec3(sparkX[i], sparkY[i], sparkZ[i]), 0.25 * t + 0.05,
-          { r: 255, g: 240, b: 140, a });
-      }
-    }
   }
   // Blaster projectiles â€” additive cyan plasma using the muzzle-
   // flash mesh + material, tinted cool. The radial-falloff in the
