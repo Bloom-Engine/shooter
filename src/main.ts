@@ -34,7 +34,7 @@ import {
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
-  setManualExposure, gamepadRumble, readFile,
+  setManualExposure, gamepadRumble, readFile, writeFile,
 } from 'bloom/core';
 import {
   addPointLight, enableShadows,
@@ -98,7 +98,7 @@ import * as WPN from './weapons';
 import * as MIX from './audio-mix';
 import * as SET from './settings';
 import * as SCORE from './score';
-import { initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, MENU_NONE, applyGraphicsSettings } from './menu';
+import { initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, currentMenu, MENU_NONE, applyGraphicsSettings } from './menu';
 import {
   bootSplash, bootStage, bootOutro,
   BOOT_AUDIO, BOOT_MUSIC, BOOT_WORLD, BOOT_MESHES, BOOT_TREES, BOOT_TERRAIN,
@@ -1189,6 +1189,24 @@ let aitestDone = false;
 // is how the canopy zoom was verified.
 //
 // MUST be false in shipped builds: it suppresses every enemy wave.
+// ---- MENUTEST harness (temporary diagnostic) --------------------------------
+// SH-046 verification. Drives the front-end through the REAL input path
+// (injectKeyDown — OS-synthesised keys do not reach this game) and records what
+// the menu actually did:
+//
+//   MAIN --down,down--> SETTINGS row --enter--> SETTINGS
+//        --escape--> back to MAIN (NOT into an unstarted game)
+//        --enter on PLAY--> gameState 1, HUD on, cursor captured
+//
+// The back-target (menu.ts S[3]) and PLAY are the two things a screenshot cannot
+// tell you, and a green compile REALLY cannot: cross-module refs in this codebase
+// fail at RUNTIME, one identifier at a time. Writes a file, because console.log
+// from this game does not survive a redirect on Windows. Dormancy contract as
+// ever: MUST be false in shipped builds.
+const MENUTEST = false;
+let menuTestLog = '';
+let menuTestDone = false;
+
 const ANIMDBG = false;
 // Sub-mode of ANIMDBG: walk into the tree behind the camera and then stand
 // still, so an external window capture (tools/shot-window.ps1 — takeScreenshot()
@@ -1459,6 +1477,34 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     } else {
       openPause();
       enableCursor();
+    }
+  }
+  // MENUTEST â€” see the harness block above. Injects into the engine's own key
+  // state, so updateMenu() reads it exactly as it reads a real player.
+  if (MENUTEST && !menuTestDone) {
+    const f = testFrame;
+    if (f === 40) menuTestLog = menuTestLog + 'boot: menu=' + currentMenu() + ' (want 4=MAIN) gameState=' + GS.gameState + '\n';
+    // Row 0 PLAY -> row 2 SETTINGS.
+    if (f === 45) injectKeyDown(Key.DOWN);
+    if (f === 47) injectKeyUp(Key.DOWN);
+    if (f === 52) injectKeyDown(Key.DOWN);
+    if (f === 54) injectKeyUp(Key.DOWN);
+    if (f === 60) injectKeyDown(Key.ENTER);
+    if (f === 62) injectKeyUp(Key.ENTER);
+    if (f === 70) menuTestLog = menuTestLog + 'after ENTER on SETTINGS row: menu=' + currentMenu() + ' (want 2=SETTINGS)\n';
+    // ESC must go BACK to MAIN — not close the menu, and not kill the process.
+    if (f === 80) injectKeyDown(Key.ESCAPE);
+    if (f === 82) injectKeyUp(Key.ESCAPE);
+    if (f === 90) menuTestLog = menuTestLog + 'after ESC in settings: menu=' + currentMenu() + ' (want 4=MAIN, alive=yes)\n';
+    // back() resets the selection to row 0 = PLAY.
+    if (f === 100) injectKeyDown(Key.ENTER);
+    if (f === 102) injectKeyUp(Key.ENTER);
+    if (f === 115) {
+      menuTestLog = menuTestLog + 'after ENTER on PLAY: menu=' + currentMenu()
+        + ' (want 0=NONE) gameState=' + GS.gameState + ' (want 1)'
+        + ' cursorLocked=' + (cursorLocked ? 1 : 0) + ' (want 1)\n';
+      writeFile('tools/.testout/menutest.txt', menuTestLog);
+      menuTestDone = true;
     }
   }
   if (menuOpen()) {
@@ -3154,7 +3200,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // reads touches in the pixel space the platform delivers them in.
   drawTouchControls();
 
-  if (isKeyPressed(Key.ESCAPE)) break;
+  // (There used to be an `if (isKeyPressed(Key.ESCAPE)) break;` here — a
+  // dev-quit binding that predates the pause menu. It was UNCONDITIONAL, so it
+  // fired on every ESC no matter what was on screen: Escape out of the settings
+  // screen and the process died; press Escape to pause and the game quit instead.
+  // ESC now means "pause" in a run and "back" in a menu (menu.ts), and QUIT is a
+  // row in both menus — which is where quitting a real game belongs.)
   if (PERFTEST) perfTD = getTime();
   endDrawing();
   if (PERFTEST) {
