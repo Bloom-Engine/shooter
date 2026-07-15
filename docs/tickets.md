@@ -764,7 +764,47 @@ touching the keyboard, on Windows and iPhone (BT controller).
 
 ---
 
-## SH-040 — Level pipeline & selection ✅ *(shipped — arena manifest + level select)*
+## SH-040 — Level pipeline & selection 🟡 *(shipped — arena manifest + level select)*
+
+
+> **Reality check 2026-07-15: the PIPELINE is done, the CONTENT is not. One
+> arena is playable.** `arenas.json` lists only `arena_02`. The acceptance was
+> "three selectable, completable arenas". This is the single biggest gap between
+> what the game says it is and what it is.
+>
+> **`arena_01` is NOT a rehab candidate — I tried it, and the attempt is the
+> useful part.** The manifest calls it "a pre-schema-v2 stub"; it is actually
+> schemaVersion 2 already, and it does have a `player_spawn`, an `enemy_spawner`
+> and a `wave_config`. Only `terrain` is missing, which looks like a one-command
+> fix (`bun tools/bake-terrain-to-world.ts assets/worlds/arena_01.world.json`).
+> It is not. What that produces is INCOHERENT:
+>
+> - arena_01's ground is a flat `collider_box` (halfExtents 25,0.5,25). Baking a
+>   heightfield on top gives you two grounds fighting each other.
+> - The baker carves a river channel from the world's water volume. arena_01 has
+>   no water, so it "carves the default channel" — a **dry ditch** across a box.
+>
+> Reverted. It loads, and it is worse than not offering it — which is exactly
+> what the manifest comment already argued.
+>
+> **What arena_01 actually is:** a 50 × 50 flat walled box, one `enemy_spawner`,
+> dretch-only waves (5 / 10 / 20), no pickups, no cover, no props. It is the
+> original prototype, and it predates terrain, the prop vocabulary, ranged
+> enemies and weapon pickups. Compare arena_02: **226 entities**.
+>
+> **So a second arena is AUTHORING, not repair.** Concretely it needs:
+> 1. terrain baked *and* the flat ground collider removed (they conflict);
+> 2. a water volume first if you want the river channel — or a baker run that
+>    skips the carve;
+> 3. `weapon_pickup`s — 35 enemies with no ammo resupply is not completable;
+> 4. waves mixing kinds. SH-042's own acceptance asks for "at least one wave per
+>    arena mixing ranged + melee pressure"; dretch-only fails it;
+> 5. cover/props, or it is a flat box.
+>
+> None of that is blocked by code. Every system it needs already exists and the
+> manifest takes a new entry with zero code changes — which is precisely why this
+> is worth doing and why nobody has.
+
 
 **Why:** `world-runtime.ts:23` hardcodes `arena_02`; `arena_01` is a
 stale 8-entity v1 file; there is no way to ship more than one level.
