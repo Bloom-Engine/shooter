@@ -523,9 +523,18 @@ export function drawCombatWorld(): void {
       ? { r: 240, g: 200, b: 80,  a: 255 }    // gold = rifle
       : { r: 120, g: 220, b: 240, a: 255 };   // cyan = blaster
     drawCube(vec3(pickupX[i], bob, pickupZ[i]), 0.4, 0.4, 0.4, col);
-    // Glow sphere around the cube for visibility.
-    drawSphere(vec3(pickupX[i], bob, pickupZ[i]), 0.55,
-      { r: col.r, g: col.g, b: col.b, a: 60 });
+    // Glow around the cube for visibility — the ADDITIVE muzzle-flash
+    // material, same as the plasma bolts, NOT an alpha-blended drawSphere.
+    // The sphere wrote the G-buffer, and the path tracer takes primary
+    // visibility from the G-buffer: in PT modes every pickup wore an opaque
+    // unlit BLACK ball where its glow should be. The additive bucket
+    // composites after the PT and never touches the G-buffer, so this reads
+    // as the same soft glow in raster and both PT modes.
+    if (ENV.matMuzzleFlash > 0) {
+      drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
+        vec3(pickupX[i], bob, pickupZ[i]), 0.55,
+        { r: col.r, g: col.g, b: col.b, a: 160 });
+    }
   }
   // Blaster projectiles — additive cyan plasma using the muzzle-
   // flash mesh + material, tinted cool. The radial-falloff in the
