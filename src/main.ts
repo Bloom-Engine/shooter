@@ -6,7 +6,7 @@ import {
   setAmbientLight, setDirectionalLight, setEnvClearFromHdr,
   getScreenWidth, getScreenHeight,
   vec3,
-  isKeyPressed, Key, Vec3, injectKeyDown, injectKeyUp, isAnyInputPressed,
+  isKeyPressed, isKeyDown, Key, Vec3, injectKeyDown, injectKeyUp, isAnyInputPressed,
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
   loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
@@ -58,7 +58,7 @@ import {
 import { initInput, readInput, drawTouchControls, MOBILE } from './input';
 import {
   createPlayer, updatePlayerController, playerPosition,
-  playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting,
+  playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting, isCrouching,
 } from './player';
 import * as W from './world-runtime';
 import { ENV, initEnvironment, initGiProxies } from './environment';
@@ -72,7 +72,7 @@ import {
   setCombatDeps, updateWeaponTransform, updateCombat, drawWeapon,
   drawCombatWorld, startRun, resetRun, PLAYER_HP_MAX,
   PICKUP_COUNT, PICKUP_RADIUS, PICKUP_RESPAWN, PICKUP_RIFLE,
-  pickupActive, pickupKind, pickupRespawnT, pickupX, pickupZ,
+  pickupActive, pickupKind, pickupRespawnT, pickupX, pickupY, pickupZ,
 } from './combat';
 import {
   CAM, TP_PITCH_MIN, TP_PITCH_MAX, TP_FOVY, CAMDBG,
@@ -163,6 +163,13 @@ const cliPt = cliArg('--pt');
 if (cliPt === 'off' || cliPt === '0') SET.set(SET.SET_PT, 0);
 else if (cliPt === 'prog' || cliPt === '1') SET.set(SET.SET_PT, 1);
 else if (cliPt === 'rt' || cliPt === '2') SET.set(SET.SET_PT, 2);
+// `--dbg-off shadows|ssgi|ssao|ssr|bloom|taa` disables ONE render pass for
+// this launch. The F5-F8 toggles cover the same passes interactively, but
+// they cannot be driven from a batch run (PostMessage keys never reach the
+// input state), and pass-bisection from a script is exactly how the leaf
+// snow-dots (GTAO, engine #95) and the house-interior shadow leak were
+// isolated. Debug aid — costs nothing when absent.
+const cliDbgOff = cliArg('--dbg-off');
 
 FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
 initMenus();
@@ -449,6 +456,14 @@ if (MOBILE) {
 // (MOBILE keeps its own profile: a phone has no settings screen and no headroom
 // to give away.)
 if (!MOBILE) applyGraphicsSettings();
+// --dbg-off (see the CLI block above) applies after the persisted settings
+// so it always wins for the launch it was asked for.
+if (cliDbgOff === 'shadows') setShadowsEnabled(false);
+else if (cliDbgOff === 'ssgi') setSsgiEnabled(false);
+else if (cliDbgOff === 'ssao') setSsaoEnabled(false);
+else if (cliDbgOff === 'ssr') setSsrEnabled(false);
+else if (cliDbgOff === 'bloom') setBloomEnabled(false);
+else if (cliDbgOff === 'taa') setTaaEnabled(false);
 
 // Static box colliders â€” invisible physics walls that bound the plaza
 // and carry the ground plane.
@@ -581,9 +596,13 @@ for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
 
 // Round-9 â€” flat obstacle-circle list for enemy steering. Enemies are
 // KINEMATIC (steered in XZ, setBodyPosition) so Jolt never resolves their
-// contacts â€” they need code-side avoidance. Circles cover every tree trunk:
-// the forest entities plus any prop_tree meshes placed as static_mesh.
-const OBST_MAX = FOREST_COUNT + W.MESH_COUNT;
+// contacts â€” they need code-side avoidance. Circles cover every tree trunk
+// (forest entities plus prop_tree static meshes) and, since house v2, the
+// GROUND-FLOOR building walls: a row of circles along each wall piece that
+// actually blocks a walker. The door and window openings get no circles, so
+// enemies funnel through the doors instead of clipping through masonry.
+// The +256 is the wall-circle budget (~1 per metre of ground-floor wall).
+const OBST_MAX = FOREST_COUNT + W.MESH_COUNT + 256;
 const OBST_X = new Array<number>(OBST_MAX);
 const OBST_Z = new Array<number>(OBST_MAX);
 const OBST_R = new Array<number>(OBST_MAX);
@@ -599,6 +618,58 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
     OBST_Z[GS.OBST_COUNT] = W.MESH_Z[i];
     OBST_R[GS.OBST_COUNT] = 0.30 * W.MESH_SCALE[i];
     GS.OBST_COUNT = GS.OBST_COUNT + 1;
+  }
+}
+// House v2 walls. A building box blocks a ground walker when it starts at
+// (or in) the floor and reaches above knee height — that selects the solid
+// wall strips, window sills and stair-adjacent pieces, and skips door
+// lintels, upper floors, slabs and the roof.
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  const mi = W.MESH_MODEL_IDX[i];
+  if (W.MODEL_IS_BOX[mi] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
+  const hy = W.MESH_COLLIDER_HY[i];
+  const yLo = W.MESH_Y[i] - hy;
+  const yHi = W.MESH_Y[i] + hy;
+  if (yLo > 0.7 || yHi < 1.2) continue;          // not a ground-level blocker
+  const hx = W.MESH_COLLIDER_HX[i];
+  const hz = W.MESH_COLLIDER_HZ[i];
+  const thin = Math.min(hx, hz);
+  if (thin > 0.6) continue;                      // slab/floor plate, not a wall
+  const long = Math.max(hx, hz);
+  const alongX = hx >= hz;
+  const r = thin + 0.55;
+  // One circle per ~metre of wall, clamped so even a short piece gets one.
+  const n = Math.max(1, Math.floor(long / 0.5));
+  for (let s = 0; s < n && GS.OBST_COUNT < OBST_MAX; s++) {
+    const t = n === 1 ? 0 : -long + (2 * long * s) / (n - 1);
+    OBST_X[GS.OBST_COUNT] = W.MESH_X[i] + (alongX ? t : 0);
+    OBST_Z[GS.OBST_COUNT] = W.MESH_Z[i] + (alongX ? 0 : t);
+    OBST_R[GS.OBST_COUNT] = r;
+    GS.OBST_COUNT = GS.OBST_COUNT + 1;
+  }
+}
+
+// House bounds, derived from the building boxes — the reverb zone and any
+// other "near the house" logic reads these instead of hardcoding a footprint
+// (the old hardcoded reverb centre (0,-14) wasn't even where the house IS).
+let BLDG_CX = 0, BLDG_CZ = 0, BLDG_HX = 0, BLDG_HZ = 0;
+{
+  let bx0 = 1e9, bx1 = -1e9, bz0 = 1e9, bz1 = -1e9;
+  let anyB = false;
+  for (let i = 0; i < W.MESH_COUNT; i++) {
+    const mi = W.MESH_MODEL_IDX[i];
+    if (W.MODEL_IS_BOX[mi] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
+    anyB = true;
+    if (W.MESH_X[i] - W.MESH_COLLIDER_HX[i] < bx0) bx0 = W.MESH_X[i] - W.MESH_COLLIDER_HX[i];
+    if (W.MESH_X[i] + W.MESH_COLLIDER_HX[i] > bx1) bx1 = W.MESH_X[i] + W.MESH_COLLIDER_HX[i];
+    if (W.MESH_Z[i] - W.MESH_COLLIDER_HZ[i] < bz0) bz0 = W.MESH_Z[i] - W.MESH_COLLIDER_HZ[i];
+    if (W.MESH_Z[i] + W.MESH_COLLIDER_HZ[i] > bz1) bz1 = W.MESH_Z[i] + W.MESH_COLLIDER_HZ[i];
+  }
+  if (anyB) {
+    BLDG_CX = (bx0 + bx1) * 0.5;
+    BLDG_CZ = (bz0 + bz1) * 0.5;
+    BLDG_HX = (bx1 - bx0) * 0.5;
+    BLDG_HZ = (bz1 - bz0) * 0.5;
   }
 }
 
@@ -756,6 +827,15 @@ const PLAYER_ANIM_IDLE   = 0;
 const PLAYER_ANIM_WALK   = 12;
 const PLAYER_ANIM_RUN    = 8;
 const PLAYER_ANIM_ATTACK = 7;
+// SH-048 — crouch clips (bsuit indices). Because the body turns to face its
+// movement direction (SH-047), the character always crouch-walks "forward"
+// relative to itself, so the single crouch_forward clip covers every heading —
+// the directional crouch_left/right/back clips (20/21/19) are not needed.
+const PLAYER_ANIM_CROUCH     = 17;   // crouch idle
+const PLAYER_ANIM_CROUCH_FWD = 18;   // crouch walk
+// Authored ground speed of the crouch_forward clip, for foot-planting (see the
+// note on ANIM_WALK_SPEED). A guess until measured; tune if the feet slide.
+const ANIM_CROUCH_SPEED = 1.6;
 const PLAYER_SCALE = 1.0;
 const PLAYER_MODEL_Y_OFFSET = -0.95;    // character capsule center -> feet
 let playerAnimT = 0;
@@ -891,6 +971,23 @@ initGiProxies(meshModelHandles, treeVariants, terrainPropIdx, TREE_GLB_PARTS);
 // the scene on frame 60, and exits on frame 90. Used while investigating the
 // engine's deferred-render green-screen bug â€” kept dormant for future debug.
 const SELFTEST = false;
+// FACETEST (SH-047) — see the input-override block. dbgFaceDir: 0=D(right,90°),
+// 1=A(left,90°), 2=W+D(45°). MUST be false in shipped builds.
+const FACETEST = false;
+const dbgFaceDir = 0;
+// KEYPROBE — verify the engine's Windows Shift/Ctrl fix reaches isKeyDown().
+// Latches whether each modifier was EVER seen down and writes it to a file, so a
+// synthetic hardware keypress (SendInput, scancode path) can confirm the real
+// wndproc→map_keycode path — which injectKeyDown bypasses. MUST be false.
+const KEYPROBE = false;
+// 0 lshift-ever  1 rshift-ever  2 lctrl-ever
+const KP = [0, 0, 0];
+// LOCOPROBE (SH-048) — verify sprint AND crouch through the REAL keys. Auto-
+// starts, forces a strafe so the player is always moving, reads the actual
+// Shift/C keys (does NOT override them), and logs speed + clip so a synthetic
+// Shift / C hold shows the tier change. MUST be false in shipped builds.
+const LOCOPROBE = false;
+let locoLog = '';
 let testFrame = 0;
 
 // ---- WATERTEST harness (temporary diagnostic) -------------------------------
@@ -954,6 +1051,13 @@ const MENUTEST = false;
 let menuTestLog = '';
 let menuTestDone = false;
 
+// ---- INDOORCAM harness (temporary diagnostic) -------------------------------
+// Pins the camera inside the house ground floor (overriding the orbit) so an
+// interior frame can be captured / pass-bisected from a batch run — this plus
+// --dbg-off is how the interior shadow-leak stipple was isolated to the
+// shadow pass. Starts a run at frame 20 like the other harnesses. Same
+// dormancy contract: MUST be false in shipped builds.
+const INDOORCAM = false;
 const ANIMDBG = false;
 // Sub-mode of ANIMDBG: walk into the tree behind the camera and then stand
 // still, so an external window capture (tools/shot-window.ps1 — takeScreenshot()
@@ -1139,7 +1243,7 @@ setDirectorDeps({
   sfxImpactFlesh, sfxPickup, stingDeath, stingVictory, stingWaveClear,
   OBST_X, OBST_Z, OBST_R,
   sfxAlienAttack, sfxAlienDie, sfxAlienPain, sfxPlayerPain, sfxPlayerDie,
-  pickupActive, pickupKind, pickupRespawnT, pickupX, pickupZ,
+  pickupActive, pickupKind, pickupRespawnT, pickupX, pickupY, pickupZ,
 });
 
 // SH-025c — same pattern for the combat module: camera + physics handles,
@@ -1220,6 +1324,19 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
+
+  // KEYPROBE — latch each modifier ever-down and dump it (see the flag above).
+  if (KEYPROBE) {
+    if (isKeyDown(Key.LEFT_SHIFT)) KP[0] = 1;
+    if (isKeyDown(Key.RIGHT_SHIFT)) KP[1] = 1;
+    if (isKeyDown(Key.LEFT_CONTROL)) KP[2] = 1;
+    if ((testFrame % 20) === 0) {
+      writeFile('tools/.testout/keyprobe.txt',
+        'lshift_ever=' + KP[0] + ' rshift_ever=' + KP[1]
+        + ' lctrl_ever=' + KP[2]
+        + ' lshift_now=' + (isKeyDown(Key.LEFT_SHIFT) ? 1 : 0) + '\n');
+    }
+  }
 
   // ---- SH-038: pause + menus -------------------------------------------
   // Esc / Start opens the pause menu mid-fight; the sim freezes (dt = 0 above)
@@ -1380,6 +1497,36 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // walk direction. Runs before the player controller update so
   // the override actually reaches updatePlayerController.
   if (SELFTEST && testFrame >= 20) input.moveZ = -1;
+  // LOCOPROBE (SH-048) — force a strafe and log the locomotion tier from the
+  // REAL keys (Shift / C are left untouched, so a synthetic hold changes them).
+  // Logs LAST frame's player state, which is what a 15-frame cadence wants.
+  if (LOCOPROBE) {
+    if (testFrame === 20 && GS.gameState === 0) startRun();
+    GS.playerHP = 100; DIR.waveBreakTimer = 9999;
+    CAM[0] = 0; CAM[1] = 0.30;
+    input.moveX = 1;                 // strafe +X, stays on the plaza a while
+    if (GS.gameState === 1 && (testFrame % 15) === 0) {
+      const shift = isKeyDown(Key.LEFT_SHIFT) ? 1 : 0;
+      const ckey = isKeyDown(Key.C) ? 1 : 0;
+      locoLog = locoLog + 'f=' + testFrame
+        + ' shiftKey=' + shift + ' cKey=' + ckey
+        + ' spd=' + playerSpeed().toFixed(2)
+        + ' sprint=' + (isSprinting() ? 1 : 0)
+        + ' crouch=' + (isCrouching() ? 1 : 0) + '\n';
+      writeFile('tools/.testout/locoprobe.txt', locoLog);
+    }
+  }
+  // FACETEST (SH-047) — verify the body turns to face its movement direction.
+  // Auto-starts, pins the camera at yaw 0 (camera looks -Z, so strafe-right D is
+  // world +X = screen-right), and holds one strafe so a capture shows the body
+  // facing the way it moves. Change dbgFaceDir to test A / W+D. MUST be false.
+  if (FACETEST) {
+    if (testFrame === 20 && GS.gameState === 0) startRun();
+    GS.playerHP = 100; DIR.waveBreakTimer = 9999;   // no enemies to shove it
+    CAM[0] = 0; CAM[1] = 0.30;
+    input.moveX = dbgFaceDir === 0 ? 1 : (dbgFaceDir === 1 ? -1 : 1);
+    input.moveZ = dbgFaceDir === 2 ? -1 : 0;         // dir 2 = W+D (45°)
+  }
   // Watertest: start the run, aim down the river, wade back and forth
   // along it (direction swaps every ~1.2 s; the river spans X so the
   // camera-forward walk stays inside the band). See harness block above.
@@ -1538,7 +1685,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Sprint cancels aiming and is cancelled by firing â€” you cannot run and
     // shoot accurately, which is what makes sprint a real trade.
     const wantSprint = input.sprintDown && !input.aimDown && !input.fireDown;
-    updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump, wantSprint);
+    updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump,
+      wantSprint, input.crouchDown);
     if (wantSprint && playerSpeed() > 6.5) FEEL.addFovKick(6 * dt * 4);
   }
   stepPhysics(physics, dt);
@@ -1585,9 +1733,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // SH-035 â€” reverb zone. `enclosure` rises as the player nears the building
     // footprint, so a firefight by the walls sounds like a firefight by the
     // walls. Ramped, not switched (a hard cut clicks on any tail in flight).
-    const bdx = Math.abs(pp.x - 0);
-    const bdz = Math.abs(pp.z - (-14));
-    const near = Math.max(bdx / 12, bdz / 10);
+    // The footprint comes from the world's building boxes (BLDG_* above) —
+    // the old hardcoded centre (0,-14) was 21 m east of the actual house, so
+    // the room reverb had never once fired inside the room.
+    const bdx = Math.abs(pp.x - BLDG_CX);
+    const bdz = Math.abs(pp.z - BLDG_CZ);
+    const near = Math.max(bdx / (BLDG_HX + 3), bdz / (BLDG_HZ + 3));
     const enclosure = near < 1 ? (1 - near) : 0;
     MIX.updateReverbZone(dtReal, enclosure);
     MIX.updateWindAmbience(dtReal, pp.x, pp.z, WIND_AMP);
@@ -1596,6 +1747,15 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // Smooth orbit camera follow after the physics step: occlusion-aware
   // (probe fan vs. static bodies + analytic canopy cylinders) - camera.ts.
   updateCameraOrbit(dt, physics);
+  // INDOORCAM — see the harness block above. Overrides the orbit with a fixed
+  // interior viewpoint: NW corner of the ground floor looking across at the
+  // stairs + south door.
+  if (INDOORCAM) {
+    if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+    DIR.waveBreakTimer = 9999;
+    CAM[2] = -30.0; CAM[3] = 1.9; CAM[4] = -18.5;
+    CAM[5] = -14.0; CAM[6] = 1.2; CAM[7] = -7.0;
+  }
   playerAnimT = playerAnimT + dt;
 
   // SH-027 / EN-033: where the gun actually is — computed ONCE per frame and
@@ -1760,13 +1920,19 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       vec3(ENV.WATER_CX, ENV.WATER_Y, ENV.WATER_CZ), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Phase 10 â€” glass pane in the south-wall door opening of house h1.
-  // Second consumer of the material ABI, proves the infrastructure
-  // works for a different shader without any engine change.
+  // Phase 10 â€” glass. Three panes in the house's south upper-floor windows
+  // (visible on the approach from spawn, out of the way of ground-floor
+  // fights). The pane used to float in the middle of the ground floor at
+  // (-21, 0, -10) — nowhere near an opening. Positions pair with the h_s_f1
+  // window openings the house generator emits; the pane sits a hair outside
+  // the outer wall face (z = -5.32) so it cannot z-fight the masonry.
   if (ENV.matGlass > 0) {
     drawMeshWithMaterial(ENV.matGlass, ENV.matGlassMesh,
-      vec3(-21, 0, -10), 1.0,
-      { r: 255, g: 255, b: 255, a: 255 });
+      vec3(-28, 4.6, -5.32), 1.0, { r: 255, g: 255, b: 255, a: 255 });
+    drawMeshWithMaterial(ENV.matGlass, ENV.matGlassMesh,
+      vec3(-21, 4.6, -5.32), 1.0, { r: 255, g: 255, b: 255, a: 255 });
+    drawMeshWithMaterial(ENV.matGlass, ENV.matGlassMesh,
+      vec3(-14, 4.6, -5.32), 1.0, { r: 255, g: 255, b: 255, a: 255 });
   }
   // SH-021 â€” instanced grass. One drawMeshWithMaterialInstanced
   // covers all 20 000 blades; the canonical 6-vert mesh is drawn N
@@ -1945,9 +2111,14 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // Now: sprinting runs, moving walks, standing idles. No threshold to sit on.
     const spd = playerSpeed();
     const sprinting = isSprinting();
-    const wantClip = spd > 0.4
-      ? (sprinting ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
-      : PLAYER_ANIM_IDLE;
+    const crouching = isCrouching();
+    // Crouch is its own locomotion tier: crouch-walk when moving, crouch-idle
+    // when still. Otherwise the usual sprint/walk/idle ladder.
+    const moving = spd > 0.4;
+    const wantClip = crouching
+      ? (moving ? PLAYER_ANIM_CROUCH_FWD : PLAYER_ANIM_CROUCH)
+      : (moving ? (sprinting ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
+                : PLAYER_ANIM_IDLE);
 
     // Playback rate = actual speed / the speed the clip was authored to travel
     // at. That is what plants the feet: the stride then covers exactly the ground
@@ -1956,8 +2127,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // it is, the movement speed and the clip no longer belong together, and the
     // fix is the speed constant, not a wider clamp.
     const authored = wantClip === PLAYER_ANIM_RUN ? ANIM_RUN_SPEED
-                   : (wantClip === PLAYER_ANIM_WALK ? ANIM_WALK_SPEED : 1);
-    const rate = wantClip === PLAYER_ANIM_IDLE
+                   : wantClip === PLAYER_ANIM_WALK ? ANIM_WALK_SPEED
+                   : wantClip === PLAYER_ANIM_CROUCH_FWD ? ANIM_CROUCH_SPEED
+                   : 1;
+    // Idle poses (standing idle, crouch idle) play at 1×; the moving clips scale.
+    const rate = (wantClip === PLAYER_ANIM_IDLE || wantClip === PLAYER_ANIM_CROUCH)
       ? 1
       : Math.max(0.5, Math.min(1.8, spd / authored));
     animPlay(animPlayer, wantClip, 0.15, rate, true);

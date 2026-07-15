@@ -366,10 +366,14 @@ for (let i = 0; i < SPAWNER_COUNT; i++) {
 const pickups = bucket('weapon_pickup');
 export const PICKUP_COUNT = pickups.length;
 export const PICKUP_X = new Array<number>(PICKUP_COUNT);
+// Authored height. The house has pickups on three levels now — a pickup's Y
+// decides which floor it renders on AND which floor can collect it.
+export const PICKUP_Y = new Array<number>(PICKUP_COUNT);
 export const PICKUP_Z = new Array<number>(PICKUP_COUNT);
 export const PICKUP_KIND = new Array<number>(PICKUP_COUNT);
 for (let i = 0; i < PICKUP_COUNT; i++) {
   PICKUP_X[i] = pickups[i].transform.position[0];
+  PICKUP_Y[i] = pickups[i].transform.position[1];
   PICKUP_Z[i] = pickups[i].transform.position[2];
   // 0 = rifle, 1 = blaster.
   PICKUP_KIND[i] = pickups[i].userData['weapon'] === 'blaster' ? 1 : 0;
