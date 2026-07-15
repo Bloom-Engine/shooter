@@ -18,16 +18,24 @@ export const GS: any = {
   gameOver: false,
   muzzleFlashT: 0,
   damageFlashT: 0,
+  // SH-029/SH-043 — where the last hit came from, relative to the camera.
+  // Drives the HUD's damage arc, which is what makes damage direction
+  // readable WITHOUT relying on colour (the colourblind-safe path).
   lastHitAngle: 0,
   lastHitT: 0,
+  // SH-041 — end-of-wave report card + unlock banner.
   waveBonus: 0,
   waveBonusT: 0,
   unlockBannerT: 0,
   muzzleX: 0,
   muzzleY: 0,
   muzzleZ: 0,
+  // SH-043 — hit marker. A white tick + a sound, so a colourblind player
+  // gets the same confirmation everyone else does.
   hitMarkT: 0,
+  // SH-040 — seconds left on the "restart to load the new arena" notice.
   levelChangeT: 0,
+  // Seconds since the run began — drives the wave clock and score bonuses.
   runElapsed: 0,
   // Round-9 obstacle-circle count (the arrays stay in main; the count
   // is written during world init and read by the director's steering).
