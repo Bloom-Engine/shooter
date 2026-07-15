@@ -13,7 +13,7 @@
 
 import {
   vec3, getTime,
-  drawCube, drawSphere, drawMeshWithMaterial, drawModelRotated,
+  drawCube, drawSphere, drawMeshWithMaterial, drawModelRotated, drawModelTransform,
   playSound, playSound3D, playMusic, stopMusic,
 } from 'bloom';
 import { gamepadRumble } from 'bloom/core';
@@ -471,23 +471,48 @@ export function drawWeapon(): void {
   const fwy = Math.sin(weaponPitch);
   const fwz = -Math.cos(weaponYaw) * cpW;
   const wpnNow = WPN.currentWeapon();
-  // drawModelRotated takes DEGREES (see docs/round-4 notes) and gives us the
-  // cached-model path, which the immediate path would not.
+  // SH-027 v2 / EN-039 — the gun now points where the camera points, pitch and
+  // all. This used to be drawModelRotated, which takes a single Y rotation: the
+  // barrel stayed level while you aimed up or down, and no yaw-only draw can fix
+  // that. drawModelTransform takes the whole 4x4.
   //
-  // The barrel is local +Z (build-weapons.ts), but camera-forward at yaw 0 is
-  // -Z, so a naive `yaw` points the gun backwards. Rotating +Z onto
-  // (sin yaw, 0, -cos yaw) needs θ = π - yaw.
+  // The barrel is local +Z (build-weapons.ts), and the engine's rotation
+  // convention puts COLUMN 2 of the model matrix wherever local +Z points —
+  // which the old code confirms: it passed θ = π - yaw, and the engine's rotY
+  // sends +Z to (sin θ, 0, cos θ) = (sin yaw, 0, -cos yaw), i.e. camera-forward
+  // at zero pitch. So: make column 2 the aim vector and build an orthonormal
+  // basis around it.
   //
-  // Only yaw is expressible here: drawModelRotated has no pitch, so the gun
-  // cannot tilt with the aim. Fine in third person at normal engagement
-  // angles; a full-transform immediate draw is EN-039.
-  const yawDeg = ((Math.PI - weaponYaw) * 180 / Math.PI);
-  drawModelRotated(
-    DEPS.o.mdlWeapons[wpnNow],
-    vec3(weaponX - fwx * recoilBack,
-         weaponY - fwy * recoilBack,
-         weaponZ - fwz * recoilBack),
-    DEPS.o.WEAPON_DRAW_SCALE[wpnNow], yawDeg, WHITE);
+  // (fwx, fwy, fwz) IS that aim vector already — it is what the muzzle, the
+  // tracer and the shot ray are computed from, so the gun and the bullet now
+  // agree by construction rather than by coincidence.
+  //
+  // The cross with world-up is safe because the camera pitch is clamped well
+  // short of vertical (TP_PITCH_MIN/MAX): the aim can never be parallel to up,
+  // so the basis can never collapse.
+  const sc = DEPS.o.WEAPON_DRAW_SCALE[wpnNow];
+  // X = normalise(cross(worldUp, forward))
+  let rx = 1 * fwz - 0 * fwy;   // (up × f).x = up.y*f.z - up.z*f.y
+  let ry = 0 * fwx - 0 * fwz;   // (up × f).y = up.z*f.x - up.x*f.z
+  let rz = 0 * fwy - 1 * fwx;   // (up × f).z = up.x*f.y - up.y*f.x
+  const rl = Math.sqrt(rx * rx + ry * ry + rz * rz);
+  rx = rx / rl; ry = ry / rl; rz = rz / rl;
+  // Y = cross(forward, X) — completes a right-handed basis (X × Y = Z).
+  const ux = fwy * rz - fwz * ry;
+  const uy = fwz * rx - fwx * rz;
+  const uz = fwx * ry - fwy * rx;
+
+  const px = weaponX - fwx * recoilBack;
+  const py = weaponY - fwy * recoilBack;
+  const pz = weaponZ - fwz * recoilBack;
+  // Column-major: [col0 | col1 | col2 | translation].
+  const m16 = [
+    rx * sc,  ry * sc,  rz * sc,  0,
+    ux * sc,  uy * sc,  uz * sc,  0,
+    fwx * sc, fwy * sc, fwz * sc, 0,
+    px,       py,       pz,       1,
+  ];
+  drawModelTransform(DEPS.o.mdlWeapons[wpnNow], m16, WHITE);
 
   // Muzzle flash — additive material at the true muzzle. The particle system
   // now layers smoke and a shell on top of this (SH-033); the flash card
