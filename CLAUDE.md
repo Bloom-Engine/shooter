@@ -15,7 +15,8 @@ runnable with `perry compile src/main.ts -o main && ./main`.
 - `src/main.ts` — the boot sequence + frame loop and their wiring
   (~2,100 lines; the SH-025 module split is complete). Flat-array
   state per Perry convention. The dormant test harnesses
-  (SELFTEST/AITEST/ANIMDBG/MENUTEST/COMBATSHOT/PERFTEST) and the
+  (SELFTEST/AITEST/ANIMDBG/MENUTEST/FACETEST/LOCOPROBE/KEYPROBE/
+  COMBATSHOT/PERFTEST) and the
   diagnostics (diag bar, profiler overlay) live here too.
 - The game is split by subsystem, one module each: `enemies.ts`
   (kind tables + pool), `director.ts` (waves + per-kind AI + enemy

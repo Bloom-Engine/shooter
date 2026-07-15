@@ -661,7 +661,11 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       }
       const pdx = pp.x - DEPS.o.pickupX[i];
       const pdz = pp.z - DEPS.o.pickupZ[i];
-      if (pdx * pdx + pdz * pdz < DEPS.o.PICKUP_RADIUS * DEPS.o.PICKUP_RADIUS) {
+      // Same-floor gate: the house stacks pickups on three levels now, and an
+      // XZ-only radius let the ground floor hoover up the roof cache.
+      const pdy = pp.y - DEPS.o.pickupY[i];
+      if (pdx * pdx + pdz * pdz < DEPS.o.PICKUP_RADIUS * DEPS.o.PICKUP_RADIUS
+          && pdy > -2.0 && pdy < 2.0) {
         const w = DEPS.o.pickupKind[i] === DEPS.o.PICKUP_RIFLE ? WPN.W_RIFLE : WPN.W_BLASTER;
         WPN.addAmmo(w, WPN.W_PICKUP_AMT[w]);
         // Ammo you can't use is no reward: top up whatever else you carry too.

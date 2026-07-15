@@ -116,6 +116,7 @@ export const PICKUP_RADIUS = 1.4;
 export const PICKUP_RESPAWN = 18.0;
 export const pickupKind = W.PICKUP_KIND;      // 0 = rifle, 1 = blaster
 export const pickupX    = W.PICKUP_X;
+export const pickupY    = W.PICKUP_Y;         // authored floor height
 export const pickupZ    = W.PICKUP_Z;
 export const PICKUP_COUNT = W.PICKUP_COUNT;
 export const pickupActive   = new Array<number>(PICKUP_COUNT);
@@ -510,11 +511,13 @@ export function drawCombatWorld(): void {
     const k = GS.muzzleFlashT / MUZZLE_FLASH_DUR;
     addPointLight(GS.muzzleX, GS.muzzleY, GS.muzzleZ, 6, 1.0, 0.85, 0.5, 4.0 * k);
   }
-  // Pickups — bobbing cubes, color-coded per kind.
+  // Pickups — bobbing cubes, color-coded per kind. The bob rides the AUTHORED
+  // height: pickups used to draw at an absolute y ≈ 0.8, which parked the
+  // house's upstairs pickup on the ground floor as a floating orb.
   const tNow = getTime();
   for (let i = 0; i < PICKUP_COUNT; i++) {
     if (pickupActive[i] === 0) continue;
-    const bob = 0.8 + Math.sin(tNow * 3.0 + i) * 0.15;
+    const bob = pickupY[i] + Math.sin(tNow * 3.0 + i) * 0.15;
     const isRifleKind = pickupKind[i] === PICKUP_RIFLE;
     const col = isRifleKind
       ? { r: 240, g: 200, b: 80,  a: 255 }    // gold = rifle
