@@ -26,7 +26,14 @@ export const SET_SHAKE      = 7;   // 0..1
 export const SET_RENDER_SCALE = 8;
 export const SET_AIM_TOGGLE = 9;   // 0 = hold, 1 = toggle
 export const SET_SPRINT_TOGGLE = 10;
-export const SET_COLORBLIND = 11;  // 0/1 — shape+flash cues instead of colour only
+// RETIRED (2026-07-15). SH-043's cues — the white hit flash + tick, and the
+// damage-direction arc — are shape/position and draw UNCONDITIONALLY: they
+// REPLACED the colour-only versions rather than sitting beside them, so there was
+// never anything for this to switch. It had a menu row that adjusted, displayed
+// and persisted a value nothing read. The row is gone; the key stays reserved so
+// old settings.json files keep parsing (num() ignores what it isn't asked for)
+// and so the index numbering below does not shift.
+export const SET_COLORBLIND = 11;  // reserved — do not reuse
 export const SET_CAPTIONS   = 12;  // 0/1 — telegraph captions
 // --- Graphics. The player's call, not ours. ---------------------------------
 //
