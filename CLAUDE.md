@@ -12,11 +12,23 @@ runnable with `perry compile src/main.ts -o main && ./main`.
 
 ## Where things live
 
-- `src/main.ts` — single-file game (~3,200 LOC; SH-025 tracks the
-  module split). Flat-array state per Perry convention. Also carries
-  inline copies of the grass/water/glass WGSL that MUST be kept in
-  sync with the on-disk files when either changes (SH-005 will
-  automate this; the drift bit for real once already).
+- `src/main.ts` — the boot sequence + frame loop and their wiring
+  (~2,100 lines; the SH-025 module split is complete). Flat-array
+  state per Perry convention. The dormant test harnesses
+  (SELFTEST/AITEST/ANIMDBG/MENUTEST/COMBATSHOT/PERFTEST) and the
+  diagnostics (diag bar, profiler overlay) live here too.
+- The game is split by subsystem, one module each: `enemies.ts`
+  (kind tables + pool), `director.ts` (waves + per-kind AI + enemy
+  projectiles), `combat.ts` (weapons/fire/player projectiles/pickups),
+  `camera.ts` (orbit + canopy occlusion), `hud.ts`, `environment.ts`
+  (water/grass/building/glass/GI proxies), `gamestate.ts` (shared run
+  scalars as `const GS`), plus `feel/vfx/weapons/menu/settings/score/
+  audio-mix/boot/terrain`. Module headers state the Perry rules each
+  follows — read one before adding cross-module state; a green
+  compile does NOT prove cross-module references resolve (they fail
+  at runtime, one ReferenceError at a time).
+- Shaders load from `assets/materials/*.wgsl` at runtime (SH-005 is
+  done — there are no inline WGSL copies to keep in sync any more).
 - `src/input.ts` / `src/player.ts` / `src/world-runtime.ts` — small
   single-purpose modules.
 - `assets/worlds/*.world.json` — authored level data using the engine's
