@@ -19,9 +19,39 @@ import { DIR, wavePlan, countAlive } from './director';
 import { PLAYER_HP_MAX } from './combat';
 import { dodgeCooldownFrac } from './player';
 import { MOBILE } from './input';
+import {
+  MAX_ENEMIES, KIND_NAME, AI_WINDUP, enAlive, enKind, enAIState,
+} from './enemies';
 import * as WPN from './weapons';
 import * as SCORE from './score';
 import * as SET from './settings';
+
+/// SH-043 — telegraph captions. The dragoon's pounce and the tyrant's slam are
+/// announced by a ROAR over a rooted wind-up: that roar is the dodge window, and
+/// a player who cannot hear it is simply told nothing. The setting has shipped in
+/// the menu since SH-038 with no code behind it — this is the code.
+///
+/// Deliberately only the wind-up states, and only one line: captioning every
+/// grunt would train the player to ignore the band. Off by default (SET_CAPTIONS).
+function drawTelegraphCaptions(sw: number, sh: number): void {
+  if (SET.get(SET.SET_CAPTIONS) === 0) return;
+  let kind = -1;
+  for (let i = 0; i < MAX_ENEMIES; i++) {
+    if (enAlive[i] === 0) continue;
+    if (enAIState[i] !== AI_WINDUP) continue;
+    kind = enKind[i];
+    break;                       // one caption: the first telegraph in flight
+  }
+  if (kind < 0) return;
+
+  const msg = '[ ' + KIND_NAME[kind] + ' WINDING UP — DODGE ]';
+  const s = 20;
+  const w = measureText(msg, s);
+  const x = (sw - w) / 2;
+  const y = sh * 0.72;           // below the crosshair, clear of the HP corner
+  drawRect(x - 12, y - 5, w + 24, s + 10, { r: 10, g: 10, b: 14, a: 190 });
+  drawText(msg, x, y, s, { r: 255, g: 210, b: 120, a: 255 });
+}
 
 /// SH-041 — the run's numbers, shown on both the death and the victory screen.
 /// A run with no score attached is a run you can't get better at.
@@ -273,6 +303,8 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
     const mw = measureText(msg, 30);
     drawText(msg, (sw - mw) / 2, sh * 0.20, 30, { r: 255, g: 215, b: 120, a: a });
   }
+
+  drawTelegraphCaptions(sw, sh);
 }
 
 // The end-of-run overlays + the SH-040 level-change notice. Drawn whether or

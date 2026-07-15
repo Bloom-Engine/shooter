@@ -78,6 +78,12 @@ const MAIN_COUNT = 4;
 // of the upscale and the final composite. RENDER RESOLUTION is the G-buffer, which
 // TSR then reconstructs back up to the display. They cost different things, so
 // both are here rather than hidden behind one "quality" number that lies.
+// COLORBLIND CUES was removed here, not implemented: SH-043's cues (the white
+// hit FLASH + tick, and the damage-direction ARC) are shape/position, and they
+// are drawn UNCONDITIONALLY — they replaced the colour-only versions rather than
+// sitting beside them. There was never anything for the row to switch, so it
+// adjusted, displayed and persisted a number nothing read. A settings screen that
+// lies about one row is not trusted about the other nineteen.
 const SET_LABELS: string[] = [
   'DISPLAY RESOLUTION', 'RENDER RESOLUTION',
   'SHADOWS', 'AMBIENT OCCLUSION', 'REFLECTIONS', 'GLOBAL ILLUMINATION', 'BLOOM',
@@ -86,7 +92,7 @@ const SET_LABELS: string[] = [
   'LOOK SENSITIVITY', 'PAD SENSITIVITY', 'INVERT Y',
   'FIELD OF VIEW', 'CAMERA SHAKE',
   'AIM: HOLD/TOGGLE', 'SPRINT: HOLD/TOGGLE',
-  'COLORBLIND CUES', 'TELEGRAPH CAPTIONS',
+  'TELEGRAPH CAPTIONS',
   'BACK',
 ];
 const SET_KINDS: number[] = [
@@ -97,7 +103,7 @@ const SET_KINDS: number[] = [
   ROW_SLIDER, ROW_SLIDER, ROW_TOGGLE,
   ROW_SLIDER, ROW_SLIDER,
   ROW_TOGGLE, ROW_TOGGLE,
-  ROW_TOGGLE, ROW_TOGGLE,
+  ROW_TOGGLE,
   ROW_ACTION,
 ];
 const SET_IDX: number[] = [
@@ -108,7 +114,7 @@ const SET_IDX: number[] = [
   SET.SET_SENS, SET.SET_PAD_SENS, SET.SET_INVERT_Y,
   SET.SET_FOV, SET.SET_SHAKE,
   SET.SET_AIM_TOGGLE, SET.SET_SPRINT_TOGGLE,
-  SET.SET_COLORBLIND, SET.SET_CAPTIONS,
+  SET.SET_CAPTIONS,
   -1,
 ];
 // min / max / step per row (ignored for toggles and actions).
@@ -122,7 +128,7 @@ const SET_MIN:  number[] = [
   0.2, 0.2, 0,
   60, 0,
   0, 0,
-  0, 0, 0];
+  0, 0];
 const SET_MAX:  number[] = [
   1.0, 1.0,
   1, 1, 1, 1, 1,
@@ -131,7 +137,7 @@ const SET_MAX:  number[] = [
   3.0, 3.0, 1,
   100, 1,
   1, 1,
-  1, 1, 0];
+  1, 0];
 const SET_STEP: number[] = [
   0.05, 0.05,
   1, 1, 1, 1, 1,
@@ -140,8 +146,10 @@ const SET_STEP: number[] = [
   0.1, 0.1, 1,
   5, 0.1,
   1, 1,
-  1, 1, 0];
-const SET_COUNT_ROWS = 21;
+  1, 0];
+// MUST equal the length of the six arrays above — they are parallel and indexed
+// by row, so a mismatch silently misaligns every row past the short one.
+const SET_COUNT_ROWS = 20;
 
 export function initMenus(): void {
   S[0] = MENU_NONE; S[1] = 0; S[2] = 0; S[3] = MENU_PAUSE;

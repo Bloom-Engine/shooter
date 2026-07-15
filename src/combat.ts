@@ -21,6 +21,7 @@ import { addPointLight } from 'bloom/scene';
 import { raycast, ALL_LAYERS_MASK } from 'bloom/physics';
 import { jointWorld } from 'bloom/models';
 import * as W from './world-runtime';
+import { resetInputToggles } from './input';
 import { GS } from './gamestate';
 import {
   DIR, damageEnemy, despawnAllEnemies, WAVE_BREAK_DELAY,
@@ -126,6 +127,9 @@ for (let i = 0; i < PICKUP_COUNT; i++) { pickupActive[i] = 1; pickupRespawnT[i] 
 
 export function resetRun(): void {
   WPN.resetWeapons();
+  // A latched aim/sprint (SH-037 toggle mode) must not survive into the next
+  // life — you would respawn already aiming, with nothing held.
+  resetInputToggles();
   // Unlocks are persistent progression — they survive a restart, which is the
   // whole point of earning them.
   const mask = SET.unlockMask();

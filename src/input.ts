@@ -10,7 +10,10 @@ import {
   isGamepadButtonDown, isGamepadButtonPressed,
   Key,
 } from 'bloom';
-import { get, SET_SENS, SET_PAD_SENS, SET_INVERT_Y } from './settings';
+import {
+  get, SET_SENS, SET_PAD_SENS, SET_INVERT_Y,
+  SET_AIM_TOGGLE, SET_SPRINT_TOGGLE,
+} from './settings';
 
 export interface InputState {
   moveX: number;
@@ -148,6 +151,43 @@ function hits(x: number, y: number, cx: number, cy: number, r: number): boolean 
 
 export function initInput(): void {
   // cursor capture is owned by main.ts so it can be toggled with Tab
+}
+
+// ---- SH-037: hold vs toggle -------------------------------------------------
+// Two slots, each holding [latched, prevRaw] for one verb. Flat arrays, and the
+// helper below is written with plain `if`s rather than ternaries — Perry
+// miscompiles some small functions in imported modules into a constant
+// (EN-050/051, docs/perry-quirks.md #8), and a toggle stuck at one value is
+// exactly the failure that would hide.
+const T_AIM = 0;
+const T_SPRINT = 1;
+const TOG_LATCHED = [0, 0];
+const TOG_PREV = [0, 0];
+
+/// In HOLD mode this is a pass-through. In TOGGLE mode the RISING EDGE of the
+/// raw button flips a latch that persists until the next press.
+function applyToggle(raw: boolean, toggleMode: boolean, slot: number): boolean {
+  const rawNow = raw ? 1 : 0;
+  const prev = TOG_PREV[slot];
+  TOG_PREV[slot] = rawNow;
+  if (!toggleMode) {
+    // Leaving toggle mode must not strand the latch on — otherwise flipping the
+    // setting mid-run leaves you permanently aiming with nothing held.
+    TOG_LATCHED[slot] = 0;
+    return raw;
+  }
+  if (rawNow === 1 && prev === 0) {
+    if (TOG_LATCHED[slot] === 0) TOG_LATCHED[slot] = 1;
+    else TOG_LATCHED[slot] = 0;
+  }
+  return TOG_LATCHED[slot] !== 0;
+}
+
+/// Drop any toggle latch — called when a run ends or the player dies, so a
+/// latched aim does not survive into the next life.
+export function resetInputToggles(): void {
+  TOG_LATCHED[T_AIM] = 0;
+  TOG_LATCHED[T_SPRINT] = 0;
 }
 
 function readTouch(): InputState {
@@ -307,6 +347,15 @@ export function readInput(dt: number): InputState {
   let aimDown = isMouseButtonDown(1);
   let sprintDown = isKeyDown(Key.LEFT_SHIFT) || isKeyDown(Key.RIGHT_SHIFT);
   let crouchDown = isKeyDown(Key.C);
+  // SH-037 — AIM: HOLD/TOGGLE and SPRINT: HOLD/TOGGLE. Both rows have existed in
+  // the settings menu since SH-038, adjustable and persisted, and NOTHING read
+  // them: the game was hold-only whatever the player chose. Toggle is an
+  // accessibility setting first — holding a button for a whole firefight is a
+  // real barrier — so a row that claims to offer it and doesn't is worse than no
+  // row at all. Applied here, at the source, so every consumer downstream (and
+  // the pad path below, which OR-folds into these same verbs) gets it for free.
+  aimDown = applyToggle(aimDown, get(SET_AIM_TOGGLE) !== 0, T_AIM);
+  sprintDown = applyToggle(sprintDown, get(SET_SPRINT_TOGGLE) !== 0, T_SPRINT);
   let dodgePressed = isKeyPressed(Key.LEFT_CONTROL) || isKeyPressed(Key.RIGHT_CONTROL);
   let reloadPressed = isKeyPressed(Key.R);
   let swapWeapon = isKeyPressed(Key.Q);

@@ -1893,11 +1893,20 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       setListenerPosition(CAM[2], CAM[3], CAM[4], lfx / ll, lfy / ll, lfz / ll);
     }
   }
+  // SH-045/SH-029 — the camera's FOV is the player's SETTING plus the transient
+  // kick, and until now it was neither: `fovy` was the bare TP_FOVY constant, so
+  //   - the FIELD OF VIEW slider moved a number nothing read (a settings row that
+  //     adjusts, displays and persists, and changes nothing, is a lie), and
+  //   - FEEL.addFovKick() — spent on every sprint and every dodge — accumulated
+  //     into fovOffset() that no one ever asked for, so the punch that is supposed
+  //     to sell speed has never once been visible.
+  // One expression fixes both. TP_FOVY stays as the default the setting is seeded
+  // with, not as the value the camera uses.
   beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
     target:   vec3(CAM[5], CAM[6], CAM[7]),
     up: vec3(0, 1, 0),
-    fovy: TP_FOVY,
+    fovy: SET.get(SET.SET_FOV) + FEEL.fovOffset(),
     projection: 0,
   });
 
