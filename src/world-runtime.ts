@@ -275,6 +275,17 @@ export const MESH_COLLIDER_HX = new Array<number>(MESH_COUNT);
 export const MESH_COLLIDER_HY = new Array<number>(MESH_COUNT);
 export const MESH_COLLIDER_HZ = new Array<number>(MESH_COUNT);
 export const MESH_CATEGORY = new Array<number>(MESH_COUNT);
+/// SH-051 — 1 when the mesh carries the `stair` tag: a CLIMBABLE surface, not a
+/// wall. Separate from MESH_CATEGORY because a step is both (it paints as
+/// `building` and it navigates as a stair), and category holds only tags[0].
+///
+/// Why it has to be authored rather than detected: a stair step is a thin box
+/// that starts at the floor and reaches above knee height, which is EXACTLY the
+/// shape of a wall. Nothing local to one box distinguishes them — a step is
+/// climbable only because of the step below it. The obstacle builder in main.ts
+/// could not tell, so it fenced the staircase off with wall circles and enemies
+/// could never use it (SH-051).
+export const MESH_IS_STAIR = new Array<number>(MESH_COUNT);
 
 for (let i = 0; i < MESH_COUNT; i++) {
   const e = meshes[i];
@@ -296,6 +307,16 @@ for (let i = 0; i < MESH_COUNT; i++) {
   else if (tag === 'terrain') cat = 2;
   else if (tag === 'prop') cat = 3;
   MESH_CATEGORY[i] = cat;
+
+  // SH-051 — `stair` is a SECONDARY tag, scanned across the whole list rather
+  // than read from tags[0], so a step keeps painting as `building` while also
+  // navigating as a stair. Parsed here at LOAD, never per frame (perry-quirks
+  // #5): the AI reads the resulting number.
+  let isStair = 0;
+  for (let t = 0; t < e.tags.length; t++) {
+    if (e.tags[t] === 'stair') isStair = 1;
+  }
+  MESH_IS_STAIR[i] = isStair;
 }
 
 // ---- water -------------------------------------------------------------------

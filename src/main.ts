@@ -59,6 +59,7 @@ import { initInput, readInput, drawTouchControls, MOBILE } from './input';
 import {
   createPlayer, updatePlayerController, playerPosition,
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting, isCrouching,
+  setPlayerPosition,
 } from './player';
 import * as W from './world-runtime';
 import { ENV, initEnvironment, initGiProxies } from './environment';
@@ -120,6 +121,7 @@ import {
 // an alias so the height-sampling call sites read the same as they always have.
 import * as T from './world-runtime';
 import { terrainHeightAt } from './terrain';
+import { initNav } from './nav';
 
 // Borderless fullscreen at the monitor's native resolution (the engine
 // resizes its swapchain + all render targets on the WM_SIZE this triggers).
@@ -627,6 +629,16 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
 for (let i = 0; i < W.MESH_COUNT; i++) {
   const mi = W.MESH_MODEL_IDX[i];
   if (W.MODEL_IS_BOX[mi] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
+  // SH-051 — a STAIR is not a wall. This filter cannot tell them apart on shape:
+  // a step is a thin box rising from the floor past knee height, which is
+  // exactly the wall test below, and 9 of the 12 steps in each flight matched
+  // it. So the staircase was ringed with 0.7 m repulsion circles and enemies
+  // were physically fenced out of the one route upstairs — the "they don't go
+  // up stairs" half of SH-051, and the reason it was never a pathing problem.
+  // (The old comment here claimed the filter deliberately kept "stair-adjacent
+  // pieces"; it was keeping the stairs themselves.) Climbability is not a
+  // property of one box, so it is authored: world-runtime reads the `stair` tag.
+  if (W.MESH_IS_STAIR[i] === 1) continue;
   const hy = W.MESH_COLLIDER_HY[i];
   const yLo = W.MESH_Y[i] - hy;
   const yHi = W.MESH_Y[i] + hy;
@@ -637,6 +649,17 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
   if (thin > 0.6) continue;                      // slab/floor plate, not a wall
   const long = Math.max(hx, hz);
   const alongX = hx >= hz;
+  // NB the 0.55 here is NOT a body allowance — director.ts adds bodyR on top, so
+  // a wall repels to thin + 0.55 + bodyR (~1.3 m for the big kinds). It is
+  // padding to cover the ~1 m circle spacing below, which would otherwise leave
+  // gaps a walker could slip through.
+  //
+  // SH-051 measured the alternative (r = thin + 0.15 with 0.4 m spacing, which
+  // seals the wall just as well and inflates it far less) and REVERTED it: it
+  // did not fix stair-mounting, which is what it was for, and re-tuning every
+  // enemy-vs-wall interaction in the game is not a free change to make on the
+  // way past. Kept here as a note for whoever does the pathfinding work — this
+  // padding is a real part of why the stair approach is so tight.
   const r = thin + 0.55;
   // One circle per ~metre of wall, clamped so even a short piece gets one.
   const n = Math.max(1, Math.floor(long / 0.5));
@@ -648,6 +671,12 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
     GS.OBST_COUNT = GS.OBST_COUNT + 1;
   }
 }
+
+// SH-051 — obstacle budget, printed because overflowing it fails SILENTLY (the
+// loop just stops adding, leaving a wall with a hole in it). If count == max,
+// raise OBST_MAX; do not shrug.
+console.log('[obst] ' + GS.OBST_COUNT + ' / ' + OBST_MAX + ' circles'
+  + (GS.OBST_COUNT >= OBST_MAX ? '  *** CAP HIT — walls may be unsealed ***' : ''));
 
 // House bounds, derived from the building boxes — the reverb zone and any
 // other "near the house" logic reads these instead of hardcoding a footprint
@@ -939,6 +968,12 @@ WPN.initWeapons();
 
 initEnvironment();
 
+// SH-051 — build the vertical-navigation tables (walkable building boxes + the
+// stair flights) from the world data. Must run before the director's first
+// update; it makes no engine calls, but it reads world-runtime, so it lives
+// here at an explicit boot position rather than at some module's import time.
+initNav();
+
 // ---- Enemies (SH-025: kinds, stats, pool state → src/enemies.ts) ----------
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };
 initDirector(physics);
@@ -1100,6 +1135,43 @@ const AD = [0, 0, 0, 0, 1e9, -1e9];
 // a few points. Same dormancy contract as the other harnesses: MUST be false in
 // shipped builds.
 const COMBATSHOT = false;
+
+// ---- STAIRTEST harness (temporary diagnostic) -------------------------------
+// SH-051's acceptance test, and the only honest one: it asks whether enemies
+// ACTUALLY CLIMB, which no screenshot can answer (a still of an alien on a
+// staircase and a still of one clipped through it look identical).
+//
+// Teleports the player onto the FIRST FLOOR (y 3.90 + the capsule's 0.95 centre
+// offset), holds them there, and every second prints how many living enemies
+// are above the ground floor and the highest Y any of them has reached.
+//
+// Reading it:
+//   hpMin=100         -> nothing reached the player. The melee gate holds.
+//   hpMin<100         -> melee is landing through the ceiling (the reported bug).
+//   above=0 forever   -> nothing climbed.
+//   above>0, maxY~3.9 -> they made it up flight 0. THAT is the climb pass.
+//   maxY drifting up with above=0 -> floating, not climbing.
+//
+// WHAT IT MEASURED (2026-07-15), and the A/B is the point — a probe that cannot
+// fail proves nothing, so the gate was removed to check this one can:
+//   sameFloor gate ON  -> hpMin=100   (no hit, ever)
+//   sameFloor gate OFF -> hpMin=76    (24 damage, from enemies 3.7 m BELOW)
+// That is the whole "I die without them being physically near me" report,
+// reproduced on demand and then fixed.
+//
+// Climb status: NOT PASSING. Enemies route from under the player to the stair
+// FOOT (~10 m of correct navigation) and then hover at x~-10.9 without
+// mounting. See SH-051 in docs/tickets.md — the approach gap is 0.5 m and the
+// wall's obstacle circles repel to ~1.3 m, so the first climbable tread is
+// unreachable. Fixing it needs real pathfinding, not another nudge.
+//
+// The player is held at full HP so the run cannot end mid-measurement.
+// MUST be false in shipped builds.
+const STAIRTEST = false;
+let stairTestT = 0;
+/// Lowest HP the director left before the harness topped it back up. 100 means
+/// nothing ever landed a hit; anything less is damage taken through the floor.
+let stairTestHpMin = 100;
 
 // ---- FPSPROBE harness (temporary diagnostic) --------------------------------
 // One number, for A/B-ing a change that might cost frames: wall-clock FPS over
@@ -1367,6 +1439,68 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
+
+  // STAIRTEST driver — see the harness block above the loop.
+  if (STAIRTEST) {
+    if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+    if (testFrame > 24) {
+      // Pin the player to the first floor, mid-slab. Re-applied every frame:
+      // gravity would otherwise walk them straight back down the stairs they
+      // are standing next to, and the point is to hold a cross-floor state.
+      // Read the HP the director left behind BEFORE topping it up. Logging it
+      // after the reset (the first cut of this harness did) reports 100 forever
+      // and measures nothing — the probe has to be able to fail.
+      const hpLeft = GS.playerHP;
+      if (hpLeft < stairTestHpMin) stairTestHpMin = hpLeft;
+      setPlayerPosition(vec3(-20.0, 3.90 + 0.95, -13.0));
+      GS.playerHP = 100;
+      // Put the enemies where the BUG REPORT put them: already inside the
+      // house, on the ground floor, directly under the player. Spawning them
+      // outside instead tests the game's lack of pathfinding (they press on the
+      // exterior wall hunting for a door), which is a real but SEPARATE gap and
+      // not what "they don't go up stairs" is about. One-shot, at frame 90.
+      if (testFrame === 90) {
+        for (let i = 0; i < MAX_ENEMIES; i++) {
+          if (enAlive[i] === 0) continue;
+          enX[i] = -20.0 + (i % 3) * 1.2;
+          enY[i] = 0.20;
+          enZ[i] = -13.0 + (i % 2) * 1.2;
+        }
+      }
+      stairTestT = stairTestT + dtReal;
+      if (stairTestT >= 1.0) {
+        stairTestT = 0;
+        let alive = 0, above = 0, maxY = -99, nearest = 999;
+        const ppS = playerPosition();
+        for (let i = 0; i < MAX_ENEMIES; i++) {
+          if (enAlive[i] === 0) continue;
+          alive = alive + 1;
+          if (enY[i] > 2.0) above = above + 1;
+          if (enY[i] > maxY) maxY = enY[i];
+          const ddx = ppS.x - enX[i], ddy = (ppS.y - 0.95) - enY[i], ddz = ppS.z - enZ[i];
+          const d3 = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz);
+          if (d3 < nearest) nearest = d3;
+        }
+        // Where the nearest one actually IS. "Stuck at 8 m" is not a diagnosis;
+        // stuck at the east wall vs stuck at the stair foot are different bugs.
+        let ni = -1; let nd = 1e9;
+        for (let i = 0; i < MAX_ENEMIES; i++) {
+          if (enAlive[i] === 0) continue;
+          const ddx = ppS.x - enX[i], ddz = ppS.z - enZ[i];
+          const d2 = ddx * ddx + ddz * ddz;
+          if (d2 < nd) { nd = d2; ni = i; }
+        }
+        const npos = ni >= 0
+          ? enX[ni].toFixed(1) + ',' + enY[ni].toFixed(2) + ',' + enZ[ni].toFixed(1)
+          : 'none';
+        console.log('STAIRTEST alive=' + alive + ' above=' + above
+          + ' maxEnemyY=' + maxY.toFixed(2)
+          + ' nearest3D=' + nearest.toFixed(1)
+          + ' nearestPos=' + npos
+          + ' hpMin=' + stairTestHpMin);
+      }
+    }
+  }
 
   // FPSPROBE stage driver — one wall-clock window on the title screen, printed
   // once. See the harness block above the loop.

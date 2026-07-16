@@ -20,6 +20,9 @@ import { setBodyPosition, raycast, Layer } from 'bloom/physics';
 import { GS } from './gamestate';
 import * as W from './world-runtime';
 import { terrainHeightAt } from './terrain';
+import {
+  surfaceHeightAt, navGoal, navStairBlocked, SAME_FLOOR_EPS, PLAYER_FEET_OFF,
+} from './nav';
 import { bootStage, BOOT_ALIENS } from './boot';
 import { playerPosition } from './player';
 import * as VFX from './vfx';
@@ -66,6 +69,12 @@ export const DIR: any = {
 
 /// main.ts-owned dependencies, handed over once by initDirector.
 const DEPS: any = { o: null };
+
+/// SH-051 — scratch for navGoal's [x, z, active] result. One shared array,
+/// written every call: allocating a fresh one per enemy per frame is exactly the
+/// per-frame garbage the hot paths here avoid, and Perry's object-shorthand
+/// return values are not trustworthy anyway (perry-quirks #2).
+const NAVOUT = [0, 0, 0];
 
 export function initDirector(phys: any): void {
   bootStage(BOOT_ALIENS);
@@ -336,6 +345,21 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       const invD = dist > 0.001 ? 1 / dist : 0;
       const toPX = dx * invD;                    // unit vector to the player
       const toPZ = dz * invD;
+
+      // SH-051 — the VERTICAL half of "where is the player", which this AI did
+      // not have. `dist` above is XZ only: it is the right number for steering
+      // (you walk around a building in plan), and it was also being used as the
+      // melee range, where it is catastrophically wrong. An enemy on the ground
+      // floor directly beneath a player on the first floor has dist ~= 0, so it
+      // clawed them through the ceiling from 3.7 m below. That is the whole
+      // "I die without them being physically near me" report.
+      //
+      // Feet-to-feet: playerPosition() is the capsule CENTRE (see
+      // PLAYER_FEET_OFF), and an enemy's Y is its feet. Mixing them silently
+      // hands out 0.95 m of extra reach.
+      const pFeetY = pp.y - PLAYER_FEET_OFF;
+      const dyFeet = pFeetY - enY[i];
+      const sameFloor = Math.abs(dyFeet) <= SAME_FLOOR_EPS;
       if (enStateT[i] > 0) enStateT[i] = enStateT[i] - dt;
       if (enFlinchLock[i] > 0) enFlinchLock[i] = enFlinchLock[i] - dt;
       // Damage window for the heavies' stagger meter.
@@ -350,6 +374,16 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       let faceX = toPX;
       let faceZ = toPZ;
 
+      // SH-051 — cross-floor routing. When the player is on another storey, the
+      // player's XZ position is the WRONG thing to walk at: it is through a
+      // ceiling. Walk at the staircase instead, and let the per-kind AI resume
+      // once we are on the same floor. Evaluated per frame from position alone
+      // (no latched waypoint), so an enemy cannot get stuck holding a target it
+      // has already walked past.
+      if (!sameFloor) navGoal(enX[i], enY[i], enZ[i], pFeetY, NAVOUT);
+      else NAVOUT[2] = 0;
+      const navving = NAVOUT[2] === 1;
+
       // SH-030 â€” a flinching enemy is rooted. This is the whole point: it is
       // the reward for landing shots, and the window in which you can push.
       if (enAIState[i] === AI_FLINCH) {
@@ -359,6 +393,20 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         }
         // No steering this frame â€” fall through to the shared tail below with
         // vx = vz = 0.
+      } else if (navving) {
+        // SH-051 — TRAVELLING. A plain seek to the stair waypoint, deliberately
+        // bypassing the per-kind state machine: orbiting, darting and pounce
+        // telegraphs are all about fighting the player, and this enemy cannot
+        // reach the player yet. Running the dretch's weave up a 2.8 m-wide
+        // staircase would just walk it off the side.
+        const gx = NAVOUT[0] - enX[i];
+        const gz = NAVOUT[1] - enZ[i];
+        const gl = Math.sqrt(gx * gx + gz * gz);
+        const gi = gl > 0.001 ? 1 / gl : 0;
+        vx = gx * gi * KIND_SPEED[k];
+        vz = gz * gi * KIND_SPEED[k];
+        faceX = gx * gi;
+        faceZ = gz * gi;
       } else if (k === 0) {
         // DRETCH â€” weave amplitude fades out inside 6 m so the final
         // lunge still connects; i*2.399 desyncs pack members.
@@ -588,15 +636,57 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           nz = DEPS.o.OBST_Z[o] + (odz / od) * minD;
         }
       }
+      // SH-051 — the stairs' solid mass, which the obstacle circles above cannot
+      // represent. They are 2D: a staircase is a wall from the high side and a
+      // ramp from the low side, and only the walker's HEIGHT says which. Circles
+      // had to pick one for everybody, and picking "wall" is what fenced enemies
+      // out of the stairwell for good.
+      //
+      // Blocked head-on, walk AROUND. Axis-sliding is not enough and the
+      // STAIRTEST harness proved it: an enemy that came into the house behind
+      // the staircase wants to go due east to the bottom tread, its desired
+      // velocity has no sideways component to slide on, so X-only and Z-only
+      // both resolve to "don't move" and it presses into the wedge forever
+      // (parked at -13.7, the stair's west face, for the whole run).
+      //
+      // So: when blocked, try the two perpendiculars and take the free one that
+      // ends nearer the goal. The staircase is a convex box, and greedily
+      // rounding a convex obstacle terminates — which is the whole reason this
+      // is enough without a path graph. `d1 <= d2` breaks ties the same way
+      // every frame, so it cannot dither on the centre line.
+      if (navStairBlocked(nx, nz, enY[i])) {
+        const spd = Math.sqrt(vx * vx + vz * vz);
+        let moved = false;
+        if (spd > 0.001) {
+          const t1x = enX[i] + (-vz) * dt, t1z = enZ[i] + (vx) * dt;   // +90
+          const t2x = enX[i] + (vz) * dt,  t2z = enZ[i] + (-vx) * dt;  // -90
+          const f1 = !navStairBlocked(t1x, t1z, enY[i]);
+          const f2 = !navStairBlocked(t2x, t2z, enY[i]);
+          const gx2 = navving ? NAVOUT[0] : pp.x;
+          const gz2 = navving ? NAVOUT[1] : pp.z;
+          const d1 = (gx2 - t1x) * (gx2 - t1x) + (gz2 - t1z) * (gz2 - t1z);
+          const d2 = (gx2 - t2x) * (gx2 - t2x) + (gz2 - t2z) * (gz2 - t2z);
+          if (f1 && (!f2 || d1 <= d2)) { nx = t1x; nz = t1z; moved = true; }
+          else if (f2) { nx = t2x; nz = t2z; moved = true; }
+        }
+        if (!moved) { nx = enX[i]; nz = enZ[i]; }
+      }
       // Record the realised velocity BEFORE the obstacle projection is
       // forgotten â€” the draw pass matches animation playback to it.
       vxLast[i] = vx;
       vzLast[i] = vz;
       enX[i] = nx;
       enZ[i] = nz;
-      // Follow the terrain surface â€” enemies are steered in XZ, so
-      // their Y must track the heightfield or they walk into hills.
-      enY[i] = terrainHeightAt(nx, nz);
+      // Follow the walkable surface â€” enemies are steered in XZ, so
+      // their Y must track it or they walk into hills.
+      //
+      // SH-051 — this was `terrainHeightAt(nx, nz)`, which is why an enemy could
+      // never be upstairs: the heightfield has no idea the house exists, so the
+      // AI was permanently at ground level no matter what it stood on.
+      // surfaceHeightAt adds the building's floors and treads, gated on how far
+      // the enemy can step UP from where it already is (STEP_UP) — that gate is
+      // what makes a 0.31 m tread climbable and a 3.7 m slab solid ceiling.
+      enY[i] = surfaceHeightAt(nx, nz, enY[i]);
       setBodyPosition(enBody[i],
         vec3(nx, enY[i] + KIND_Y_OFF[k], nz), true);
 
@@ -609,7 +699,11 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // Melee — hit-and-run kinds break off after connecting. Ranged kinds do
       // NOT melee: if they did, the right answer to them would be to walk up and
       // hug them, which is exactly the play they exist to punish.
-      if (KIND_RANGED[k] === 0 &&
+      // SH-051 — `sameFloor` is the fix for the through-the-ceiling kill. Melee
+      // needs the player within arm's reach in ALL THREE axes; `dist` only ever
+      // knew about two. A claw that lands on someone standing on the floor above
+      // is not a difficulty setting, it is a bug.
+      if (KIND_RANGED[k] === 0 && sameFloor &&
           dist <= KIND_MELEE[k] && enAttackCD[i] <= 0 &&
           enAIState[i] !== AI_WINDUP && enAIState[i] !== AI_FLINCH) {
         GS.playerHP = GS.playerHP - KIND_DMG[k];

@@ -1523,3 +1523,115 @@ because the old value was tuned against a texture that did nothing.
 
 **New tools:** `bun tools/fetch-external-textures.ts` (idempotent; `--force` to
 re-download) and `bun tools/build-building-textures.ts`.
+
+---
+
+## SH-051 — Enemies can't kill you through a ceiling 🟡 *(2026-07-15 — the death bug is fixed; climbing is NOT)*
+
+**Reported:** "enemies can attack me from a lower floor, they dont go up stairs.
+so I die without them being even physically near me."
+
+Both halves were true, and they had **three independent root causes** — none of
+which was pathfinding, which is what made this worth digging into rather than
+guessing.
+
+### 1. Melee measured distance in 2D ✅ FIXED
+
+`director.ts` computed `const dist = Math.sqrt(dx*dx + dz*dz)` — **XZ only**, and
+`pp.y` was never read anywhere in the AI. That is the right number for steering
+(you walk around a building in plan) and it was ALSO being used as the melee
+range, where it is catastrophically wrong: an enemy on the ground floor directly
+beneath a player on the first floor has `dist ~= 0`, so it clawed them through
+3.7 m of concrete.
+
+Melee now also requires vertical proximity, feet-to-feet (`playerPosition()`
+returns the capsule CENTRE — the soles are 0.95 below it, so mixing the two
+silently hands out a metre of free reach).
+
+**Measured, via the STAIRTEST harness — the A/B is the point, because a probe
+that cannot fail proves nothing:**
+
+| | result |
+|---|---|
+| vertical gate ON | `hpMin=100` — never hit |
+| vertical gate OFF | **`hpMin=76`** — 24 damage, from enemies 3.7 m below |
+
+### 2. Enemies were pinned to the terrain ✅ FIXED
+
+`enY[i] = terrainHeightAt(nx, nz)`. The heightfield has no idea the house exists,
+so an enemy could not stand on a floor **at all** — the building was, to the AI,
+a flat patch of ground with walls scribbled on it. New `src/nav.ts` adds
+`surfaceHeightAt(x, z, curY)`: terrain plus any building box whose top is within
+`STEP_UP` (0.5 m) of where the walker already is. That gate is the whole trick —
+it makes a 0.31 m tread climbable and a 3.7 m slab solid ceiling, with no physics
+query.
+
+### 3. The staircase was classified as a wall ✅ FIXED
+
+The obstacle builder in `main.ts` rings ground-level wall boxes with repulsion
+circles. Its filter is `yLo <= 0.7 && yHi >= 1.2 && thin <= 0.6` — and a stair
+step is a thin box rising from the floor past knee height, which is *exactly* a
+wall. **9 of the 12 steps in each flight matched**, so the staircase was fenced
+off with 0.7 m repulsion circles and nothing could ever use it. (The old comment
+claimed the filter deliberately kept "stair-adjacent pieces". It was keeping the
+stairs themselves.)
+
+Climbability is not a property of one box — a step is climbable only because of
+the step below it — so it cannot be detected locally. It is now **authored**: the
+24 step entities carry a `stair` tag (second tag, so `building` still drives the
+paint category), surfaced as `MESH_IS_STAIR`. `nav.ts` derives the flights from
+it by adjacency flood-fill, and the boot log prints what it found:
+
+```
+[nav] flight 0: floor y=0.20 -> y=3.90  tread A (-10.1,-8.2) -> B (-13.4,-8.2)
+[nav] flight 1: floor y=3.90 -> y=7.60  tread A (-10.1,-18.2) -> B (-13.4,-18.2)
+```
+
+They chain (0 delivers to 3.90, which is 1's boarding level), so the roof is
+reachable with no path graph. That log earned its keep immediately: the first cut
+grouped steps by "shares an axis" and merged both staircases into one 10 m
+diagonal flight, because this house stacks its flights at the SAME x values.
+
+### What does NOT work: they still don't climb 🟡
+
+Enemies now route from under the player to the stair **foot** — ~10 m of correct
+navigation, verified — and then hover at `x ~ -10.9` without mounting. The cause
+is geometric, and it is not a nudge away:
+
+- The house's steps start **0.5 m from the east wall**, which is solid at ground
+  level along its whole length (the openings there are window sills, 1.4 m tall).
+- A wall repels to `thin + 0.55 + bodyR` ≈ **1.3 m** for the big kinds.
+- So the only climbable tread (the lowest, 0.51 m) sits *inside* the wall's
+  repulsion field. Approaching from the side instead means meeting the wedge at
+  step 2+ (1.12 m up), which is correctly unclimbable from the ground.
+
+Two things were tried and **reverted** rather than left in:
+
+- **Tightening the wall circles** (`thin + 0.15` at 0.4 m spacing — which seals a
+  wall just as well; the 0.55 is padding for ~1 m circle spacing, not a body
+  allowance, since `bodyR` is added separately). It did not fix mounting, and
+  re-tuning every enemy-vs-wall interaction in the game is not a free change to
+  make on the way past. The note stays in `main.ts` for whoever picks this up.
+- **Greedy tangential avoidance** around the stair wedge. It rounds a convex
+  obstacle in principle, but at the stair's south face both perpendiculars score
+  within noise of each other and it dithers.
+
+**The honest read: this needs real pathfinding** (a nav grid + flow field over
+the walkable surface, per floor), not another local rule. Every local rule tried
+here failed for the same reason — the route in is a corner, and greedy seeks do
+not turn corners. The groundwork it would need is now in place (`nav.ts` knows
+the walkable boxes, the floors and the flights).
+
+**Consequence to be aware of:** upstairs is now *safe* rather than lethal. That is
+strictly better than the reported bug — an unfair death is worse than a dull one —
+but it is a camping spot until the pathfinding lands.
+
+### Also worth knowing
+
+- Enemy **projectiles were never part of this bug**: SH-042 already raycasts them
+  against the world (`Layer.NON_MOVING`), so ranged kinds cannot shoot through a
+  floor. Only melee could.
+- `tools/gen-building.ts` is **stale** — it emits `h_slab_f0`-style ids and a
+  3 m/10-step stairwell at (-15,-10). The shipped house v2 (`h_slab_a`,
+  `h_stair_a_*`, floors at 0.20/3.90/7.60) did not come from it. Do not "fix" the
+  world by re-running that tool.

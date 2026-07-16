@@ -4,6 +4,7 @@ import {
   capsuleShape, createCharacter,
   updateCharacter, getCharacterPosition, getCharacterLinearVelocity,
   setCharacterLinearVelocity, isCharacterGrounded, getCharacterGroundNormal,
+  setCharacterPosition,
 } from 'bloom/physics';
 
 // Player character (third-person). Jolt's CharacterVirtual is anchored at the capsule center:
@@ -209,6 +210,13 @@ export function playerPosition(): Vec3 {
 export function playerEye(): Vec3 {
   const p = getCharacterPosition(character);
   return vec3(p.x, p.y + EYE_OFFSET, p.z);
+}
+
+/// SH-051 — teleport, for the STAIRTEST harness. Putting the player on the first
+/// floor is the only way to exercise cross-floor AI from a batch run, and the
+/// alternative (walking there with injected input) is a flaky path-follow.
+export function setPlayerPosition(p: Vec3): void {
+  setCharacterPosition(character, p);
 }
 
 export function playerCapsuleHalfHeight(): number { return HALF_HEIGHT; }
