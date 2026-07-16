@@ -74,7 +74,10 @@ import {
 } from './camera';
 import { drawHud, drawOverlays } from './hud';
 import {
-  KIND_NAME, mdlAliens,
+  // KIND_COUNT + ALIEN_GLB re-added by the EN-055 merge: the boot-time
+  // stageModels batch needs the kind GLB paths (a green Perry compile would
+  // NOT have caught their absence — ReferenceError at boot).
+  KIND_COUNT, KIND_NAME, mdlAliens, ALIEN_GLB,
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
   KIND_SPINE_JOINT, KIND_TINTO,
   KIND_SCALE, KIND_Y_OFF, KIND_SPEED, KIND_HP, KIND_MELEE, DRETCH_HIT_FLASH,
