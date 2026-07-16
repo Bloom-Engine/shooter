@@ -18,8 +18,11 @@ import { dirname } from 'node:path';
 import { encodePng, grassTexture, heightToNormal } from './png';
 import { skirtHeightAt, ARENA_HALF, EXTENT_HALF } from './terrain-shape';
 
-const OUT_GLB = 'assets/models/terrain_hills.glb';
+// SH-040: a second arena means a second terrain mesh, so the output is a
+// parameter now (default keeps arena_02's historical name).
+//   bun tools/build-terrain.ts <world.json> [out.glb]
 const WORLD_PATH = process.argv[2] || 'assets/worlds/arena_02.world.json';
+const OUT_GLB = process.argv[3] || 'assets/models/terrain_hills.glb';
 
 // Visual mesh: 256 × 256 over ±EXTENT_HALF ≈ 1.1 m spacing = 65 k verts /
 // 130 k tris, still one draw call. Finer than the authored heightmap on

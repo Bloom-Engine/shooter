@@ -1,11 +1,16 @@
 {
-  "_comment": "SH-040 — the arena manifest. Adding a level is an entry here plus the .world.json the editor writes; NO game code changes. Order is the order level-select shows.",
+  "_comment": "SH-040 \u2014 the arena manifest. Adding a level is an entry here plus the .world.json the editor writes; NO game code changes. Order is the order level-select shows.",
   "_arena_01": "Deliberately NOT listed. It is a pre-schema-v2 stub: 8 entities, no terrain block. The game reads terrain heights for physics, enemy ground-following and every scatter, so loading it would put the player and every alien at a NaN height. Offering a level that does not work is worse than offering one level. Rehab it in the editor (sculpt terrain, place a wave_config) and add it back.",
   "arenas": [
     {
       "id": "arena_02",
       "name": "OUTDOOR PLAZA",
       "path": "assets/worlds/arena_02.world.json"
+    },
+    {
+      "id": "arena_03",
+      "name": "RIVERBEND RAVINE",
+      "path": "assets/worlds/arena_03.world.json"
     }
   ]
 }
