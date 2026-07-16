@@ -15,6 +15,7 @@
 
 import { drawRect, drawText, drawCircle, measureText, getTime } from 'bloom';
 import { GS } from './gamestate';
+import { ARENA_INDEX } from './world-runtime';
 import { DIR, wavePlan, countAlive } from './director';
 import { PLAYER_HP_MAX } from './combat';
 import { dodgeCooldownFrac } from './player';
@@ -61,7 +62,7 @@ function drawRunSummary(sw: number, y: number): void {
   drawRect(x, y, cardW, 118, { r: 10, g: 10, b: 14, a: 190 });
 
   const s = SCORE.score();
-  const best = SET.bestScore(0);
+  const best = SET.bestScore(ARENA_INDEX);
   const isBest = s >= best && s > 0;
 
   drawText('SCORE', x + 24, y + 12, 17, { r: 190, g: 190, b: 195, a: 220 });

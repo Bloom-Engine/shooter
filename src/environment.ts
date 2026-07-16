@@ -51,10 +51,10 @@ export const ENV: any = {
   matMuzzleFlash: 0, matMuzzleFlashMesh: 0,
 };
 
-// Round-4 â€” deterministic value noise over world XZ, used for the
+// Round-4 — deterministic value noise over world XZ, used for the
 // large-scale "moisture" patches that vary grass colour/height (and
 // loosely match the terrain shader's macro patches). Pure math, no
-// state â€” Perry-safe.
+// state — Perry-safe.
 function hashCell(ix: number, iz: number): number {
   let h = (ix * 374761393 + iz * 668265263) | 0;
   h = (h ^ (h >> 13)) | 0;
@@ -71,7 +71,7 @@ function moistureNoise(x: number, z: number): number {
 }
 
 export function initEnvironment(): void {
-  // ---- Phase 9 water â€” real shader-based river ----------------------------
+  // ---- Phase 9 water — real shader-based river ----------------------------
   // Replaces the ~1800-cube tessellated river from earlier with a proper
   // WGSL material: three Gerstner waves for vertex displacement, per-vertex
   // normal from the wave derivatives, Fresnel-blended refraction (sampling
@@ -92,11 +92,11 @@ export function initEnvironment(): void {
   // slowest), deep-water colour (greenish-teal), then knobs:
   //   foam, rim, sky_lod, micro_strength.
   // Round-3 recalibration: the river bed sits only ~0.3 m down, so the
-  // old 0.55/m absorption left the water reading as hazy grass â€”
+  // old 0.55/m absorption left the water reading as hazy grass —
   // exaggerate it (games do) so a shallow column still shifts teal.
-  // Rim 0.25 â†’ 0.10 and sky_lod 2.0 â†’ 0.6 both fight the milky wash:
+  // Rim 0.25 → 0.10 and sky_lod 2.0 → 0.6 both fight the milky wash:
   // less white shoreline paint, sharper sky/cloud reflection.
-  // Round-9: micro_strength 0.18 â†’ 0.26 â€” the shader's micro detail is now
+  // Round-9: micro_strength 0.18 → 0.26 — the shader's micro detail is now
   // flow-advected noise streaks (see water.wgsl) and carries most of the
   // "moving river" read, so it gets a little more normal weight.
   const WATER_PARAMS = [
@@ -106,13 +106,13 @@ export function initEnvironment(): void {
   ];
   if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
   
-  // ---- Water plane mesh â€” tessellated for Gerstner displacement ----------
+  // ---- Water plane mesh — tessellated for Gerstner displacement ----------
   // One flat XZ plane covering the whole river footprint in arena_02.
   // Drawn at origin with scale 1, so the mesh's native dimensions are the
   // visible river size. Subdivide finely enough that the longest
   // Gerstner wave (~5 m wavelength) shows smooth wave peaks.
   // Round-2 audit (F11): these used to be hardcoded here while the world
-  // file authored six overlapping zig-zag volumes the runtime ignored â€”
+  // file authored six overlapping zig-zag volumes the runtime ignored —
   // two sources of truth that had already drifted. The world file now
   // carries the one real river volume and the runtime reads it.
   const WATER_W  = W.WATER_COUNT > 0 ? W.WATER_SX[0] : 80;   // metres along X
@@ -132,7 +132,7 @@ export function initEnvironment(): void {
       for (let c = 0; c <= WATER_COLS; c++) {
         const u = c / WATER_COLS;
         const vv = r / WATER_ROWS;
-        // World-space positions â€” mesh has its own real extent.
+        // World-space positions — mesh has its own real extent.
         WATER_VERTS[vi++] = -WATER_W * 0.5 + u * WATER_W;
         WATER_VERTS[vi++] = 0;
         WATER_VERTS[vi++] = -WATER_D * 0.5 + vv * WATER_D;
@@ -157,7 +157,7 @@ export function initEnvironment(): void {
   }
   const matWaterMesh = createMeshExplicit(WATER_VERTS, _wvc, WATER_INDS, _wic);
   
-  // Round-3 â€” planar reflection probe (EN-011). Mirror-renders the
+  // Round-3 — planar reflection probe (EN-011). Mirror-renders the
   // cached-model world across the water plane into an HDR RT each frame;
   // water.wgsl blends it over the analytic sky by probe alpha, so trees /
   // house / banks actually appear in the river. Materials linked to a
@@ -165,7 +165,7 @@ export function initEnvironment(): void {
   const waterProbe = matWater > 0 ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
   if (waterProbe > 0) setMaterialReflectionProbe(matWater, waterProbe);
   
-  // ---- SH-021 instanced grass â€” canonical blade Ã— N instances -------------
+  // ---- SH-021 instanced grass — canonical blade × N instances -------------
   // Replaces the Tier-2b 5 000-blade baked-mesh path. One canonical
   // 6-vert cross-quad blade is uploaded once; per-frame draw is a
   // single drawMeshWithMaterialInstanced call against a 20 000-entry
@@ -203,19 +203,19 @@ export function initEnvironment(): void {
     0.44, 0.45, 0.38,  0.40,
   ];
   if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
-  // Blades are sub-pixel in the 512Â² water probe but cost the full 20k-
-  // instance vertex + raster pass there â€” skip grass in reflections.
+  // Blades are sub-pixel in the 512² water probe but cost the full 20k-
+  // instance vertex + raster pass there — skip grass in reflections.
   if (matGrass > 0) setMaterialProbeVisible(matGrass, false);
   
-  // Canonical blade mesh â€” Round-4: two-segment tapered blades with a
+  // Canonical blade mesh — Round-4: two-segment tapered blades with a
   // bow, instead of the old single hard triangle (which read as plastic
-  // spikes). Per crossed plane: 2 root verts â†’ 2 narrower mid verts â†’
+  // spikes). Per crossed plane: 2 root verts → 2 narrower mid verts →
   // 1 tip vert, bowing along the plane normal so the per-instance yaw
-  // randomises bow direction across the field. 10 verts Ã— 12 floats
+  // randomises bow direction across the field. 10 verts × 12 floats
   // (pos.3 normal.3 color.4 uv.2); 36 indices = 12 triangles (front +
   // back of 3 quads/tips per plane). color.r is the tip weight (0 at
-  // root â†’ 1 at tip) which the vertex shader uses for wind sway and
-  // the fragment shader for the rootâ†’tip colour gradient.
+  // root → 1 at tip) which the vertex shader uses for wind sway and
+  // the fragment shader for the root→tip colour gradient.
   // SH-050 — BLADE SIZE. Round-9 widened these (0.045/0.026 -> 0.062/0.038)
   // because needle-thin cards fell below a pixel a few metres out and the field
   // read as gritty speckle. That fix was real, but it paid for it in the near
@@ -266,7 +266,7 @@ export function initEnvironment(): void {
   const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, 10, GRASS_BLADE_INDS, 36);
   
   
-  // Per-instance buffer â€” 20 000 blades Ã— 9 floats (pos.xyz, rot_y,
+  // Per-instance buffer — 20 000 blades × 9 floats (pos.xyz, rot_y,
   // scale, tint.rgba). Same RNG / heightmap / rejection logic as the
   // old baked-mesh path; deterministic given the seed so screenshot
   // diffs stay stable.
@@ -307,7 +307,7 @@ export function initEnvironment(): void {
   const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
   let GRASS_INSTANCE_COUNT = 0;
   {
-    // Round-9b â€” the clump lattice is rotated 37Â° off the world axes so
+    // Round-9b — the clump lattice is rotated 37° off the world axes so
     // tuft rows can't line up with the view/river/arena edges.
     const CLUMP_C = Math.cos(0.65);
     const CLUMP_S = Math.sin(0.65);
@@ -328,11 +328,11 @@ export function initEnvironment(): void {
       const r6 = seed / 0x7fffffff;
       let px = -38 + r1 * 76;
       let pz = -38 + r2 * 76;
-      // Round-4 â€” clumping: pull each blade toward a per-1.7 m-cell anchor
+      // Round-4 — clumping: pull each blade toward a per-1.7 m-cell anchor
       // so the field reads as natural tufts instead of an even lawn. Pull
       // FIRST, then reject on the pulled position.
-      // Round-9b â€” de-grid the tufts. The anchors were one per AXIS-ALIGNED
-      // cell, jittered across only the middle 60% of it â€” at grazing angles
+      // Round-9b — de-grid the tufts. The anchors were one per AXIS-ALIGNED
+      // cell, jittered across only the middle 60% of it — at grazing angles
       // the tufts read as straight rows of stumps. Now the cell lookup runs
       // in the rotated frame, anchors jitter across the FULL cell (with two
       // decorrelated hashes), and ~22% of blades stay loose between tufts
@@ -365,12 +365,12 @@ export function initEnvironment(): void {
         py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
              (h01 * (1 - fx) + h11 * fx) * fz;
       }
-      // Round-4 â€” moisture patches (~12 m wavelength): low-moisture areas
+      // Round-4 — moisture patches (~12 m wavelength): low-moisture areas
       // go dry olive-yellow and slightly shorter, lush areas stay deep
       // green and tall. Plus per-blade jitter on top.
       const moist = moistureNoise(px * 0.085, pz * 0.085);
       const dry   = Math.max(0, Math.min(1, (0.55 - moist) * 3.0));
-      // Round-9: jitter 0.16 â†’ 0.10 â€” per-blade hue speckle was a big part
+      // Round-9: jitter 0.16 → 0.10 — per-blade hue speckle was a big part
       // of the gritty read; the moisture patches carry the large-scale
       // variation on their own.
       const jit   = (r5 - 0.5) * 0.10;
@@ -386,7 +386,7 @@ export function initEnvironment(): void {
       GRASS_INSTANCE_COUNT++;
     }
   }
-  // EN-001 â€” pass instanceCount explicitly (Perry's `.length` reports
+  // EN-001 — pass instanceCount explicitly (Perry's `.length` reports
   // the literal-init size, not how many were written).
   const matGrassInstances = matGrass > 0
     ? createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT)
@@ -398,7 +398,7 @@ export function initEnvironment(): void {
   // count that matches means the density is exactly what was asked for.
   console.log('[grass] placed ' + GRASS_INSTANCE_COUNT + ' / ' + GRASS_INSTANCE_COUNT_MAX + ' blades');
   
-  // ---- Building stone material â€” bake all box-placeholder building
+  // ---- Building stone material — bake all box-placeholder building
   // entries into a single static mesh, drawn once per frame against
   // a noise + horizontal-band material. Replaces the flat-beige
   // drawCube path for category-1 (building) entities.
@@ -465,8 +465,8 @@ export function initEnvironment(): void {
     const mi = W.MESH_MODEL_IDX[i];
     if (W.MODEL_IS_BOX[mi] === 1 && W.MESH_CATEGORY[i] === 1) _bldgCount++;
   }
-  const _bvc = _bldgCount * 24;     // 24 verts per cube (4 per face Ã— 6 faces)
-  const _bic = _bldgCount * 36;     // 36 indices per cube (2 tris Ã— 6 faces)
+  const _bvc = _bldgCount * 24;     // 24 verts per cube (4 per face × 6 faces)
+  const _bic = _bldgCount * 36;     // 36 indices per cube (2 tris × 6 faces)
   const BUILDING_VERTS = new Array<number>(_bvc * 12);
   const BUILDING_INDS  = new Array<number>(_bic);
   {
@@ -482,7 +482,7 @@ export function initEnvironment(): void {
       const yn = cy - hy, yp = cy + hy;
       const zn = cz - hz, zp = cz + hz;
       // Six faces, 4 verts each. Vertex layout: pos(3) normal(3)
-      // color(4) uv(2) â€” colors all white, UVs unused (material
+      // color(4) uv(2) — colors all white, UVs unused (material
       // samples world XY/XZ/YZ).
       //
       // WINDING MATTERS: every quad below is CCW seen from OUTSIDE the box.
@@ -525,7 +525,7 @@ export function initEnvironment(): void {
       BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
       BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
   
-      // 36 indices: 6 faces Ã— 2 tris Ã— 3, CCW from outside.
+      // 36 indices: 6 faces × 2 tris × 3, CCW from outside.
       BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  1; BUILDING_INDS[ii++] = vbase +  2;
       BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  2; BUILDING_INDS[ii++] = vbase +  3;
       BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  5; BUILDING_INDS[ii++] = vbase +  6;
@@ -543,24 +543,24 @@ export function initEnvironment(): void {
   }
   const matBuildingMesh = createMeshExplicit(BUILDING_VERTS, _bvc, BUILDING_INDS, _bic);
   
-  // ---- Phase 10 glass â€” second material consumer, proves the ABI works -----
+  // ---- Phase 10 glass — second material consumer, proves the ABI works -----
   // Second material using the Phase 4b refractive path (scene-colour snapshot
   // at group 4). No Gerstner waves; flat normal, heavier Fresnel so edges
   // reflect the sky and the centre of the pane stays clearest. House v2 puts
   // the panes in the south upper-floor window openings (drawn from main's
   // world pass), sized to match the h_s_f1 openings the house generator
   // emits. Phase 10's acceptance criterion: no engine change between
-  // Phase 9 and 10 â€” only TypeScript.
+  // Phase 9 and 10 — only TypeScript.
 
   const matGlass = compileMaterialFromFile(
     'assets/materials/glass.wgsl', 'refractive');
 
-  // Glass pane mesh â€” a single quad on the XY plane, normal +Z, sized to the
-  // f1 window openings (1.8m Ã— 1.4m, sill-relative: pane origin is the sill).
-  // Subdivided 1Ã—1 (two triangles) because glass has no per-vertex
+  // Glass pane mesh — a single quad on the XY plane, normal +Z, sized to the
+  // f1 window openings (1.8m × 1.4m, sill-relative: pane origin is the sill).
+  // Subdivided 1×1 (two triangles) because glass has no per-vertex
   // displacement; the shader runs entirely in fs_main.
-  const GLASS_W = 1.8;   // metres along X â€” window opening width
-  const GLASS_H = 1.4;   // metres along Y â€” window opening height
+  const GLASS_W = 1.8;   // metres along X — window opening width
+  const GLASS_H = 1.4;   // metres along Y — window opening height
   const GLASS_VERTS: number[] = [
     // pos(3)         normal(3)   color(4)     uv(2)
     -GLASS_W*0.5, 0,        0,  0,0,1,  1,1,1,1,  0,0,
@@ -572,7 +572,7 @@ export function initEnvironment(): void {
   const GLASS_INDS: number[] = [0, 1, 2, 0, 2, 3];
   const matGlassMesh = createMesh(GLASS_VERTS, GLASS_INDS);
   
-  // ---- Muzzle flash â€” additive-bucket material (Bucket::Additive) ----------
+  // ---- Muzzle flash — additive-bucket material (Bucket::Additive) ----------
   // First consumer of the additive blend path. Fragment fakes a
   // volumetric warm flash inside a unit cube via radial falloff from
   // local-space centre. Per-draw tint alpha carries the flash intensity.
@@ -613,7 +613,7 @@ export function initGiProxies(
 ): void {
   // ---- GI proxies ------------------------------------------------------------
   // The world renders through the material system, which Lumen's inputs
-  // (BLAS/TLAS, mesh cards, SDF clipmap) never see â€” so SSGI had no
+  // (BLAS/TLAS, mesh cards, SDF clipmap) never see — so SSGI had no
   // off-screen geometry to bounce from. Register invisible scene-node
   // duplicates of the big static geometry, flagged gi_only: they feed the
   // GI stack but are skipped by the main render, reflections, and the sun
@@ -622,7 +622,7 @@ export function initGiProxies(
   // right hue.
   {
     // Terrain instance(s) from the world's static-mesh list.
-    // loadModel/createMeshExplicit return Model OBJECTS â€” the scene attach
+    // loadModel/createMeshExplicit return Model OBJECTS — the scene attach
     // FFI wants the raw .handle number.
     for (let i = 0; i < W.MESH_COUNT; i++) {
       const mi = W.MESH_MODEL_IDX[i];
@@ -630,7 +630,7 @@ export function initGiProxies(
         const n = createSceneNode();
         attachModelToNode(n, (meshModelHandles[mi] as any).handle, 0);
         setSceneNodeTrs(n, W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i], 0, W.MESH_SCALE[i]);
-        setSceneNodeColor(n, 84, 116, 51);          // â‰ˆ grass_mid albedo
+        setSceneNodeColor(n, 84, 116, 51);          // ≈ grass_mid albedo
         setSceneNodeCastShadow(n, false);
         setSceneNodeGiOnly(n, true);
       }
@@ -644,10 +644,10 @@ export function initGiProxies(
       setSceneNodeCastShadow(n, false);
       setSceneNodeGiOnly(n, true);
     }
-    // Forest trees â€” every primitive of every placed tree. glTF materials
+    // Forest trees — every primitive of every placed tree. glTF materials
     // ride along through attachModelToNode, so trunks bounce brown and
     // canopies green without per-node colour overrides. (GI proxies are
-    // unrotated â€” close enough for bounce lighting.)
+    // unrotated — close enough for bounce lighting.)
     for (let i = 0; i < W.FOREST_COUNT; i++) {
       const v = treeVariants[W.FOREST_VAR[i]];
       for (let mIdx = 0; mIdx < treeGlbParts; mIdx++) {

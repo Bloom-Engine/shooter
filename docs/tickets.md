@@ -648,7 +648,7 @@ seconds; the next wave's spawn re-escalates it; stingers land on
 clear/death/win.
 
 **Status (2026-07-13):** the software half is DONE. The game loads
-`assets/music/{music_calm,music_combat,music_menu}.wav` and the three
+`assets/music/{music_calm,music_combat,music_menu}.ogg` and the three
 stingers if they exist, and falls back to the old single `game.wav` bed
 if they don't — so the repo still runs with no music directory at all,
 exactly as before.

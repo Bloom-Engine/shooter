@@ -1,8 +1,8 @@
 # External texture sources
 
-All assets in this folder are **CC0 (public domain)** — no attribution
-required, compatible with this repo's GPLv3 distribution. Provenance
-recorded for hygiene:
+Every **committed** asset in this folder is **CC0 (public domain)** — no
+attribution required, compatible with this repo's GPLv3 distribution.
+Provenance recorded for hygiene:
 
 | Folder | Asset | Source | License |
 |---|---|---|---|
@@ -18,6 +18,33 @@ recorded for hygiene:
 Re-fetch any of these with `bun tools/fetch-external-textures.ts` (it skips
 what is already on disk; `--force` re-downloads). The list of sets, their
 resolutions and their real-world sizes live in that tool.
+
+## ShareTextures leaf atlases — LOCAL ONLY, deliberately not committed
+
+`robinia/RobiniaViscosa_2-4K/` and `platanus/PlatanusOccidentalis_1-2K/`
+(the branch atlases `build-props.ts` stamps into the prop_tree2/prop_tree3
+leaf cards) come from ShareTextures:
+
+- https://www.sharetextures.com/ — search "Robinia Viscosa" (4K) and
+  "Platanus Occidentalis" (2K) atlas packs.
+
+**Their license is NOT plain CC0.** ShareTextures grants CC0 terms *only for
+direct downloads from their site*, and separately forbids redistributing the
+files "on other websites … or as part of collections" and any automated
+downloading. That means:
+
+- the raw packs **must not be committed** to this public repo (they were,
+  from rounds 5–7 until 2026-07-16; untracked since) and are gitignored;
+- `fetch-external-textures.ts` deliberately does **not** cover them —
+  download them by hand from the pages above into the two folders;
+- the **baked leaf-card textures inside `prop_tree2.glb`/`prop_tree3.glb`
+  are fine to ship**: they are transformed derivatives used in the product
+  (allowed for commercial work, no attribution required), not a
+  redistribution of the packs.
+
+Without the two folders on disk, `build-props.ts` falls back to the
+`LeafSet004` compositor (CC0) and then to procedural cards — a fresh
+checkout still rebuilds every prop.
 
 ## What consumes them
 

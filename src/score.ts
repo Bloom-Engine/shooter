@@ -10,8 +10,12 @@
 
 import { setBestScore, bestScore } from './settings';
 
-// Points per kind (dretch .. tyrant), scaled by the combo multiplier.
-const KIND_POINTS = [10, 15, 25, 60, 200];
+// Points per kind, in enemies.ts kind order (dretch, mantis, marauder,
+// dragoon, tyrant, adv marauder, adv dragoon), scaled by the combo
+// multiplier. The two SH-042 upgrade kinds are RANGED and tougher than their
+// base classes — they pay ~1.5x. (This table sat at 5 entries for a while,
+// so both adv kinds fell to the 10-point fallback: less than a mantis.)
+const KIND_POINTS = [10, 15, 25, 60, 200, 40, 90];
 
 const COMBO_WINDOW = 4.0;   // seconds without a kill before the combo drops
 const COMBO_STEP   = 0.25;  // each kill adds this to the multiplier
@@ -45,7 +49,7 @@ export function noteHit(): void { S[5] = S[5] + 1; }
 
 /// A kill: bank the points at the current multiplier, then raise it.
 export function noteKill(kind: number): number {
-  const base = kind >= 0 && kind < 5 ? KIND_POINTS[kind] : 10;
+  const base = kind >= 0 && kind < 7 ? KIND_POINTS[kind] : 10;
   const gained = base * S[1];
   S[0] = S[0] + gained;
   S[3] = S[3] + 1;

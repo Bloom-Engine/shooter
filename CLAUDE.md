@@ -39,7 +39,8 @@ textured arena, skeletal-animated enemies, ambient music — runnable with
   `../editor/` round-trips these files unmodified.
 - `tools/` — offline converters + glTF diagnostics. Run with `bun`.
 - `assets/models/` — committed GLBs. Regenerate via
-  `bun tools/convert-aliens-anim.ts` and `bun tools/convert-arena.ts`.
+  `bun tools/convert-aliens-anim.ts` (skinned aliens + player) and
+  `bun tools/build-props.ts` (trees/props).
 
 ## Read before changing things
 
@@ -72,7 +73,6 @@ npm run assets                         # rebuild props + terrain visual mesh
 perry compile src/main.ts -o main      # raw compile
 ./main                                  # play
 bun tools/convert-aliens-anim.ts       # regenerate animated alien GLBs
-bun tools/convert-arena.ts             # regenerate textured arena
 bun tools/validate-glb.ts <path>       # glTF-validator report
 bun tools/fetch-external-textures.ts   # re-download the CC0 photoscan sources
 bun tools/build-terrain-textures.ts    # rebuild the 4 terrain splat layers

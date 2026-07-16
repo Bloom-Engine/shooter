@@ -1,4 +1,4 @@
-﻿// SH-028 / SH-042 â€” weapon mechanics.
+// SH-028 / SH-042 — weapon mechanics.
 //
 // Before this: two weapons, an instant `R` that refilled the mag, a raycast
 // with zero spread straight down the camera, and "recoil" that slid the gun
@@ -9,7 +9,7 @@
 // recoil walks the camera and recovers toward where you were aiming; aiming
 // tightens both; reloading takes time you can be punished for.
 //
-// Every weapon is a ROW in the stat table, not a branch in the code â€” adding
+// Every weapon is a ROW in the stat table, not a branch in the code — adding
 // the chaingun and the cannon below cost no new logic.
 
 const MAX_WEAPONS = 4;
@@ -53,7 +53,7 @@ export const W_PICKUP_AMT = [15,   8,    40,   2];     // ammo per crate
 const S = [0, 0, 0, 0, 0, 0, 0, 0];
 
 // Magazine vs reserve. The old code had ONE number per weapon and `R` simply
-// reset it to the magazine size â€” a free refill, so ammo was never a resource
+// reset it to the magazine size — a free refill, so ammo was never a resource
 // and pickups had nothing to give you. Splitting them is what makes a reload a
 // cost (it consumes reserve) and a crate a reward (it adds reserve).
 const mag = new Array<number>(MAX_WEAPONS);
@@ -90,7 +90,7 @@ export function addAmmo(w: number, n: number): void {
   if (reserve[w] > cap) reserve[w] = cap;
 }
 
-/// True when the weapon is dry in every sense â€” nothing to fire, nothing to
+/// True when the weapon is dry in every sense — nothing to fire, nothing to
 /// reload with. The HUD needs to say so, or the player just hears clicks.
 export function isEmpty(): boolean {
   return mag[S[0]] <= 0 && reserve[S[0]] <= 0;
@@ -123,7 +123,7 @@ export function selectWeapon(w: number): void {
   if (w === S[0]) return;
   S[0] = w;
   S[2] = W_SPREAD0[w];
-  S[3] = 0;      // switching cancels a reload â€” a real cost, and a real option
+  S[3] = 0;      // switching cancels a reload — a real cost, and a real option
   S[5] = 0;
   S[6] = 0;
 }
@@ -140,11 +140,11 @@ export function beginReload(): void {
   const w = S[0];
   if (S[3] > 0) return;
   if (mag[w] >= W_MAG[w]) return;   // already full
-  if (reserve[w] <= 0) return;      // nothing to load â€” the click IS the feedback
+  if (reserve[w] <= 0) return;      // nothing to load — the click IS the feedback
   S[3] = W_RELOAD[w];
 }
 
-/// Interrupt a reload â€” dodging, switching, dying.
+/// Interrupt a reload — dodging, switching, dying.
 export function cancelReload(): void { S[3] = 0; }
 
 /// Advance cooldowns, spread recovery, aim/spinup blends, reload.
@@ -166,7 +166,7 @@ export function updateWeapons(dt: number, firing: boolean, aiming: boolean): voi
     }
   }
 
-  // Spread recovers only while NOT firing â€” otherwise full-auto would settle
+  // Spread recovers only while NOT firing — otherwise full-auto would settle
   // into a steady state and never punish holding the trigger.
   if (!firing && S[2] > W_SPREAD0[w]) {
     S[2] = S[2] - W_SPREAD_REC[w] * dt;
@@ -198,7 +198,7 @@ export function updateWeapons(dt: number, firing: boolean, aiming: boolean): voi
 }
 
 /// Can we fire *right now*? Charge weapons answer false while the trigger is
-/// still held â€” they fire on RELEASE (see `releaseCharge`).
+/// still held — they fire on RELEASE (see `releaseCharge`).
 export function canFire(firing: boolean): boolean {
   const w = S[0];
   if (S[3] > 0) return false;          // reloading
@@ -210,7 +210,7 @@ export function canFire(firing: boolean): boolean {
   return true;
 }
 
-/// For charge weapons: the trigger was released â€” should we fire, and at what
+/// For charge weapons: the trigger was released — should we fire, and at what
 /// charge (0..1)? Returns -1 if there is nothing to fire.
 export function releaseCharge(): number {
   const w = S[0];
@@ -235,7 +235,7 @@ export function fireShot(kickOut: number[]): void {
   S[2] = S[2] + W_SPREAD_ADD[w];
   if (S[2] > W_SPREAD_MAX[w]) S[2] = W_SPREAD_MAX[w];
 
-  // Kick is reduced while aiming â€” bracing the weapon is the whole point of ADS.
+  // Kick is reduced while aiming — bracing the weapon is the whole point of ADS.
   const aimMul = 1 - S[4] * 0.45;
   kickOut[0] = W_KICK[w] * aimMul;
   kickOut[1] = (Math.random() * 2 - 1) * W_KICK_YAW[w] * aimMul;
