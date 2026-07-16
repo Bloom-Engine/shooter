@@ -90,7 +90,14 @@ function defaults(): void {
   V[SET_OUTPUT_SCALE] = 1.0;   // native — a fresh install shows the game at its best
   V[SET_SHADOWS]    = 1;
   V[SET_SSAO]       = 1;
-  V[SET_SSR]        = 1;
+  // SSR ships OFF (2026-07-16, the "indoor blizzard"): the march on rough
+  // interior concrete hits bright window/sky content and splatters white
+  // firefly texels over every interior surface (captures in tools/.testout/
+  // bliz-*.png; engine EN-061). This game has no SSR receivers that matter -
+  // water reflections are the PLANAR probe, and the July audit measured SSR
+  // invisible outdoors - so OFF is a pure quality win here. The settings row
+  // stays for whoever wants to A/B it.
+  V[SET_SSR]        = 0;
   V[SET_SSGI]       = 1;
   V[SET_BLOOM]      = 1;
   // Off by default: Lumen is the default GI everywhere; path tracing is
