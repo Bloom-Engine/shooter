@@ -144,17 +144,16 @@ return numbers, not delimited text.
 
 ## Impact on the shooter's design
 
-The combination of 1, 3 and 4 means we can't use `bloom/world`'s
-`loadWorld` or runtime `JSON.parse` at all. The shipped answer is the
-**build-time world generator**: `assets/worlds/arena_02.world.json`
-is authored in the standard engine schema (the editor round-trips
-it), and every `npm run dev` / `npm run world` runs
-`tools/build-world.ts` under **bun** (real JS — Perry never parses
-the JSON), which emits Perry-safe parallel flat arrays at
-`src/generated/world.ts`. The runtime reads geometry, lighting,
-spawners, pickups, water and the wave plan exclusively from that
-generated module. Adding an entity kind = a bucket in
-`tools/build-world.ts` + consuming the arrays in `main.ts`.
+**(Updated 2026-07-16 — the section below used to describe a bake step
+that no longer exists.)** Quirks 1, 3 and 4 are FIXED on Perry 0.5.1208
+(verified — see CLAUDE.md's world-pipeline section), so the shooter now
+loads `assets/worlds/*.world.json` at **runtime** via the engine's
+`loadWorld` (`src/world-runtime.ts`); `tools/build-world.ts` and
+`src/generated/` were deleted with that change. What still binds:
+parse JSON **at load, never on a per-frame path**; build arrays with
+`new Array(n)` + index assignment, never `.push()`; and read parsed
+fields by explicit key. Adding an entity kind = a bucket in
+`src/world-runtime.ts` + consuming the arrays in `main.ts`.
 
 Quirk #5 shapes the FFI surface the same way: per-frame data crosses
 as numbers (see the engine's `bloom_profiler_row_*` ABI), never as

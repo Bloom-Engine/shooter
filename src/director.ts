@@ -52,9 +52,9 @@ import {
 } from './enemies';
 
 /// Mutable director state, const-object slots (the DEPS.o.CAM pattern).
-/// pendingPlayerDamage/pendingHitAngle accumulate what the enemies did
-/// to the player this frame; main.ts applies them after updateDirector
-/// / updateEnemyProjectiles (GS.playerHP and the HUD hit-arc are main's).
+/// Player damage is applied directly to GS.playerHP where it happens (melee
+/// in updateDirector, bolts in updateEnemyProjectiles) — there is no
+/// accumulate-then-apply step in main.ts.
 export const DIR: any = {
   waveIdx: 0,
   waveSpawned: 0,
@@ -62,9 +62,6 @@ export const DIR: any = {
   spawnTimer: 0,
   gameWon: false,
   eprojNext: 0,
-  pendingPlayerDamage: 0,
-  pendingHitAngle: 0,
-  pendingHits: 0,
 };
 
 /// main.ts-owned dependencies, handed over once by initDirector.
@@ -89,7 +86,7 @@ export function setDirectorDeps(deps: any): void {
 }
 
 
-// Wave director â€” spawners, wave plan, and kind sequence all come from the
+// Wave director — spawners, wave plan, and kind sequence all come from the
 // world file (see enemy_spawner + wave_config entities in arena_02.world.json).
 const spawnerX = W.SPAWNER_X;
 const spawnerZ = W.SPAWNER_Z;
@@ -99,7 +96,7 @@ const WAVE_KINDS = W.WAVE_KIND;
 const WAVE_SPAWN_DELAY = 1.2;
 export const WAVE_BREAK_DELAY = 2.5;
 // Round-2 audit (F11): with one kind per wave and BODIES_PER_KIND=2 pool
-// slots, the shipped game never showed more than 2 enemies at once â€” the
+// slots, the shipped game never showed more than 2 enemies at once — the
 // arena felt empty and the measured pool-max load never occurred in play.
 // Waves now mix kinds (see arena_02.world.json), so the concurrency cap
 // is the real limit again.
@@ -124,7 +121,7 @@ const MAX_CONCURRENT = 8;
 
 // Shortest-arc turn toward a target yaw, clamped to maxStep radians.
 // Keeps enemy headings continuous so models wheel around instead of
-// snapping 180Â°.
+// snapping 180°.
 function turnToward(cur: number, target: number, maxStep: number): number {
   let d = target - cur;
   while (d > Math.PI)  d = d - Math.PI * 2;
@@ -134,7 +131,7 @@ function turnToward(cur: number, target: number, maxStep: number): number {
   return cur + d;
 }
 
-function countAlive(): number {
+export function countAlive(): number {
   let c = 0;
   for (let i = 0; i < MAX_ENEMIES; i++) if (enAlive[i] > 0) c = c + 1;
   return c;
@@ -143,7 +140,7 @@ function countAlive(): number {
 function findDormantSlot(kind: number): number {
   for (let j = 0; j < BODIES_PER_KIND; j++) {
     const i = kind * BODIES_PER_KIND + j;
-    // A dying slot still owns the corpse on screen â€” don't respawn into it
+    // A dying slot still owns the corpse on screen — don't respawn into it
     // or the death anim snaps into a fresh enemy mid-fall.
     if (enAlive[i] === 0 && enDying[i] === 0) return i;
   }
@@ -180,7 +177,7 @@ function spawnEnemy(): void {
   // the previous occupant, and animPlay is (deliberately) a no-op when asked
   // for the clip that is already playing.
   enAnimClip[slot] = -1;
-  // Spawners sit at the arena corners â€” start facing the middle.
+  // Spawners sit at the arena corners — start facing the middle.
   enHeading[slot] = Math.atan2(-enX[slot], enZ[slot]);
   setBodyPosition(enBody[slot],
     vec3(enX[slot], enY[slot] + KIND_Y_OFF[kind], enZ[slot]), true);
@@ -215,7 +212,7 @@ function spawnEnemyProjectile(x: number, y: number, z: number,
   DIR.eprojNext = (DIR.eprojNext + 1) % MAX_EPROJ;
 }
 
-function despawnAllEnemies(): void {
+export function despawnAllEnemies(): void {
   for (let i = 0; i < MAX_ENEMIES; i++) {
     // SH-031 — release any live ragdoll before wiping the slot, or its bodies
     // stay in the DEPS.o.physics world forever. A restart is exactly the moment such a
@@ -243,7 +240,7 @@ function despawnAllEnemies(): void {
   }
 }
 
-function damageEnemy(i: number, dmg: number,
+export function damageEnemy(i: number, dmg: number,
                      hx: number, hy: number, hz: number,
                      dirX: number, dirY: number, dirZ: number): void {
   const k = enKind[i];
@@ -263,7 +260,7 @@ function damageEnemy(i: number, dmg: number,
     enAlive[i] = 0;
     enDying[i] = 1;
     enDeathT[i] = 0;
-    // Freeze the AI heading â€” a dragoon killed mid-charge collapses along its
+    // Freeze the AI heading — a dragoon killed mid-charge collapses along its
     // charge line rather than snapping around toward the player.
     enDeathYaw[i] = enHeading[i];
     // SH-031 — remember the killing shot so the ragdoll is thrown along it.
@@ -277,7 +274,7 @@ function damageEnemy(i: number, dmg: number,
     VFX.emitDeathBurst(hx, hy, hz,
                        KIND_BLOOD_R[k], KIND_BLOOD_G[k], KIND_BLOOD_B[k],
                        0.6 + KIND_SCALE[k]);
-    // SH-029 â€” hit-stop. The single cheapest way to make a kill land: the frame
+    // SH-029 — hit-stop. The single cheapest way to make a kill land: the frame
     // holds for ~50 ms and the brain reads it as impact. Heavier kinds hold
     // longer, which is most of why killing a tyrant feels different.
     FEEL.requestHitstop(k >= 3 ? 0.09 : 0.05);
@@ -287,7 +284,7 @@ function damageEnemy(i: number, dmg: number,
     return;
   }
 
-  // Not dead â€” should it flinch?
+  // Not dead — should it flinch?
   // Light kinds flinch on any hit (with a lockout so sustained fire cannot
   // stun-lock them). Heavies need enough damage inside a window, so a tyrant
   // shrugs off a rifle but staggers under a cannon: unflinching by default is
@@ -319,19 +316,19 @@ function damageEnemy(i: number, dmg: number,
 /// the unscaled frame dt (hit-stop scales dt; the music must not stall).
 export function updateDirector(dt: number, dtReal: number, playing: boolean): void {
   // ---- Enemy AI + wave director (M5 / M6, Round-9 rework) ---------------
-  // Old behaviour was a straight beeline + melee â€” every kind identical.
+  // Old behaviour was a straight beeline + melee — every kind identical.
   // Now each kind runs its own steering flavour + state machine:
-  //   dretch   â€” skittering swarm: full speed but weaving hard around the
+  //   dretch   — skittering swarm: full speed but weaving hard around the
   //              direct line, so packs wash around the player.
-  //   mantis   â€” circler: orbits at ~7 m, darts in for one hit, backs off.
-  //   marauder â€” flanker: approaches on a wide curve toward your side.
-  //   dragoon  â€” pouncer: rooted 0.65 s telegraph (roar), then a locked-
-  //              direction 3.4Ã— charge you can sidestep.
-  //   tyrant   â€” bulldozer: momentum builds in a straight line but the
+  //   mantis   — circler: orbits at ~7 m, darts in for one hit, backs off.
+  //   marauder — flanker: approaches on a wide curve toward your side.
+  //   dragoon  — pouncer: rooted 0.65 s telegraph (roar), then a locked-
+  //              direction 3.4× charge you can sidestep.
+  //   tyrant   — bulldozer: momentum builds in a straight line but the
   //              turn rate is capped, so dodging works and it has to
   //              wheel around after an overrun.
   // Shared: pairwise separation (no model-pile), trunk-circle avoidance
-  // (enemies are kinematic â€” Jolt won't resolve their contacts), terrain
+  // (enemies are kinematic — Jolt won't resolve their contacts), terrain
   // following, and a turn-rate-limited heading the draw code renders.
   if (playing) {
     const pp = playerPosition();
@@ -384,14 +381,14 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       else NAVOUT[2] = 0;
       const navving = NAVOUT[2] === 1;
 
-      // SH-030 â€” a flinching enemy is rooted. This is the whole point: it is
+      // SH-030 — a flinching enemy is rooted. This is the whole point: it is
       // the reward for landing shots, and the window in which you can push.
       if (enAIState[i] === AI_FLINCH) {
         if (enStateT[i] <= 0) {
           enAIState[i] = AI_APPROACH;
           enStateT[i] = 0;
         }
-        // No steering this frame â€” fall through to the shared tail below with
+        // No steering this frame — fall through to the shared tail below with
         // vx = vz = 0.
       } else if (navving) {
         // SH-051 — TRAVELLING. A plain seek to the stair waypoint, deliberately
@@ -408,7 +405,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         faceX = gx * gi;
         faceZ = gz * gi;
       } else if (k === 0) {
-        // DRETCH â€” weave amplitude fades out inside 6 m so the final
+        // DRETCH — weave amplitude fades out inside 6 m so the final
         // lunge still connects; i*2.399 desyncs pack members.
         const weave = Math.sin(tAI * 3.0 + i * 2.399) * 0.85
                     * Math.min(1, Math.max(0, (dist - 2.5) / 4));
@@ -418,7 +415,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           vz = (toPX * sw + toPZ * cw) * KIND_SPEED[k] * 1.15;
         }
       } else if (k === 1) {
-        // MANTIS â€” approach â†’ orbit â†’ dart â†’ back off.
+        // MANTIS — approach → orbit → dart → back off.
         if (enAIState[i] === AI_APPROACH) {
           if (dist < 9) {
             enAIState[i] = AI_ORBIT;
@@ -451,13 +448,13 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           faceX = enChargeX[i]; faceZ = enChargeZ[i];
           if (enStateT[i] <= 0) { enAIState[i] = AI_RECOVER; enStateT[i] = 0.8; }
         } else {
-          // AI_RECOVER â€” back away facing the player, then re-approach.
+          // AI_RECOVER — back away facing the player, then re-approach.
           vx = (-toPX + -toPZ * enOrbitDir[i] * 0.5) * KIND_SPEED[k] * 0.8;
           vz = (-toPZ +  toPX * enOrbitDir[i] * 0.5) * KIND_SPEED[k] * 0.8;
           if (enStateT[i] <= 0) enAIState[i] = AI_APPROACH;
         }
       } else if (k === 2) {
-        // MARAUDER â€” flank: aim beside the player, the offset shrinking
+        // MARAUDER — flank: aim beside the player, the offset shrinking
         // as it closes, so it comes in on a curve toward your side.
         const m = Math.min(6, Math.max(0, dist - 3) * 0.5);
         const aimX = pp.x - toPZ * enOrbitDir[i] * m - enX[i];
@@ -468,7 +465,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           vz = (aimZ / al) * KIND_SPEED[k];
         }
       } else if (k === 3) {
-        // DRAGOON â€” pounce with a rooted, audible telegraph.
+        // DRAGOON — pounce with a rooted, audible telegraph.
         if (enAIState[i] === AI_APPROACH) {
           if (dist > KIND_MELEE[k] * 0.9) {
             vx = toPX * KIND_SPEED[k];
@@ -480,7 +477,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);  // roar
           }
         } else if (enAIState[i] === AI_WINDUP) {
-          // Rooted â€” the player's dodge window.
+          // Rooted — the player's dodge window.
           if (enStateT[i] <= 0) {
             enAIState[i] = AI_CHARGE;
             enStateT[i] = 1.2;
@@ -488,7 +485,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             enChargeZ[i] = toPZ;
           }
         } else if (enAIState[i] === AI_CHARGE) {
-          vx = enChargeX[i] * KIND_SPEED[k] * 3.4;   // fully locked â€” dodgeable
+          vx = enChargeX[i] * KIND_SPEED[k] * 3.4;   // fully locked — dodgeable
           vz = enChargeZ[i] * KIND_SPEED[k] * 3.4;
           faceX = enChargeX[i]; faceZ = enChargeZ[i];
           if (dist <= KIND_MELEE[k] || enStateT[i] <= 0) {
@@ -496,7 +493,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             enStateT[i] = 1.4;
           }
         } else {
-          // AI_RECOVER â€” winded: creep, then re-arm the pounce.
+          // AI_RECOVER — winded: creep, then re-arm the pounce.
           if (dist > KIND_MELEE[k] * 0.9) {
             vx = toPX * KIND_SPEED[k] * 0.6;
             vz = toPZ * KIND_SPEED[k] * 0.6;
@@ -507,7 +504,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           }
         }
       } else if (k === 4) {
-        // TYRANT â€” heading-locked momentum. Speed builds only while the
+        // TYRANT — heading-locked momentum. Speed builds only while the
         // player sits near its nose; hard turns bleed it off, so a
         // sidestep leaves 3+ tons wheeling around for another pass.
         const tgtYaw = Math.atan2(toPX, -toPZ);
@@ -603,7 +600,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         }
       }
 
-      // Separation â€” pack members shoulder each other apart instead of
+      // Separation — pack members shoulder each other apart instead of
       // stacking into one model pile.
       for (let j = 0; j < MAX_ENEMIES; j++) {
         if (j === i || enAlive[j] === 0) continue;
@@ -620,7 +617,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       }
 
       // Integrate, then slide the tentative position out of any trunk
-      // circle â€” projection keeps the tangential component, so enemies
+      // circle — projection keeps the tangential component, so enemies
       // skim around trees instead of head-butting them.
       let nx = enX[i] + vx * dt;
       let nz = enZ[i] + vz * dt;
@@ -672,12 +669,12 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         if (!moved) { nx = enX[i]; nz = enZ[i]; }
       }
       // Record the realised velocity BEFORE the obstacle projection is
-      // forgotten â€” the draw pass matches animation playback to it.
+      // forgotten — the draw pass matches animation playback to it.
       vxLast[i] = vx;
       vzLast[i] = vz;
       enX[i] = nx;
       enZ[i] = nz;
-      // Follow the walkable surface â€” enemies are steered in XZ, so
+      // Follow the walkable surface — enemies are steered in XZ, so
       // their Y must track it or they walk into hills.
       //
       // SH-051 — this was `terrainHeightAt(nx, nz)`, which is why an enemy could
@@ -709,7 +706,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         GS.playerHP = GS.playerHP - KIND_DMG[k];
         GS.damageFlashT = 0.5;
         enAttackCD[i] = KIND_CD[k];
-        // SH-029 â€” being hit is now unmistakable with your eyes on the
+        // SH-029 — being hit is now unmistakable with your eyes on the
         // crosshair: the camera flinches AWAY from the attacker, the screen
         // flashes, and the music ducks so you hear the hit land.
         const hitYaw = Math.atan2(toPX, -toPZ);
@@ -732,7 +729,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           if (!GS.gameOver) {
             playSound(DEPS.o.sfxPlayerDie[i & 1]);
             FEEL.addTrauma(1.0);
-            SCORE.commitRun(0);
+            SCORE.commitRun(W.ARENA_INDEX);
             SET.saveSettings();     // persist the best score immediately
             playSound(DEPS.o.stingDeath);  // SH-036
           }
@@ -745,7 +742,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       if (enFlashT[i]   > 0) enFlashT[i]   = enFlashT[i]   - dt;
       enPhase[i] = enPhase[i] + dt;   // seconds into current animation
 
-      // SH-003 â€” the tyrant's footfalls. You should hear (and faintly feel) the
+      // SH-003 — the tyrant's footfalls. You should hear (and faintly feel) the
       // big one coming before you see it: the trauma is distance-scaled, so it
       // telegraphs through walls without ever being loud enough to annoy.
       if (k === 4) {
@@ -760,7 +757,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       }
     }
 
-    // Pickups â€” proximity collect, respawn after delay. The crate refills the
+    // Pickups — proximity collect, respawn after delay. The crate refills the
     // weapon it is for; the amount is a column of the weapon table now.
     for (let i = 0; i < DEPS.o.PICKUP_COUNT; i++) {
       if (DEPS.o.pickupActive[i] === 0) {
@@ -804,7 +801,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           }
         }
         if (DIR.waveSpawned >= waveSize && alive === 0) {
-          // SH-041 â€” bank the wave: a time bonus for clearing fast, an accuracy
+          // SH-041 — bank the wave: a time bonus for clearing fast, an accuracy
           // bonus for clearing cleanly. Shown on the report card.
           GS.waveBonus = SCORE.endWave(GS.runElapsed);
           GS.waveBonusT = 4.0;
@@ -823,7 +820,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
               SET.setUnlockMask(SET.unlockMask() | (1 << nextUnlock));
               GS.unlockBannerT = 5.0;
             }
-            SCORE.commitRun(0);
+            SCORE.commitRun(W.ARENA_INDEX);
             SET.saveSettings();
           } else {
             // SH-036 — a wave died and another is coming. The sting lands over the
@@ -842,6 +839,9 @@ export function updateEnemyProjectiles(dt: number, playing: boolean): void {
   // Segment-raycast like the player's, so a fast bolt can't tunnel a wall — and
   // so it can be BLOCKED by the world, which is what turns the building and the
   // treeline into cover.
+  // One position read for the whole pool — this used to be an FFI call PER
+  // BOLT, up to 24 a frame, for a value that cannot change mid-loop.
+  const ppE = playerPosition();
   for (let i = 0; i < MAX_EPROJ; i++) {
     if (eLife[i] <= 0) continue;
     eVY[i] = eVY[i] - 3.0 * dt;            // slight droop: it reads as a lob
@@ -855,7 +855,6 @@ export function updateEnemyProjectiles(dt: number, playing: boolean): void {
 
     // Does it reach the player this step? Point-segment distance against the
     // capsule, which is cheaper and fairer than raycasting at a moving target.
-    const ppE = playerPosition();
     const rx = ppE.x - ox, ry = (ppE.y + 0.2) - oy, rz = ppE.z - oz;
     const t = Math.max(0, Math.min(seg, rx * sx2 * inv2 + ry * sy2 * inv2 + rz * sz2 * inv2));
     const cxp = ox + sx2 * inv2 * t, cyp = oy + sy2 * inv2 * t, czp = oz + sz2 * inv2 * t;
@@ -884,7 +883,7 @@ export function updateEnemyProjectiles(dt: number, playing: boolean): void {
         if (!GS.gameOver) {
           playSound(DEPS.o.sfxPlayerDie[0]);
           FEEL.addTrauma(1.0);
-          SCORE.commitRun(0);
+          SCORE.commitRun(W.ARENA_INDEX);
           SET.saveSettings();
           playSound(DEPS.o.stingDeath);    // SH-036
         }

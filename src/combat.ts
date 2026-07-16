@@ -218,7 +218,7 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
         GS.gameOver = true;
         playSound(DEPS.o.sfxPlayerDie[0]);
         playSound(DEPS.o.stingDeath);   // SH-036
-        SCORE.commitRun(0);
+        SCORE.commitRun(W.ARENA_INDEX);
         SET.saveSettings();
       }
     }
