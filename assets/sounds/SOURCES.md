@@ -50,4 +50,4 @@ game-ready files are committed, never pack folders.
 ## Pre-existing (provenance predates this file)
 
 `rifle_fire.wav` (superseded by rifle_fire2 but kept), `dretch_attack.wav`,
-`pickup.wav`, `menu.wav`, `game.wav`, `ambient.ogg`.
+`pickup.wav`, `menu.ogg`, `game.ogg`, `ambient.ogg`.

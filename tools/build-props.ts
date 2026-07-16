@@ -1019,13 +1019,18 @@ writeGlb('assets/models/prop_barrel.glb',    makeBarrel());
 writeGlb('assets/models/prop_table.glb',     makeTable());
 writeGlb('assets/models/prop_chair.glb',     makeChair());
 writeGlb('assets/models/prop_bed.glb',       makeBed());
-writeGlb('assets/models/building_wall.glb',  makeBuildingWall());
-writeGlb('assets/models/building_floor.glb', makeBuildingFloor());
 
 // SH-026 — `house.glb` (1.4 MB, 45 prims / 45 materials) and `calib_rig.glb`
 // (593 KB) are no longer emitted. Nothing in the game loads them: the building
 // is drawn from the world's collider boxes through the stone material, and the
 // calibration rig was a one-off for the round-2 lighting work.
+//
+// 2026-07-16 audit: `building_wall.glb` / `building_floor.glb` joined them —
+// the house renders through the baked material shell (environment.ts +
+// assets/textures/building_*), and the only live mention of building_floor.glb
+// was a main.ts comment about the z-fighting bug it used to cause.
+// (makeBuildingWall/makeBuildingFloor stay below for reference; they are just
+// no longer emitted.)
 //
 // Deleting the FILES alone would not have been enough — this tool would simply
 // re-create them on the next run and leave the tree dirty. Dead output has to
