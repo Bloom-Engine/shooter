@@ -764,7 +764,20 @@ touching the keyboard, on Windows and iPhone (BT controller).
 
 ---
 
-## SH-040 — Level pipeline & selection 🟡 *(shipped — arena manifest + level select)*
+## SH-040 — Level pipeline & selection 🟡 *(pipeline ✅; arenas 2 of 3 — arena_03 shipped 2026-07-16)*
+
+> **arena_03 "RIVERBEND RAVINE" landed (2026-07-16, `tools/gen-arena-03.ts`).**
+> The different read the ticket asked for: a north-south ravine, the river as
+> its floor, two saddle crossings as the chokepoints, dense rim forest, crate
+> cover on the floor, and ranged kinds mixed in FROM WAVE 1 (SH-042's per-arena
+> acceptance). Verified end-to-end: boots via the manifest, AITEST plays a
+> mixed wave on it (adv marauder holding its 16.9 m band), captures in
+> `tools/.testout/arena03-*.png`. Two generalizations made the "no game code
+> per arena" claim true: `build-terrain.ts` takes an output GLB path, and
+> main.ts matches ANY `assets/models/terrain_*.glb` as the terrain shell.
+> The generator is a SEEDING tool like the others — re-running it overwrites
+> editor work; the file is the editor's to own now. Still owed for ✅: a third
+> arena, and arena_01's rehab or retirement.
 
 
 > **Reality check 2026-07-15: the PIPELINE is done, the CONTENT is not. One

@@ -602,7 +602,10 @@ let treePropIdx = -1;
 let terrainPropIdx = -1;
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   if (W.UNIQUE_MODELS[i] === 'assets/models/prop_tree.glb')     { treePropIdx    = i; }
-  if (W.UNIQUE_MODELS[i] === 'assets/models/terrain_hills.glb') { terrainPropIdx = i; }
+  // SH-040: any terrain_*.glb is THE terrain shell (arena_02 ships
+  // terrain_hills, arena_03 terrain_ravine) — matching one exact filename
+  // was the last per-arena hardcode in the load path.
+  if (W.UNIQUE_MODELS[i].indexOf('assets/models/terrain_') === 0) { terrainPropIdx = i; }
 }
 
 // Same hoist for the static-mesh pass: positions are world data (immutable at

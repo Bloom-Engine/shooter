@@ -7,8 +7,8 @@ Notes for AI coding assistants working on this repo.
 The full picture is in `README.md`. This is a Perry-compiled TypeScript
 **third-person shooter** (over-the-shoulder orbit camera — TPS, not
 FPS) built on the Bloom engine. Seven alien kinds (two RANGED), three
-waves, four weapons, ONE playable arena (see SH-040 — the manifest lists
-only `arena_02`; the pipeline takes more, the content does not exist),
+waves, four weapons, TWO playable arenas (`arena_02` Outdoor Plaza and
+`arena_03` Riverbend Ravine — see SH-040; a third is still owed),
 textured arena, skeletal-animated enemies, ambient music — runnable with
 `perry compile src/main.ts -o main && ./main`.
 
