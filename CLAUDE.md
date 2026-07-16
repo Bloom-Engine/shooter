@@ -9,7 +9,9 @@ The full picture is in `README.md`. This is a Perry-compiled TypeScript
 FPS) built on the Bloom engine. Seven alien kinds (two RANGED), three
 waves, four weapons, TWO playable arenas (`arena_02` Outdoor Plaza and
 `arena_03` Riverbend Ravine — see SH-040; a third is still owed),
-textured arena, skeletal-animated enemies, ambient music — runnable with
+textured arena, skeletal-animated enemies, ambient music, and a live 3D
+soundscape (river/wind emitters + creature locomotion on EN-062 voices —
+see SH-052) — runnable with
 `perry compile src/main.ts -o main && ./main`.
 
 ## Where things live

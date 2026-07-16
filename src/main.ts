@@ -993,6 +993,11 @@ MIX.initAudioMix();
 // the tree positions in the world file, so moving the forest in the editor moves
 // the sound with it.
 MIX.initWindAmbience(W.FOREST_X, W.FOREST_Z, W.FOREST_COUNT, WIND_AMP);
+// SH-052 — the river gets a live emitter per water volume (EN-062 looping
+// voices). Rectangles come from the world file, so moving the river in the
+// editor moves its sound; the per-frame update tracks the closest bank point.
+MIX.initRiverAmbience(W.WATER_COUNT, W.WATER_CX, W.WATER_CY, W.WATER_CZ,
+                      W.WATER_SX, W.WATER_SZ);
 
 // Weapons: stat table + state.
 WPN.initWeapons();
@@ -1982,6 +1987,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const enclosure = near < 1 ? (1 - near) : 0;
     MIX.updateReverbZone(dtReal, enclosure);
     MIX.updateWindAmbience(dtReal, pp.x, pp.z, WIND_AMP);
+    // SH-052 — the river emitter slides along its bank to stay abreast of the
+    // player; the crawl-bed pool follows the nearest moving enemies (it goes
+    // silent by itself when nothing qualifies, menus included).
+    MIX.updateRiverAmbience(pp.x, pp.z);
+    MIX.updateCreatureLoops(pp.x, pp.z);
   }
 
   // Smooth orbit camera follow after the physics step: occlusion-aware

@@ -1675,3 +1675,45 @@ but it is a camping spot until the pathfinding lands.
   3 m/10-step stairwell at (-15,-10). The shipped house v2 (`h_slab_a`,
   `h_stair_a_*`, floors at 0.20/3.90/7.60) did not come from it. Do not "fix" the
   world by re-running that tool.
+
+## SH-052 — The living soundscape: river, wind loops, creature locomotion ✅ *(shipped 2026-07-16)*
+
+**Why:** "we want 3D sounds for the wind, the river, the animals/spiders
+crawling closer." The engine could only fire-and-forget (`playSound3D`), so
+the wind was a retrigger timer, the river was silent, and every enemy but the
+tyrant approached without a sound.
+
+Built on EN-062 (live spatial voices — looping, moveable, per-voice
+volume/pitch/low-pass, real distance model, equal-power pan, air absorption,
+rear head-shadow cue, doppler; also FIXED mirrored stereo and the ~9%-sharp
+44.1k-on-48k playback):
+
+- **River** (`initRiverAmbience`/`updateRiverAmbience`): one looping emitter
+  per water volume, positioned every frame at the closest point of the
+  volume's rectangle to the player — a line source faked with a point source
+  that always stays abreast of you. Rectangles come from the world file:
+  move the river in the editor and its sound moves. refDist ≈ channel
+  half-width (the bank IS full volume).
+- **Wind**: the three forest-centroid sources are true loops now (retrigger
+  timer deleted), detuned 0.94/1.0/1.07 so the treeline decorrelates. Volume
+  still rides the live wind amplitude; distance/pan/absorption are engine-side.
+- **Creature locomotion**, two layers:
+  - *Steps*: every kind runs the tyrant's stride accumulator now
+    (`KIND_STRIDE` per kind, tyrant's 2.2 unchanged); non-tyrants fire
+    positional chitin skitters (light bank = dretch/mantis, heavy =
+    marauder/dragoon/advs), gated on actually moving.
+  - *Crawl bed*: a pool of 4 looping voices assigned to the nearest MOVING
+    enemies within 28 m (O(n²) top-k, allocation-free, slot-stable so voices
+    never teleport between owners). Pitch per kind (small = fast ticking).
+    The thing you haven't seen is audible closing in BETWEEN its steps.
+    Self-gating: no qualifying enemies → all slots silent, menus included.
+- **Assets**: `river_loop`, `skitter_light1-4`, `skitter_heavy1-4`,
+  `crawl_loop` — synthesised stand-ins in `gen-sfx.ts` (appended AFTER the
+  existing emits: one global seeded noise stream, insertion order is the
+  diff-stability contract). Old files byte-identical. ASSET-TODO A7-A9.
+
+Verified with an AITEST probe build (numeric counters, not ears): 351
+skitter steps over 50 s of live combat, crawl slots assigning/releasing as
+enemies moved and parked (a dretch standing at 1.5 m goes silent — the
+moving gate at work), wind voices 5/6/7, river voice 8, zero errors, no
+command-ring pressure. Probe reverted; shipped-config build boots clean.

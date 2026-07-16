@@ -230,6 +230,102 @@ function ambientWind(dur: number): Float32Array {
   return norm(out, 0.55);
 }
 
+// RIVER (SH-052). A loop for the EN-062 emitter that tracks the closest point
+// of the water volume. Two registers, like the footsteps: a dark rushing BED
+// (the mass of moving water) and a bright BABBLE on top (the surface breaking
+// on stones) — the babble is dozens of short bandpassed chirps at random
+// offsets, because real babble is granular, not a smooth hiss. Same seamless
+// tail-over-head cross-fade as the wind.
+function riverLoop(dur: number): Float32Array {
+  const n = Math.floor(dur * SR);
+  const bed = lowpass(noise(dur + 1.0), 900);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / SR;
+    // Slow incommensurate surges so the rush never lands on a period.
+    const surge =
+        0.70
+      + 0.16 * Math.sin(2 * Math.PI * 0.043 * t + 0.9)
+      + 0.09 * Math.sin(2 * Math.PI * 0.117 * t + 2.3);
+    out[i] = bed[i] * surge;
+  }
+  // Babble grains: short chirps in the 900..5k band, ~28 per second.
+  const grains = new Float32Array(n);
+  const count = Math.floor(dur * 28);
+  for (let g = 0; g < count; g++) {
+    const at = Math.floor(Math.abs(rnd()) * (n - SR * 0.05));
+    const len = Math.floor((0.012 + Math.abs(rnd()) * 0.030) * SR);
+    const f = 900 + Math.abs(rnd()) * 4100;
+    let phase = 0;
+    for (let i = 0; i < len && at + i < n; i++) {
+      // Falling chirp with a hard exponential tail — a droplet, not a beep.
+      phase += 2 * Math.PI * (f * (1 - 0.4 * (i / len))) / SR;
+      grains[at + i] += Math.sin(phase) * Math.exp(-i / (len * 0.30)) * 0.055;
+    }
+  }
+  const mixed = mix(out, highpass(grains, 700));
+  // Seamless loop: fade the tail over the head.
+  const xf = Math.floor(1.0 * SR);
+  for (let i = 0; i < xf; i++) {
+    const w = i / xf;
+    mixed[i] = mixed[i] * w + bed[n + i] * 0.7 * (1 - w);
+  }
+  return norm(mixed.subarray(0, n) as Float32Array, 0.6);
+}
+
+// SKITTER (SH-052). Chitin locomotion, two weight classes. A "step" for a
+// bug-legged thing is a BURST of leg-taps, not one impact: 3-5 very short
+// clicks with random spacing and per-click band movement. Light = dretch/
+// mantis (high, dry, fast); heavy = marauder/dragoon (lower, more body,
+// a trailing scrape).
+function skitter(variant: number, heavy: boolean): Float32Array {
+  const d = heavy ? 0.26 : 0.16;
+  const n = Math.floor(d * SR);
+  const out = new Float32Array(n);
+  const taps = 3 + ((variant + (heavy ? 1 : 0)) % 3);
+  for (let tp = 0; tp < taps; tp++) {
+    const at = Math.floor((0.004 + Math.abs(rnd()) * (heavy ? 0.16 : 0.09)) * SR);
+    const len = Math.floor((heavy ? 0.010 : 0.006) * SR);
+    const lo = heavy ? 700 : 1800;
+    const hi = heavy ? 5200 : 9500;
+    const click = env(bandpass(noise(len / SR + 0.01), lo, hi), 0.0005, heavy ? 0.006 : 0.0035);
+    for (let i = 0; i < len && at + i < n; i++) out[at + i] += click[i] * (0.6 + Math.abs(rnd()) * 0.4);
+  }
+  if (heavy) {
+    // Body: the mass landing behind the claws.
+    const body = gain(thump(d, 130 + variant * 12, 0.04, 0.5), 0.5);
+    const scrape = gain(env(bandpass(noise(d), 500, 2600), 0.02, 0.07), 0.25);
+    return norm(mix(out, body, scrape), 0.8);
+  }
+  return norm(out, 0.75);
+}
+
+// CRAWL BED (SH-052). The proximity loop a live EN-062 voice carries on each
+// nearby moving enemy — continuous chitinous rustle, so something closing in
+// is audible BETWEEN its steps. Quiet and granular; it should only ever read
+// subliminally until the thing is genuinely close.
+function crawlLoop(dur: number): Float32Array {
+  const n = Math.floor(dur * SR);
+  const out = new Float32Array(n);
+  // Dense micro-ticks, 60/s, tiny and bandpassed — insect-leg texture.
+  const count = Math.floor(dur * 60);
+  for (let g = 0; g < count; g++) {
+    const at = Math.floor(Math.abs(rnd()) * (n - 600));
+    const len = Math.floor((0.002 + Math.abs(rnd()) * 0.004) * SR);
+    for (let i = 0; i < len && at + i < n; i++) {
+      out[at + i] += rnd() * Math.exp(-i / (len * 0.4)) * 0.5;
+    }
+  }
+  const shaped = bandpass(out, 1200, 7500);
+  // Seamless: tail over head.
+  const xf = Math.floor(0.5 * SR);
+  for (let i = 0; i < xf; i++) {
+    const w = i / xf;
+    shaped[i] = shaped[i] * w + shaped[n - xf + i] * (1 - w);
+  }
+  return norm(shaped.subarray(0, n - xf) as Float32Array, 0.5);
+}
+
 // --- emit ------------------------------------------------------------------
 
 const OUT = 'assets/sounds';
@@ -256,4 +352,11 @@ emit('blaster_tail.wav', weaponTail(700, 6500, 0.18, 0.8, 140));
 emit('chain_tail.wav',   weaponTail(220, 3600, 0.34, 1.3, 75));
 emit('cannon_tail.wav',  weaponTail(120, 2600, 0.70, 2.4, 48));
 emit('ambient_wind.wav', ambientWind(16.0));
+// SH-052 — the living soundscape. NOTE: these must stay AFTER the emits above:
+// the noise source is one global seeded stream, so inserting an emit earlier
+// would shift every file behind it in the diff.
+emit('river_loop.wav', riverLoop(14.0));
+for (let i = 0; i < 4; i++) emit(`skitter_light${i + 1}.wav`, skitter(i, false));
+for (let i = 0; i < 4; i++) emit(`skitter_heavy${i + 1}.wav`, skitter(i, true));
+emit('crawl_loop.wav', crawlLoop(4.0));
 console.log(`${count} files written (synthesised stand-ins — see docs/ASSET-TODO.md)`);
