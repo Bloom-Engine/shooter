@@ -49,3 +49,26 @@ assets/worlds/__painttest.world.json
 # ABORTS the process on bad input.
 settings.json
 level.txt
+
+# Raw Suno renders the mastering pipeline reads (tools/music-master.ts).
+# 94 MB of untrimmed WAV masters — keep them archived OUTSIDE the repo; the
+# shipped OGGs are what the game loads.
+assets/music/src/
+# music-master.ts writes WAV; encode-music.ts turns them into the shipped OGGs
+# and removes these intermediates.
+assets/music/*.wav
+
+# ShareTextures packs (leaf atlases for prop_tree2/3 rebuilds). NOT plain CC0:
+# their license forbids redistribution in collections and automated downloads,
+# so they must not be committed — download manually (see
+# assets/textures/external/SOURCES.md); build-props.ts falls back cleanly
+# without them.
+assets/textures/external/robinia/
+assets/textures/external/platanus/
+
+# DXC runtime for SM6.5 / hardware ray query on DX12 (wgpu DynamicDxc loads
+# them from beside the exe; silent FXC fallback without them). Fetch with the
+# engine's tools/fetch-dxc.ps1 — Microsoft-redistributable, but a binary
+# artefact, not source.
+dxcompiler.dll
+dxil.dll

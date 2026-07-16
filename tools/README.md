@@ -29,8 +29,10 @@ cd ../..
 | Script                       | Purpose                                                    |
 |------------------------------|------------------------------------------------------------|
 | `convert-aliens-anim.ts`     | The main one. Parses all 5 alien IQEs and emits skinned + animated `.glb`s with 18-24 animations each. Applies Z-up → Y-up via X90 rotation on root joints + vertices. |
-| `convert-arena.ts`           | Builds `arena.glb` programmatically — 6 textured quads (floor + 4 walls + ceiling), UV-tiled, using tex-tech panel textures. |
 | `convert-aliens.ts`          | Older static-only version, superseded by `convert-aliens-anim.ts`. Kept as the simplest working reference for IQE → glTF with multi-primitive meshes. |
+
+(`convert-arena.ts` and its `arena.glb` were removed in the 2026-07-16 audit:
+the runtime world replaced the textured hall long ago and nothing loaded it.)
 
 ## Diagnostics
 
@@ -45,7 +47,6 @@ cd ../..
 
 ```sh
 bun tools/convert-aliens-anim.ts
-bun tools/convert-arena.ts
 bun tools/validate-glb.ts assets/models/enemy_dretch.glb    # sanity check
 ```
 

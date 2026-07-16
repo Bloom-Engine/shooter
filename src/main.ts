@@ -238,16 +238,26 @@ for (let k = 0; k < 7; k++) {
 // spawns — the worst possible frame — and would start it at bar 0 while the calm
 // bed is 40 s in, so the two would be out of phase.
 bootStage(BOOT_MUSIC);
+// OGG since the repo-weight pass (engine decode_audio handles ogg/mp3/wav by
+// extension + sniffing, and the game already shipped ambient.ogg). The WAV
+// masters stay in assets/music/src (untracked); tools/encode-music.ts
+// re-encodes after tools/music-master.ts.
 const musicMenu = loadMusic(
-  fileExists('assets/music/music_menu.wav') ? 'assets/music/music_menu.wav'
-                                            : 'assets/sounds/menu.wav');
+  fileExists('assets/music/music_menu.ogg') ? 'assets/music/music_menu.ogg'
+                                            : 'assets/sounds/menu.ogg');
 
-const HAS_STEMS = fileExists('assets/music/music_calm.wav')
-               && fileExists('assets/music/music_combat.wav');
-const musicCalm = loadMusic(HAS_STEMS ? 'assets/music/music_calm.wav'
-                                      : 'assets/sounds/game.wav');
-const musicCombat = loadMusic(HAS_STEMS ? 'assets/music/music_combat.wav'
-                                        : 'assets/sounds/game.wav');
+const HAS_STEMS = fileExists('assets/music/music_calm.ogg')
+               && fileExists('assets/music/music_combat.ogg');
+const musicCalm = loadMusic(HAS_STEMS ? 'assets/music/music_calm.ogg'
+                                      : 'assets/sounds/game.ogg');
+const musicCombat = loadMusic(HAS_STEMS ? 'assets/music/music_combat.ogg'
+                                        : 'assets/sounds/game.ogg');
+// Decode verification on the boot log — a bed that failed to decode is a
+// handle of 0, and music failing SILENTLY is exactly how a format change
+// would otherwise ship broken (post-init engine stderr is dead on Windows).
+console.log('[music] menu=' + (musicMenu as any).handle
+          + ' calm=' + (musicCalm as any).handle
+          + ' combat=' + (musicCombat as any).handle);
 
 setMusicVolume(musicMenu, 0.4);
 setMusicVolume(musicCalm, 0.35);
@@ -257,12 +267,12 @@ playMusic(musicMenu);
 /// The three one-shots that land ON TOP of the bed (they do not replace it).
 /// Handle 0 = absent, and `playSound(0)` is a no-op in the engine, so a missing
 /// stinger is silence rather than a crash.
-const stingWaveClear = fileExists('assets/music/sting_wave_clear.wav')
-  ? loadSound('assets/music/sting_wave_clear.wav') : { handle: 0 };
-const stingDeath = fileExists('assets/music/sting_death.wav')
-  ? loadSound('assets/music/sting_death.wav') : { handle: 0 };
-const stingVictory = fileExists('assets/music/sting_victory.wav')
-  ? loadSound('assets/music/sting_victory.wav') : { handle: 0 };
+const stingWaveClear = fileExists('assets/music/sting_wave_clear.ogg')
+  ? loadSound('assets/music/sting_wave_clear.ogg') : { handle: 0 };
+const stingDeath = fileExists('assets/music/sting_death.ogg')
+  ? loadSound('assets/music/sting_death.ogg') : { handle: 0 };
+const stingVictory = fileExists('assets/music/sting_victory.ogg')
+  ? loadSound('assets/music/sting_victory.ogg') : { handle: 0 };
 
 /// Apply the crossfade. `MIX.musicIntensity()` is the already-smoothed 0..1 the
 /// mixer maintains (~2 s, with hysteresis), so this is just gain.
