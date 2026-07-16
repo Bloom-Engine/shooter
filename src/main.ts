@@ -75,7 +75,7 @@ import { drawHud, drawOverlays } from './hud';
 import {
   KIND_NAME, mdlAliens,
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
-  KIND_SPINE_JOINT,
+  KIND_SPINE_JOINT, KIND_TINTO,
   KIND_SCALE, KIND_Y_OFF, KIND_SPEED, KIND_HP, KIND_MELEE, DRETCH_HIT_FLASH,
   AI_WINDUP, AI_FLINCH,
   BODIES_PER_KIND, MAX_ENEMIES,
@@ -2452,13 +2452,16 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     animUpdate(enAnim[i], dt, KIND_SCALE[k],
       enX[i], enY[i], enZ[i], Math.PI / 2 - enHeading[i]);
 
+    // Hit flash lerps the KIND tint toward red, so the adv dragoon stays
+    // recognisably violet even while flashing.
+    const bT = KIND_TINTO[k];
     const f = enFlashT[i] > 0 ? enFlashT[i] / DRETCH_HIT_FLASH : 0;
     const tint = f > 0
-      ? { r: 255,
-          g: Math.floor(255 * (1 - f)),
-          b: Math.floor(255 * (1 - f)),
+      ? { r: bT.r,
+          g: Math.floor(bT.g * (1 - f)),
+          b: Math.floor(bT.b * (1 - f)),
           a: 255 }
-      : WHITE;
+      : bT;
     drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], tint);
   }
   // Dying enemies: play the death animation once, frozen on its final
@@ -2494,7 +2497,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       }
       const yaw = Math.PI / 2 - enDeathYaw[i];
       animUpdate(enAnim[i], dt, KIND_SCALE[k], enX[i], enY[i], enZ[i], yaw);
-      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], WHITE);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
 
       if (enDeathT[i] >= RAG_HANDOFF && enRagdoll[i] > 0) {
         // The transform passed here MUST be the one we just drew with: it is the
@@ -2518,7 +2521,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       // --- physics owns the pose now. No animUpdate: the ragdoll writes the
       // joint matrices directly.
       const age = updateRagdoll(enRagdoll[i], enAnim[i], dt);
-      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], WHITE);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
       // Settle, then free. Releasing matters: a pooled ragdoll that is never
       // released leaks bodies into the physics world - a slow, invisible death.
       if (age > 8.0) {
@@ -2534,7 +2537,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       const sink = enDeathT[i] > dur + 0.6 ? (enDeathT[i] - dur - 0.6) * 0.9 : 0;
       animUpdate(enAnim[i], dt, KIND_SCALE[k],
         enX[i], enY[i] - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
-      drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], WHITE);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
       if (enDeathT[i] > dur + 2.0) {
         enDying[i] = 0;
         enRagActive[i] = 0;

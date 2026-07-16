@@ -57,8 +57,27 @@ export const ALIEN_GLB = [
   'assets/models/enemy_dragoon.glb',
   'assets/models/enemy_tyrant.glb',
   'assets/models/enemy_adv_marauder.glb',
-  'assets/models/enemy_adv_dragoon.glb',
+  // The adv dragoon deliberately loads the BASE dragoon GLB: upstream level3
+  // has no adv art (`body_adv.skin` maps to the same textures as default), so
+  // enemy_adv_dragoon.glb was a byte-identical 4.9 MB copy. Its identity comes
+  // from KIND_TINTO below instead.
+  'assets/models/enemy_dragoon.glb',
 ];
+
+// 2026-07-16 audit — per-kind base tint (an albedo multiplier; shading and
+// normal maps are untouched). Exists for one reason: the adv dragoon is the
+// only RANGED heavy in the game and, with upstream art identical to the melee
+// dragoon, a player could not tell which threat was closing until the barb
+// was already in the air. The violet shift reads at combat distance and
+// matches the "upgrade classes run cooler" language the adv marauder's real
+// recolour already speaks. Everyone else stays white (multiplier of 1).
+export const KIND_TINT_R = [255, 255, 255, 255, 255, 255, 255];
+export const KIND_TINT_G = [255, 255, 255, 255, 255, 255, 150];
+export const KIND_TINT_B = [255, 255, 255, 255, 255, 255, 235];
+export const KIND_TINTO = new Array<any>(KIND_COUNT);
+for (let k = 0; k < KIND_COUNT; k++) {
+  KIND_TINTO[k] = { r: KIND_TINT_R[k], g: KIND_TINT_G[k], b: KIND_TINT_B[k], a: 255 };
+}
 // Per-kind handle, kept only for the load-time joint lookups below.
 // Also deferred to initEnemyPool() — same reason.
 export const animAliens = new Array<number>(KIND_COUNT);

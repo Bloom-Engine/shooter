@@ -45,9 +45,13 @@ const ALIENS: AlienSpec[] = [
   { name: 'enemy_marauder',     dir: 'level2' },
   { name: 'enemy_dragoon',      dir: 'level3' },
   { name: 'enemy_tyrant',       dir: 'level4' },
-  // SH-042 — the two upgrade classes.
+  // SH-042 — the upgrade class with REAL upstream art. level3's body_adv.skin
+  // maps to the SAME textures as its default skin, so an enemy_adv_dragoon.glb
+  // row here produced a byte-identical copy of enemy_dragoon.glb (4.9 MB of
+  // duplicate, and a ranged threat indistinguishable from the melee one).
+  // Removed 2026-07-16: the game loads enemy_dragoon.glb for both kinds and
+  // distinguishes the adv via KIND_TINTO in src/enemies.ts.
   { name: 'enemy_adv_marauder', dir: 'level2', skin: 'body_adv.skin' },
-  { name: 'enemy_adv_dragoon',  dir: 'level3', skin: 'body_adv.skin' },
   // The battlesuit is the only METAL character. See specToMetalRough.
   { name: 'player_bsuit',       dir: 'human_bsuit', metalFromSpec: true },
 ];
