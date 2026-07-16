@@ -1538,7 +1538,22 @@ re-download) and `bun tools/build-building-textures.ts`.
 
 ---
 
-## SH-051 — Enemies can't kill you through a ceiling 🟡 *(2026-07-15 — the death bug is fixed; climbing is NOT)*
+## SH-051 — Enemies can't kill you through a ceiling ✅ *(death bug 2026-07-15; CLIMBING SHIPPED 2026-07-16 — `src/flow.ts`)*
+
+> **The climbing half landed: a flow field over the building's floors.**
+> `flow.ts` builds a 0.5 m grid per floor level (levels + links derived from
+> nav.ts's stair flights), BFS-floods it from the player's cell, and travelling
+> enemies follow the field — which turns corners by construction. Wall circles
+> stand down for field-followers (they fenced the mount and fought the field);
+> the grid's Y-aware wall test is their collision instead. STAIRTEST, the same
+> A/B that proved the original bug: enemies now cross the ground floor, mount,
+> climb, and melee the player upstairs — `above=2-3, maxEnemyY=3.90,
+> nearest3D=0.6, hpMin=76` (was 0 / 0.20 / ~9 m / 100 forever). Ground combat
+> verified unchanged via AITEST. Four probe-led fixes are documented in the
+> module: stair mass is height-aware in the graph; walls near mounts test at
+> pad 0 (the real mount is a 0.5 m gap no padded cell fits); onFlight's height
+> tolerance must not hijack walkers standing BESIDE the wedge at ground level;
+> separation is skipped while climbing. Upstairs is now contested space.
 
 **Reported:** "enemies can attack me from a lower floor, they dont go up stairs.
 so I die without them being even physically near me."

@@ -23,6 +23,7 @@ import { terrainHeightAt } from './terrain';
 import {
   surfaceHeightAt, navGoal, navStairBlocked, SAME_FLOOR_EPS, PLAYER_FEET_OFF,
 } from './nav';
+import { routeGoal, flowRecompute, flowBlockedAt } from './flow';
 import { bootStage, BOOT_ALIENS } from './boot';
 import { playerPosition } from './player';
 import * as VFX from './vfx';
@@ -71,7 +72,7 @@ const DEPS: any = { o: null };
 /// written every call: allocating a fresh one per enemy per frame is exactly the
 /// per-frame garbage the hot paths here avoid, and Perry's object-shorthand
 /// return values are not trustworthy anyway (perry-quirks #2).
-const NAVOUT = [0, 0, 0];
+const NAVOUT = [0, 0, 0, -1, 0, 0];
 
 export function initDirector(phys: any, stagedAliens: number[]): void {
   bootStage(BOOT_ALIENS);
@@ -332,6 +333,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
   // following, and a turn-rate-limited heading the draw code renders.
   if (playing) {
     const pp = playerPosition();
+    flowRecompute(pp.x, pp.y - PLAYER_FEET_OFF, pp.z);
     const tAI = getTime();
     for (let i = 0; i < MAX_ENEMIES; i++) {
       if (enAlive[i] === 0) continue;
@@ -370,6 +372,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       let vz = 0;
       let faceX = toPX;
       let faceZ = toPZ;
+      let navGoalDist = 1e9;
 
       // SH-051 — cross-floor routing. When the player is on another storey, the
       // player's XZ position is the WRONG thing to walk at: it is through a
@@ -377,8 +380,8 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // once we are on the same floor. Evaluated per frame from position alone
       // (no latched waypoint), so an enemy cannot get stuck holding a target it
       // has already walked past.
-      if (!sameFloor) navGoal(enX[i], enY[i], enZ[i], pFeetY, NAVOUT);
-      else NAVOUT[2] = 0;
+      if (!sameFloor) routeGoal(enX[i], enY[i], enZ[i], pFeetY, NAVOUT);
+      else { NAVOUT[2] = 0; NAVOUT[3] = -1; NAVOUT[4] = 0; NAVOUT[5] = 0; }
       const navving = NAVOUT[2] === 1;
 
       // SH-030 — a flinching enemy is rooted. This is the whole point: it is
@@ -404,6 +407,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         vz = gz * gi * KIND_SPEED[k];
         faceX = gx * gi;
         faceZ = gz * gi;
+        navGoalDist = gl;
       } else if (k === 0) {
         // DRETCH — weave amplitude fades out inside 6 m so the final
         // lunge still connects; i*2.399 desyncs pack members.
@@ -601,8 +605,11 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       }
 
       // Separation — pack members shoulder each other apart instead of
-      // stacking into one model pile.
+      // stacking into one model pile. NOT while climbing: a shove is exactly
+      // what knocked climbers off the wedge's side (STAIRTEST yo-yo); on a
+      // 2.8 m staircase they queue instead.
       for (let j = 0; j < MAX_ENEMIES; j++) {
+        if (NAVOUT[4] === 1) break;
         if (j === i || enAlive[j] === 0) continue;
         const sx = enX[i] - enX[j];
         const sz = enZ[i] - enZ[j];
@@ -622,7 +629,17 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       let nx = enX[i] + vx * dt;
       let nz = enZ[i] + vz * dt;
       const bodyR = KIND_HX[k] * 0.55;
+      // SH-051b — the wall circles' ~1.3 m padding both fences the bottom
+      // tread AND fights the field on the apron (an enemy the field walks
+      // along a wall reaches circle-vs-goal equilibrium and parks — STAIRTEST
+      // caught one frozen at the south face for six straight seconds). So for
+      // a FIELD-FOLLOWER the circles stand down entirely and the flow graph's
+      // own Y-aware wall test (flowBlockedAt, checked at the move below) is
+      // its wall collision. Tree circles never stand down, and everyone not
+      // following the field keeps the circles exactly as before.
+      const wallsOff = navving && NAVOUT[5] === 1;
       for (let o = 0; o < GS.OBST_COUNT; o++) {
+        if (wallsOff && o >= GS.OBST_WALL_START) continue;
         const odx = nx - DEPS.o.OBST_X[o];
         const odz = nz - DEPS.o.OBST_Z[o];
         const minD = DEPS.o.OBST_R[o] + bodyR;
@@ -651,6 +668,17 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // rounding a convex obstacle terminates — which is the whole reason this
       // is enough without a path graph. `d1 <= d2` breaks ties the same way
       // every frame, so it cannot dither on the centre line.
+      if (wallsOff && flowBlockedAt(nx, nz, enY[i])
+          && !flowBlockedAt(enX[i], enZ[i], enY[i])) {
+        // Field-follower about to enter a wall's mass (its circles are off):
+        // slide along the free axis, else stay. The !blocked-here arm is what
+        // lets a walker ALREADY inside an inflated zone (shoved there, or
+        // standing on the pad's edge) walk out instead of freezing — a
+        // cancel with no escape hatch parked one on the south apron forever.
+        if (!flowBlockedAt(nx, enZ[i], enY[i])) { nz = enZ[i]; }
+        else if (!flowBlockedAt(enX[i], nz, enY[i])) { nx = enX[i]; }
+        else { nx = enX[i]; nz = enZ[i]; }
+      }
       if (navStairBlocked(nx, nz, enY[i])) {
         const spd = Math.sqrt(vx * vx + vz * vz);
         let moved = false;
