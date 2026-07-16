@@ -46,6 +46,7 @@ game-ready files are committed, never pack folders.
 | `rifle_fire2.wav` | Dramatic Cat — SVD Dragunov, DESIGNED Single Shot Core Long |
 | `blaster_fire.wav` | BluezoneCorp — Sci Fi Weapon, gun_shot_008 |
 | `splash1.wav` | BluezoneCorp — Designed Water, impact_006 (first 1.2 s) |
+| `river_loop.wav` | Bolt — Immersive Creek (Vermont), Babbling Brook XY pair; 32 s seamless loop cut at 49 s by `tools/convert-audio.ts` (SH-052b — window chosen by RMS/brightness variance scan, equal-power tail-over-head loop fade) |
 
 ## Pre-existing (provenance predates this file)
 

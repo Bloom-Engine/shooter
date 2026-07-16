@@ -1717,3 +1717,30 @@ skitter steps over 50 s of live combat, crawl slots assigning/releasing as
 enemies moved and parked (a dretch standing at 1.5 m goes silent — the
 moving gate at work), wind voices 5/6/7, river voice 8, zero errors, no
 command-ring pressure. Probe reverted; shipped-config build boots clean.
+
+## SH-052b — The river is a real creek now (and it has width) ✅ *(shipped 2026-07-16, follow-up to SH-052)*
+
+**Why:** "the water sounds fake." It did — the SH-052 stand-in built its babble
+from falling sine chirps, and synthetic water is the one ambience the ear
+always catches. Water needed a recording, not a better formula.
+
+- `river_loop.wav` is now a **32 s seamless cut of a real babbling brook**
+  (Bolt "Immersive Creek — Ambisonic Recordings of Undisturbed Creeks in
+  Vermont", Sonniss GDC 2024 bundle — the same accepted license line as
+  `splash1.wav`; source extracted to gitignored `vendor/sonniss/`).
+- The cut is **scripted and reproducible**: `convert-audio.ts` grew
+  `startAt` + `loopFade` (equal-power tail-over-head cross-fade, chunk-aware
+  WAV patching — ffmpeg slips a LIST chunk before `data`). The 33.5 s window
+  at 49 s was picked by scanning every candidate window for minimum RMS +
+  brightness variance (level-constant, no birds, no handling) — score 0.144.
+  Loop verified numerically: seam first-difference 0.034 vs body max 0.31 —
+  the wrap is quieter than the material's own deltas. No clipping.
+- **Width**: one point emitter reads as a speaker in a field. Each water
+  volume now runs a detuned trio — main at the closest bank point plus two
+  flankers ±8 m up/downstream along the channel axis (0.96/1.05, clamped to
+  the rectangle). Turn your head on the bank and the water has extent.
+- `gen-sfx.ts` no longer emits a river. Removing it shifted the shared
+  seeded-noise stream, so skitter*/crawl_loop regenerated (equivalent
+  variants, committed together) — the "re-run reproduces the repo" contract
+  holds. A river emit must never be re-added there: it would clobber the
+  recording.

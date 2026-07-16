@@ -78,18 +78,24 @@ const windVoice = new Array<number>(WIND_SOURCES);
 let sfxWind: Sound = NO_SOUND;
 let windAmpRef = 0.10;   // the setWind() amplitude this bed was balanced against
 
-// SH-052 — the river. One looping voice per water volume, positioned every
-// frame at the closest point of the volume's rectangle to the player: a line
-// source faked with a point source that never lets you flank it. Walk the bank
-// and the water stays abreast of you; cross it and it passes through you.
+// SH-052/SH-052b — the river. THREE looping voices per water volume: a main
+// emitter at the closest point of the volume's rectangle to the player, plus
+// two quieter flankers offset up/downstream along the channel's long axis,
+// detuned 0.96/1.05. One point source reads as a speaker in a field; the
+// detuned trio has audible EXTENT — turn your head on the bank and the water
+// is wide, walk the bank and it stays abreast of you.
 const RIVER_MAX = 4;
+const RIVER_FLANK = 8.0;      // m up/downstream to the flanking emitters
 let riverCount = 0;
 const riverX0 = new Array<number>(RIVER_MAX);
 const riverX1 = new Array<number>(RIVER_MAX);
 const riverZ0 = new Array<number>(RIVER_MAX);
 const riverZ1 = new Array<number>(RIVER_MAX);
 const riverY  = new Array<number>(RIVER_MAX);
-const riverVoice = new Array<number>(RIVER_MAX);
+const riverAlongX = new Array<number>(RIVER_MAX);   // 1 = long axis is X
+const riverVoice  = new Array<number>(RIVER_MAX);   // main, pitch 1
+const riverVoiceA = new Array<number>(RIVER_MAX);   // upstream flanker
+const riverVoiceB = new Array<number>(RIVER_MAX);   // downstream flanker
 let sfxRiver: Sound = NO_SOUND;
 
 // SH-052 — creature presence. A pool of looping crawl-bed voices assigned to
@@ -117,7 +123,7 @@ const skitterHeavy = new Array<Sound>(4);
 // Zero-fill every voice slot at module load — a `new Array(n)` slot reads as
 // undefined until assigned, and the re-init guards compare against 0.
 for (let i = 0; i < WIND_SOURCES; i++) { windVoice[i] = 0; windSrcX[i] = 0; windSrcZ[i] = 0; }
-for (let i = 0; i < RIVER_MAX; i++) riverVoice[i] = 0;
+for (let i = 0; i < RIVER_MAX; i++) { riverVoice[i] = 0; riverVoiceA[i] = 0; riverVoiceB[i] = 0; }
 for (let i = 0; i < CRAWL_VOICES; i++) { crawlVoice[i] = 0; crawlEnemy[i] = -1; }
 
 //   0 stride accumulator  1 last surface  2 reverb wet (current)
@@ -352,15 +358,17 @@ export function updateWindAmbience(
   }
 }
 
-/// SH-052 — place one looping river emitter per water volume. Rectangles come
-/// from the world file (WATER_*), so moving the river in the editor moves its
+/// SH-052 — place the river emitters per water volume. Rectangles come from
+/// the world file (WATER_*), so moving the river in the editor moves its
 /// sound. Called once at boot, after initAudioMix.
 export function initRiverAmbience(
   count: number, cx: number[], cy: number[], cz: number[],
   sx: number[], sz: number[],
 ): void {
   for (let i = 0; i < riverCount; i++) {
-    if (riverVoice[i] !== 0) voiceStop(riverVoice[i]);
+    if (riverVoice[i]  !== 0) voiceStop(riverVoice[i]);
+    if (riverVoiceA[i] !== 0) voiceStop(riverVoiceA[i]);
+    if (riverVoiceB[i] !== 0) voiceStop(riverVoiceB[i]);
   }
   riverCount = count < RIVER_MAX ? count : RIVER_MAX;
   for (let i = 0; i < riverCount; i++) {
@@ -369,20 +377,35 @@ export function initRiverAmbience(
     riverZ0[i] = cz[i] - sz[i] * 0.5;
     riverZ1[i] = cz[i] + sz[i] * 0.5;
     riverY[i]  = cy[i];
+    riverAlongX[i] = sx[i] >= sz[i] ? 1 : 0;
     riverVoice[i] = 0;
+    riverVoiceA[i] = 0;
+    riverVoiceB[i] = 0;
     if (sfxRiver.handle === 0) continue;
     // refDist ≈ the half-width of the channel: standing on the bank IS the
     // full-volume experience; the falloff starts past the water's edge.
     const halfW = (sx[i] < sz[i] ? sx[i] : sz[i]) * 0.5;
     riverVoice[i] = playSound3DEx(sfxRiver, cx[i], cy[i], cz[i], true, halfW + 2.0, 110.0, 1.0);
     voiceSetVolume(riverVoice[i], 0);
+    // SH-052b — flankers only when the channel is long enough to have an
+    // up/downstream. Detuned so the trio decorrelates instead of phasing.
+    const longLen = sx[i] >= sz[i] ? sx[i] : sz[i];
+    if (longLen < RIVER_FLANK * 1.5) continue;
+    riverVoiceA[i] = playSound3DEx(sfxRiver, cx[i], cy[i], cz[i], true, halfW + 2.0, 110.0, 1.0);
+    riverVoiceB[i] = playSound3DEx(sfxRiver, cx[i], cy[i], cz[i], true, halfW + 2.0, 110.0, 1.0);
+    voiceSetPitch(riverVoiceA[i], 0.96);
+    voiceSetPitch(riverVoiceB[i], 1.05);
+    voiceSetVolume(riverVoiceA[i], 0);
+    voiceSetVolume(riverVoiceB[i], 0);
   }
 }
 
-/// Per-frame: the emitter is the closest point of the water rectangle to the
-/// player — a line source built from a point source that always stays abreast
-/// of you. Doppler is intentionally near-zero here (the point tracks you), so
-/// the water never chirps as you sprint along the bank.
+/// Per-frame: the main emitter is the closest point of the water rectangle to
+/// the player — a line source built from a point source that always stays
+/// abreast of you — and the flankers sit up/downstream of it along the
+/// channel axis (clamped to the rectangle, so at the ends the trio bunches
+/// rather than leaving the water). Doppler is intentionally near-zero here
+/// (the points track you), so the water never chirps as you sprint the bank.
 export function updateRiverAmbience(px: number, pz: number): void {
   for (let i = 0; i < riverCount; i++) {
     if (riverVoice[i] === 0) continue;
@@ -394,6 +417,23 @@ export function updateRiverAmbience(px: number, pz: number): void {
     if (ez > riverZ1[i]) ez = riverZ1[i];
     voiceSetPosition(riverVoice[i], ex, riverY[i], ez);
     voiceSetVolume(riverVoice[i], 0.5);
+    if (riverVoiceA[i] === 0) continue;
+    let ax = ex; let az = ez; let bx = ex; let bz = ez;
+    if (riverAlongX[i] === 1) {
+      ax = ex - RIVER_FLANK;
+      if (ax < riverX0[i]) ax = riverX0[i];
+      bx = ex + RIVER_FLANK;
+      if (bx > riverX1[i]) bx = riverX1[i];
+    } else {
+      az = ez - RIVER_FLANK;
+      if (az < riverZ0[i]) az = riverZ0[i];
+      bz = ez + RIVER_FLANK;
+      if (bz > riverZ1[i]) bz = riverZ1[i];
+    }
+    voiceSetPosition(riverVoiceA[i], ax, riverY[i], az);
+    voiceSetPosition(riverVoiceB[i], bx, riverY[i], bz);
+    voiceSetVolume(riverVoiceA[i], 0.33);
+    voiceSetVolume(riverVoiceB[i], 0.33);
   }
 }
 

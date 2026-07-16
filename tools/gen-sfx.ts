@@ -230,48 +230,15 @@ function ambientWind(dur: number): Float32Array {
   return norm(out, 0.55);
 }
 
-// RIVER (SH-052). A loop for the EN-062 emitter that tracks the closest point
-// of the water volume. Two registers, like the footsteps: a dark rushing BED
-// (the mass of moving water) and a bright BABBLE on top (the surface breaking
-// on stones) — the babble is dozens of short bandpassed chirps at random
-// offsets, because real babble is granular, not a smooth hiss. Same seamless
-// tail-over-head cross-fade as the wind.
-function riverLoop(dur: number): Float32Array {
-  const n = Math.floor(dur * SR);
-  const bed = lowpass(noise(dur + 1.0), 900);
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const t = i / SR;
-    // Slow incommensurate surges so the rush never lands on a period.
-    const surge =
-        0.70
-      + 0.16 * Math.sin(2 * Math.PI * 0.043 * t + 0.9)
-      + 0.09 * Math.sin(2 * Math.PI * 0.117 * t + 2.3);
-    out[i] = bed[i] * surge;
-  }
-  // Babble grains: short chirps in the 900..5k band, ~28 per second.
-  const grains = new Float32Array(n);
-  const count = Math.floor(dur * 28);
-  for (let g = 0; g < count; g++) {
-    const at = Math.floor(Math.abs(rnd()) * (n - SR * 0.05));
-    const len = Math.floor((0.012 + Math.abs(rnd()) * 0.030) * SR);
-    const f = 900 + Math.abs(rnd()) * 4100;
-    let phase = 0;
-    for (let i = 0; i < len && at + i < n; i++) {
-      // Falling chirp with a hard exponential tail — a droplet, not a beep.
-      phase += 2 * Math.PI * (f * (1 - 0.4 * (i / len))) / SR;
-      grains[at + i] += Math.sin(phase) * Math.exp(-i / (len * 0.30)) * 0.055;
-    }
-  }
-  const mixed = mix(out, highpass(grains, 700));
-  // Seamless loop: fade the tail over the head.
-  const xf = Math.floor(1.0 * SR);
-  for (let i = 0; i < xf; i++) {
-    const w = i / xf;
-    mixed[i] = mixed[i] * w + bed[n + i] * 0.7 * (1 - w);
-  }
-  return norm(mixed.subarray(0, n) as Float32Array, 0.6);
-}
+// RIVER — NOT SYNTHESISED ANY MORE (SH-052b). The stand-in's sine-chirp
+// "babble" read as fake (synthetic water almost always does), so
+// `river_loop.wav` is now a real creek recording cut by tools/convert-audio.ts
+// (Bolt "Immersive Creek", Sonniss GDC 2024 — see SOURCES.md). Do NOT add a
+// river emit back here: gen-sfx would clobber the recording. NOTE: removing
+// the river generator shifted the shared seeded-noise stream, so the skitter
+// and crawl files were regenerated (new but equivalent variants) in the same
+// commit — the determinism contract ("re-running reproduces the committed
+// files") still holds.
 
 // SKITTER (SH-052). Chitin locomotion, two weight classes. A "step" for a
 // bug-legged thing is a BURST of leg-taps, not one impact: 3-5 very short
@@ -354,8 +321,8 @@ emit('cannon_tail.wav',  weaponTail(120, 2600, 0.70, 2.4, 48));
 emit('ambient_wind.wav', ambientWind(16.0));
 // SH-052 — the living soundscape. NOTE: these must stay AFTER the emits above:
 // the noise source is one global seeded stream, so inserting an emit earlier
-// would shift every file behind it in the diff.
-emit('river_loop.wav', riverLoop(14.0));
+// would shift every file behind it in the diff. (river_loop.wav is a real
+// recording now — convert-audio.ts owns it, see the note above.)
 for (let i = 0; i < 4; i++) emit(`skitter_light${i + 1}.wav`, skitter(i, false));
 for (let i = 0; i < 4; i++) emit(`skitter_heavy${i + 1}.wav`, skitter(i, true));
 emit('crawl_loop.wav', crawlLoop(4.0));
