@@ -109,6 +109,7 @@ import {
 import * as T from './world-runtime';
 import { terrainHeightAt } from './terrain';
 import { initNav } from './nav';
+import { initFlow } from './flow';
 
 // Borderless fullscreen at the monitor's native resolution (the engine
 // resizes its swapchain + all render targets on the WM_SIZE this triggers).
@@ -641,6 +642,7 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
     GS.OBST_COUNT = GS.OBST_COUNT + 1;
   }
 }
+GS.OBST_WALL_START = GS.OBST_COUNT;
 // House v2 walls. A building box blocks a ground walker when it starts at
 // (or in) the floor and reaches above knee height — that selects the solid
 // wall strips, window sills and stair-adjacent pieces, and skips door
@@ -1007,6 +1009,7 @@ initEnvironment();
 // update; it makes no engine calls, but it reads world-runtime, so it lives
 // here at an explicit boot position rather than at some module's import time.
 initNav();
+initFlow();
 
 // ---- Enemies (SH-025: kinds, stats, pool state → src/enemies.ts) ----------
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };

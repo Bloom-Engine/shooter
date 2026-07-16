@@ -40,4 +40,8 @@ export const GS: any = {
   // Round-9 obstacle-circle count (the arrays stay in main; the count
   // is written during world init and read by the director's steering).
   OBST_COUNT: 0,
+  // SH-051b — index where the WALL circles begin (trees before, walls after),
+  // so the director can stand the walls down in the stair-mounting zone
+  // without ever letting an enemy through a tree.
+  OBST_WALL_START: 0,
 };
