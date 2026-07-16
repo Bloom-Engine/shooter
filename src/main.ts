@@ -2,25 +2,22 @@ import {
   initWindow, windowShouldClose, beginDrawing, endDrawing, clearBackground,
   setTargetFPS, getDeltaTime, getFPS, getTime,
   beginMode3D, endMode3D,
-  drawCube, drawSphere, drawText, drawRect, drawCircle, measureText,
+  drawCube, drawText, drawRect,
   setAmbientLight, setDirectionalLight, setEnvClearFromHdr,
   getScreenWidth, getScreenHeight,
   vec3,
-  isKeyPressed, isKeyDown, Key, Vec3, injectKeyDown, injectKeyUp, isAnyInputPressed,
+  isKeyPressed, isKeyDown, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
   loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
   setModelFoliageWind, setFoliageShadowMotion,
-  createMesh, createMeshExplicit, genMeshCube,
-  drawMeshWithMaterial,
-  compileMaterialInstanced, createInstanceBuffer, drawMeshWithMaterialInstanced,
+  drawMeshWithMaterial, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume, playSound3D, setListenerPosition,
   loadMusic, playMusic, stopMusic, updateMusicStream, setMusicVolume,
   fileExists,
   setProfilerEnabled, getProfilerOverlay, getProfilerFrameHistory,
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
-  createPlanarReflection, setMaterialReflectionProbe, setMaterialProbeVisible,
 } from 'bloom';
 import {
   // Raw-primitive variant of beginMode2D: the object-taking one isn't worth the
@@ -33,22 +30,18 @@ import {
   setTaaEnabled, setRenderScale,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
-  setShadowsEnabled, setBloomEnabled, setShadowsAlwaysFresh,
-  setManualExposure, gamepadRumble, readFile, writeFile,
+  setShadowsEnabled, setBloomEnabled,
+  writeFile,
 } from 'bloom/core';
-import {
-  addPointLight, enableShadows,
-  createSceneNode, attachModelToNode, setSceneNodeTrs,
-  setSceneNodeGiOnly, setSceneNodeCastShadow, setSceneNodeColor,
-} from 'bloom/scene';
+import { addPointLight, enableShadows } from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
-  setLayerCollides, BodyHandle,
+  setLayerCollides,
   setBodyPosition,
 } from 'bloom/physics';
 import {
-  animPlay, animSetLayer, animUpdate, animFinished, animClipDuration,
+  animPlay, animSetLayer, animUpdate,
   findJoint, jointWorld,
   createTextureArrayFromFiles, createTextureArrayFromTexels, setMaterialTextureArray,
   TEXTURE_ARRAY_ALBEDO, TEXTURE_ARRAY_NORMAL, TEXTURE_ARRAY_MR,
@@ -66,8 +59,7 @@ import { ENV, initEnvironment, initGiProxies } from './environment';
 import { GS } from './gamestate';
 import {
   DIR, initDirector, setDirectorDeps, updateDirector, updateEnemyProjectiles,
-  countAlive, spawnEnemy, damageEnemy, despawnAllEnemies,
-  eX, eY, eZ, eLife, eKind, MAX_EPROJ, wavePlan, WAVE_BREAK_DELAY,
+  countAlive, WAVE_BREAK_DELAY,
 } from './director';
 import {
   setCombatDeps, updateWeaponTransform, updateCombat, drawWeapon,
@@ -81,27 +73,18 @@ import {
 } from './camera';
 import { drawHud, drawOverlays } from './hud';
 import {
-  KIND_COUNT, KIND_NAME, mdlAliens, ALIEN_GLB, animAliens,
+  KIND_NAME, mdlAliens,
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
-  KIND_SPINE_JOINT, KIND_IDLE_IDX,
-  WALK_BOB_Y, WALK_BOB_RATE, WALK_TILT, ATTACK_LUNGE_AMP,
-  KIND_SCALE, KIND_HX, KIND_HY, KIND_HZ, KIND_Y_OFF, KIND_SPEED, KIND_HP,
-  KIND_DMG, KIND_CD, KIND_MELEE, DRETCH_HIT_FLASH,
-  KIND_BLOOD_R, KIND_BLOOD_G, KIND_BLOOD_B,
-  K_ADV_MARAUDER, K_ADV_DRAGOON,
-  KIND_RANGED, RANGED_MIN, RANGED_MAX, RANGED_CD, RANGED_SHOTS, RANGED_DMG,
-  RANGED_SPEED, RANGED_SPREAD, RANGED_WINDUP,
-  AI_APPROACH, AI_ORBIT, AI_WINDUP, AI_CHARGE, AI_RECOVER, AI_FLINCH,
-  FLINCH_TIME, FLINCH_LOCKOUT, STAGGER_WINDOW, STAGGER_FRAC, STAGGER_TIME,
-  KIND_LIGHT, BODIES_PER_KIND, MAX_ENEMIES,
-  enX, enY, enZ, enHP, enAlive, enKind, enAttackCD, enFlashT, enPhase,
+  KIND_SPINE_JOINT,
+  KIND_SCALE, KIND_Y_OFF, KIND_SPEED, KIND_HP, KIND_MELEE, DRETCH_HIT_FLASH,
+  AI_WINDUP, AI_FLINCH,
+  BODIES_PER_KIND, MAX_ENEMIES,
+  enX, enY, enZ, enHP, enAlive, enKind, enAttackCD, enFlashT,
   enDying, enDeathT, enDeathYaw,
-  enAIState, enStateT, enOrbitDir, enChargeX, enChargeZ, enHeading, enSpeedMul,
-  enFlinchLock, enDmgWindow, enDmgTimer, enAnimClip, enAttackLayer, enStepPhase,
-  enRangedCD, enBurst, enBurstT,
+  enAIState, enHeading,
+  enAnimClip, enAttackLayer, enRangedCD,
   enRagdoll, enRagActive, enDeathDX, enDeathDY, enDeathDZ, enDeathImp,
   vxLast, vzLast, enBody, enAnim,
-  initEnemyPool,
 } from './enemies';
 // --- AAA round: feel, VFX, weapons, audio mix, settings, score ---------------
 import * as FEEL from './feel';
@@ -125,19 +108,19 @@ import { initNav } from './nav';
 
 // Borderless fullscreen at the monitor's native resolution (the engine
 // resizes its swapchain + all render targets on the WM_SIZE this triggers).
-// The 1024Ã—640 size is the windowed-mode fallback the engine restores to.
+// The 1024×640 size is the windowed-mode fallback the engine restores to.
 initWindow(1024, 640, 'Bloom Shooter', true);
 setTargetFPS(60);
 initInput();
 
-// SH-037 â€” settings must load BEFORE anything reads them (input sensitivity,
+// SH-037 — settings must load BEFORE anything reads them (input sensitivity,
 // audio volumes, FOV, shake). A missing file is a first run, not an error.
 SET.loadSettings();
 
 // ---- CLI overrides for A/B-testing graphics settings -----------------------
 // `main --render-scale 0.5|0.75|1` and `main --output-scale 0.5|0.75|1`
 // override settings.json for this launch (they land in the live settings
-// array, so the video menu shows them â€” and saving from the pause menu
+// array, so the video menu shows them — and saving from the pause menu
 // persists them). Values are matched against the fixed list instead of
 // parsed: string equality on argv is safe (world-runtime does it), numeric
 // parsing of FFI strings is not (perry-quirks #5). `--pt off|prog|rt`
@@ -307,7 +290,7 @@ setLayerCollides(physics, Layer.MOVING, Layer.MOVING, true);
 // Authored in assets/worlds/arena_02.world.json; flat-array TS module is
 // read from assets/worlds/arena_02.world.json at startup. All geometry,
 // lighting, spawners, pickups, and the wave plan come from that world data.
-// The editor can read/write the same JSON â†’ one source of truth.
+// The editor can read/write the same JSON → one source of truth.
 
 const spawnPos: Vec3 = vec3(W.SPAWN_X, W.SPAWN_Y, W.SPAWN_Z);
 
@@ -324,55 +307,55 @@ setDirectionalLight(
     b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
   W.ENV_SUN_I);
 
-// Tier 1.1 â€” load an HDR equirectangular environment. The engine
+// Tier 1.1 — load an HDR equirectangular environment. The engine
 // convolves it into env_tex (specular) + env_diffuse_tex (ambient
 // diffuse) at load time; refractive water + glass automatically
 // pick it up via sample_env(). With nothing loaded the env binds
-// are 1Ã—1 black and PBR specular is dead.
+// are 1×1 black and PBR specular is dead.
 setEnvClearFromHdr('assets/env/outdoor.hdr');
-// Tier 1.2 â€” IBL strength. 1.0 = unit; bump up if the scene reads
+// Tier 1.2 — IBL strength. 1.0 = unit; bump up if the scene reads
 // dim against the new HDR sky, pull back if it blows out.
 setEnvIntensity(1.0);
-// Tier 1.3 â€” three-cascade sun shadows. Adds ~3 ms of GPU work
+// Tier 1.3 — three-cascade sun shadows. Adds ~3 ms of GPU work
 // but grounds every object visually.
 enableShadows();
-// Tier 1.4 â€” auto-exposure. The HDR pipeline tonemaps to surface
+// Tier 1.4 — auto-exposure. The HDR pipeline tonemaps to surface
 // sRGB with a fixed exposure if this is off; auto follows scene
 // luminance which is the right behaviour outdoors. The engine's
-// histogram AE targets the key value below â€” tuned against the
+// histogram AE targets the key value below — tuned against the
 // IBL-fill material lighting: 0.18 washed the stone to white before
 // the materials sampled real irradiance, 0.12 went moody-dark after.
 setAutoExposure(true);
 setAutoExposureKey(0.155);
-// Tier 1.5 â€” pale-blue distance haze. r,g,b,density,heightRef,
+// Tier 1.5 — pale-blue distance haze. r,g,b,density,heightRef,
 // heightFalloff. Density 0.012 reads as a soft far-plane haze
 // without dimming the foreground.
 // Pale-blue distance haze. Density ramps up at ground level and
 // clears within ~10 m above, so river dips and tree-base shadows
-// pool low fog while ridges stay clear â€” adds depth without
+// pool low fog while ridges stay clear — adds depth without
 // muddying the whole frame.
-// Round-2 (audit F2): heightRef sat exactly at water level (yâ‰ˆ0), so a
+// Round-2 (audit F2): heightRef sat exactly at water level (y≈0), so a
 // grazing look along the river integrated the densest fog slab for the
-// full valley length â€” the visible "milk band" hugged the waterline and
+// full valley length — the visible "milk band" hugged the waterline and
 // spilled over the banks. Drop the reference below ground and thin the
 // density: low pooling survives, the white sheet does not.
 setFog(0.78, 0.84, 0.90, 0.016, -0.6, 6.0);
-// Tier 1.7 â€” warm god-rays through the trees. Round-2 retune (audit F3):
+// Tier 1.7 — warm god-rays through the trees. Round-2 retune (audit F3):
 // at 0.4/0.96 the 32-tap shaft march added up to ~+0.14 HDR of warm veil
-// on every sunward silhouette â€” a big share of the "pale backlit
+// on every sunward silhouette — a big share of the "pale backlit
 // treeline". 0.18/0.90 keeps the god-ray read without the wash.
 setSunShafts(0.18, 0.90, 1.0, 0.95, 0.7);
-// EN-013 â€” global wind UBO. All foliage materials (grass, trees,
+// EN-013 — global wind UBO. All foliage materials (grass, trees,
 // future ferns/clovers) read these values from PerFrame.wind so
 // one source of truth drives the whole scene's swing.
-//   dirX / dirZ â€” wind direction in the XZ plane (need not be unit)
-//   amp         â€” peak displacement at full tip weight (~0.10 m for grass)
-//   freq        â€” Hz; ~1 = lazy breeze, ~3 = gusty
+//   dirX / dirZ — wind direction in the XZ plane (need not be unit)
+//   amp         — peak displacement at full tip weight (~0.10 m for grass)
+//   freq        — Hz; ~1 = lazy breeze, ~3 = gusty
 // One number for the whole scene's wind: the grass sway, the tree bend (EN-041),
 // the cloud drift (EN-040) and the leaf-rustle bed (SH-001) all read it.
 const WIND_AMP = 0.10;
 setWind(0.85, 0.50, WIND_AMP, 1.6);
-// EN-040 â€” opt the world into the cloud deck the sky is already drawing, so a
+// EN-040 — opt the world into the cloud deck the sky is already drawing, so a
 // shadow crossing the field has a cloud above it. Before this, the sky, the
 // grass and the terrain each carried a private noise field: the ground darkened
 // under clouds that were not there, drifting ~80x faster than the ones that
@@ -381,7 +364,7 @@ setWind(0.85, 0.50, WIND_AMP, 1.6);
 // Strength 0.45 = a shadowed surface keeps a bit over half its direct sun. The
 // deck drifts downwind of setWind() above, so the clouds travel the way the
 // grass is leaning. Deck height and feature scale are deliberately NOT free
-// knobs â€” they set the size of the cloud and of its shadow at the same time.
+// knobs — they set the size of the cloud and of its shadow at the same time.
 // Deck at 150 m with 125 m puffs: the two are COUPLED (sky puff size =
 // (deck - eye) x scale), so this pair is what keeps the sky reading the way it
 // always has while making the shadows arena-scale -- one or two crossing the
@@ -400,7 +383,7 @@ setTaaEnabled(true);
 setRenderScale(0.75);
 // 2026-07-06 fullscreen-lag investigation: the Lumen SW-GI camera-follow
 // bakes (SDF clipmap + WSRC) used to re-run as single full-volume
-// dispatches whenever the view moved â€” a 1-2.4 s GPU stall every ~5 s of
+// dispatches whenever the view moved — a 1-2.4 s GPU stall every ~5 s of
 // mouse-look on the 760M. The engine now amortizes both (binned + sliced
 // clipmap bake into a staging volume, one WSRC cascade per frame), so
 // SSGI stays enabled.
@@ -411,14 +394,14 @@ setRenderScale(0.75);
 // they're the ones that scale worst. Cut the three that cost the most per pixel
 // and keep the two that carry most of the look (sun shadows and bloom).
 //
-// Lumen SW-GI is the big one â€” it re-bakes an SDF clipmap as the view moves,
+// Lumen SW-GI is the big one — it re-bakes an SDF clipmap as the view moves,
 // which is a GPU stall the phone has no headroom to absorb. SSR goes with it.
 //
 // GTAO stays ON. It was cut with the other two at first, but measured on an
 // iPhone 16 Pro it doesn't cost a frame-rate tier: mid-wave the frame sits at
 // 25.0 ms either way (the same ~40 fps), and the title screen holds 60. It buys
 // back the contact shadows that seat the grass, trees and aliens on the ground
-// instead of leaving them looking pasted over it â€” the cheapest of the three
+// instead of leaving them looking pasted over it — the cheapest of the three
 // screen-space passes by some margin, and the one with the best return.
 //
 // Read that "free" precisely, though: present mode is Fifo on a 120 Hz panel,
@@ -426,12 +409,12 @@ setRenderScale(0.75);
 // slack inside a bucket rather than costing nothing. It eats margin. If a
 // heavier wave starts tipping frames from the 25 ms bucket into the 33 ms one,
 // this is the first thing to put back. (Per-pass GPU timings would settle it,
-// but the profiler reports -1 on iOS â€” the Metal backend doesn't get
-// TIMESTAMP_QUERY â€” so wall-clock at a fixed point in the wave is the honest
+// but the profiler reports -1 on iOS — the Metal backend doesn't get
+// TIMESTAMP_QUERY — so wall-clock at a fixed point in the wave is the honest
 // instrument here.)
 //
 // Render scale stays at 0.5 (TSR reconstructs to native in the TAA pass), which
-// on a 2622x1206 iPhone means a ~1311x603 internal buffer â€” the same
+// on a 2622x1206 iPhone means a ~1311x603 internal buffer — the same
 // pixel-bound cost as a 720p desktop frame.
 if (MOBILE) {
   setSsgiEnabled(false);
@@ -441,7 +424,7 @@ if (MOBILE) {
   setBloomEnabled(true);
   setTaaEnabled(true);
   setRenderScale(0.5);
-  // Sun shafts are a full-screen radial blur â€” pure cost for a pass the player
+  // Sun shafts are a full-screen radial blur — pure cost for a pass the player
   // only sees when looking near the sun. Strength 0 is off.
   setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
 }
@@ -467,7 +450,7 @@ else if (cliDbgOff === 'ssr') setSsrEnabled(false);
 else if (cliDbgOff === 'bloom') setBloomEnabled(false);
 else if (cliDbgOff === 'taa') setTaaEnabled(false);
 
-// Static box colliders â€” invisible physics walls that bound the plaza
+// Static box colliders — invisible physics walls that bound the plaza
 // and carry the ground plane.
 for (let i = 0; i < W.COLLIDER_COUNT; i++) {
   const shape = boxShape(vec3(W.COLLIDER_HALF_X[i], W.COLLIDER_HALF_Y[i], W.COLLIDER_HALF_Z[i]));
@@ -479,7 +462,7 @@ for (let i = 0; i < W.COLLIDER_COUNT; i++) {
   });
 }
 
-// Heightfield terrain collider â€” matches assets/models/terrain_hills.glb.
+// Heightfield terrain collider — matches assets/models/terrain_hills.glb.
 // Samples in TERRAIN_HEIGHTS are row-major z*width+x; engine's heightfield
 // shape takes an origin + scale (cellSize in X/Z, Y=1 since the heights
 // are already in world units) and builds a Jolt HeightFieldShape.
@@ -497,7 +480,7 @@ for (let i = 0; i < W.COLLIDER_COUNT; i++) {
 }
 
 // Drawable meshes: each static_mesh entity references a modelRef via
-// MESH_MODEL_IDX â†’ UNIQUE_MODELS. Real GLBs are loaded once here and
+// MESH_MODEL_IDX → UNIQUE_MODELS. Real GLBs are loaded once here and
 // drawn via drawModel each frame. Box-placeholder entries (modelRef
 // `_gizmo_box.glb`) get a coloured drawCube fallback at draw time,
 // tinted by category (0 = generic, 1 = building stone, 2 = terrain
@@ -510,12 +493,12 @@ const meshModelHandles = new Array<number>(W.UNIQUE_MODEL_COUNT);
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   meshModelHandles[i] = W.MODEL_IS_BOX[i] === 1 ? 0 : loadModel(W.UNIQUE_MODELS[i]);
 }
-// Round-4 (de-cartoonification) â€” the Kenney low-poly gumdrops were the
+// Round-4 (de-cartoonification) — the Kenney low-poly gumdrops were the
 // single biggest "toy world" signal: flat-shaded solid-colour polyhedra.
 // Back to the PUBG-style leaf-card trees (bark-textured tapered trunk +
 // alpha-cutout leaf-card canopy). Drawn through the cached-model scene
 // shader, which gives them wind sway, backlit leaf transmission and
-// dappled cutout shadows for free â€” and they show up in the water's
+// dappled cutout shadows for free — and they show up in the water's
 // planar reflection (cached models render into the probe). Three GLB
 // variants (normal / tall-narrow / short-wide) from build-props.ts.
 // Swaying tree SHADOWS: correct, but a caster that moves every frame cannot reuse
@@ -550,7 +533,7 @@ const FOREST_D = new Array<number>(W.FOREST_COUNT);
 const FOREST_ORD = new Array<number>(W.FOREST_COUNT);
 
 // The forest, read from the world file. Each tree is an entity (kind
-// `prop_tree`), so it can be moved, retinted, deleted, or added in the editor â€”
+// `prop_tree`), so it can be moved, retinted, deleted, or added in the editor —
 // it used to be scattered here at startup from a fixed LCG seed, which meant no
 // tree had an identity and none of that was expressible. `bun
 // tools/bake-forest-to-world.ts` seeded the current 88 from that same scatter.
@@ -568,15 +551,26 @@ const FOREST_TINT_R = W.FOREST_TINT_R;
 const FOREST_TINT_G = W.FOREST_TINT_G;
 const FOREST_TINT_B = W.FOREST_TINT_B;
 
-// Round-9 â€” trunk colliders for the scatter forest. The world-authored
+// Hoisted per-tree draw objects. A tree's position and tint never change after
+// load, but the draw loop was building a fresh vec3 + tint literal for every
+// tree every frame — 176 objects x 60 fps of pure garbage (perf-audit
+// finding 11). Built once; the FFI only reads their fields.
+const FOREST_POS = new Array<any>(FOREST_COUNT);
+const FOREST_TINTO = new Array<any>(FOREST_COUNT);
+for (let i = 0; i < FOREST_COUNT; i++) {
+  FOREST_POS[i] = vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]);
+  FOREST_TINTO[i] = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
+}
+
+// Round-9 — trunk colliders for the scatter forest. The world-authored
 // prop_tree entities carry box colliders from the world file, but these
-// 88 trees never got physics bodies â€” the player walked straight through
+// 88 trees never got physics bodies — the player walked straight through
 // them. One slim static box per trunk; the canopy stays shoot-through on
 // purpose. Bullets now ricochet off trunks via the existing ALL_LAYERS
 // raycast, and the orbit camera's NON_MOVING ray already handles trunks.
 for (let i = 0; i < FOREST_COUNT; i++) {
-  const tr = 0.26 * FOREST_SCALE[i];   // half-extent â‰ˆ bark radius at the base
-  const th = 1.6 * FOREST_SCALE[i];    // half-height â€” trunk only, not canopy
+  const tr = 0.26 * FOREST_SCALE[i];   // half-extent ≈ bark radius at the base
+  const th = 1.6 * FOREST_SCALE[i];    // half-height — trunk only, not canopy
   const trunkShape = boxShape(vec3(tr, th, tr));
   createBody(physics, trunkShape, {
     motionType: MotionType.STATIC,
@@ -596,9 +590,20 @@ for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   if (W.UNIQUE_MODELS[i] === 'assets/models/terrain_hills.glb') { terrainPropIdx = i; }
 }
 
-// Round-9 â€” flat obstacle-circle list for enemy steering. Enemies are
+// Same hoist for the static-mesh pass: positions are world data (immutable at
+// runtime) and the cube tint depends only on the 4-entry category table.
+const MESH_POS = new Array<any>(W.MESH_COUNT);
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  MESH_POS[i] = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
+}
+const MESH_COLS = new Array<any>(4);
+for (let c = 0; c < 4; c++) {
+  MESH_COLS[c] = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
+}
+
+// Round-9 — flat obstacle-circle list for enemy steering. Enemies are
 // KINEMATIC (steered in XZ, setBodyPosition) so Jolt never resolves their
-// contacts â€” they need code-side avoidance. Circles cover every tree trunk
+// contacts — they need code-side avoidance. Circles cover every tree trunk
 // (forest entities plus prop_tree static meshes) and, since house v2, the
 // GROUND-FLOOR building walls: a row of circles along each wall piece that
 // actually blocks a walker. The door and window openings get no circles, so
@@ -702,10 +707,10 @@ let BLDG_CX = 0, BLDG_CZ = 0, BLDG_HX = 0, BLDG_HZ = 0;
   }
 }
 
-// Tier 2a â€” terrain colour material. Compile via the file-based
+// Tier 2a — terrain colour material. Compile via the file-based
 // API for hot-reload, then push the param UBO via setMaterialParams
 // directly (loadMaterial's array-length pass-through is unreliable
-// under Perry â€” the FFI receives zero count for inline literals).
+// under Perry — the FFI receives zero count for inline literals).
 //   grass_dry rgb  pad   grass_mid rgb  pad   grass_deep rgb pad   dirt rgb pad
 //   noise_freq, slope_threshold, ridge_height, pale_strength
 bootStage(BOOT_TERRAIN);
@@ -909,7 +914,7 @@ let playerAnimT = 0;
 let playerFaceOffset = 0;
 const PLAYER_TURN_RATE = 14;   // higher = snappier reposition
 
-// SH-027 â€” real weapon models, replacing the two grey drawCube primitives that
+// SH-027 — real weapon models, replacing the two grey drawCube primitives that
 // were the most visible placeholder left in the game. Built by
 // tools/build-weapons.ts; local +Z is down the barrel and the muzzle distances
 // below are the ABI that file prints (keep them in sync).
@@ -926,7 +931,7 @@ const mdlWeapons = [
 const WEAPON_MUZZLE_Z = [0.87, 0.59, 1.00, 0.95];
 const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 
-// EN-033 â€” the hand joint, so the weapon rides the animation instead of
+// EN-033 — the hand joint, so the weapon rides the animation instead of
 // floating at a fixed offset. -1 means the skeleton has no such joint and the
 // fixed-offset fallback below is used (which is what the old cube did).
 // The bsuit skeleton carries a purpose-built attachment point — `tag_weapon`,
@@ -938,17 +943,17 @@ const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 // read on screen as "the weapon isn't rendering at all". Sockets fail silently
 // like that; an exact tag is the whole defence.
 const playerHandJoint = findJoint(animPlayer, 'tag_weapon');
-// ANIMDBG only â€” a joint that swings hard in any gait, so "is the pose actually
+// ANIMDBG only — a joint that swings hard in any gait, so "is the pose actually
 // moving?" is a number and not an opinion.
 const dbgAnkle = findJoint(animPlayer, 'ankle.R');
 
-// SH-033 â€” VFX. Cosmetic, so a failure here must never take the game down:
+// SH-033 — VFX. Cosmetic, so a failure here must never take the game down:
 // initVfx() returns false and every emit call becomes a no-op.
 bootStage(BOOT_VFX);
 const vfxOk = VFX.initVfx();
 if (!vfxOk) console.log('[vfx] disabled - shaders or textures failed to load');
 
-// Round 2 â€” audio mix (buses, reverb, footsteps, music intensity).
+// Round 2 — audio mix (buses, reverb, footsteps, music intensity).
 MIX.initAudioMix();
 // SH-001 — put the leaf-rustle bed on the actual forest. The centroids come from
 // the tree positions in the world file, so moving the forest in the editor moves
@@ -979,9 +984,9 @@ const WHITE = { r: 255, g: 255, b: 255, a: 255 };
 initDirector(physics);
 
 // ---- Combat (SH-025c: weapon/fire/projectiles/pickups → src/combat.ts) ----
-// Phase 7 / Round-3 â€” seconds until the next wading splat may fire.
+// Phase 7 / Round-3 — seconds until the next wading splat may fire.
 // Splatting every moving frame overwhelmed the field's 3.2%/frame decay
-// (steady state ~19Ã— over max â€” a stuck white smear); one splat per
+// (steady state ~19× over max — a stuck white smear); one splat per
 // 0.15 s at lower strength holds it near 1.0 instead.
 let splatCooldown = 0;
 
@@ -998,7 +1003,7 @@ let perfOverlayOn = false;
 // ---- Render-pass debug toggles --------------------------------------------
 // Live F5-F8 toggles for the screen-space effects, with an always-on status
 // line top-left. Isolates any visual artifact to one pass in a single run
-// (this is how the 2026-07 shadow/SSAO bugs were tracked down â€” see
+// (this is how the 2026-07 shadow/SSAO bugs were tracked down — see
 // docs/shadow-cascade-and-ssao-fixes.md). Kept as a standing debug aid.
 let dbgSsgi = true;
 let dbgSsao = true;
@@ -1014,9 +1019,9 @@ let dbgSsr = true;
 let dbgShadow = true;
 
 // ---- M8 polish: post-FX ---------------------------------------------------
-// Called once at startup â€” these are cheap, always-on stylistic passes.
+// Called once at startup — these are cheap, always-on stylistic passes.
 setVignette(0.4, 0.55);    // darken frame edges
-setFilmGrain(0.018);       // barely-there noise â€” 0.05+ reads as heavy speckle
+setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckle
                            // over sky/shadow areas (phase-0 calibration).
 
 bootStage(BOOT_SCENE);
@@ -1026,7 +1031,7 @@ initGiProxies(meshModelHandles, treeVariants, terrainPropIdx, TREE_GLB_PARTS);
 // ---- Self-test harness ----------------------------------------------------
 // When SELFTEST is true the game auto-fires a shot on frame 30, screenshots
 // the scene on frame 60, and exits on frame 90. Used while investigating the
-// engine's deferred-render green-screen bug â€” kept dormant for future debug.
+// engine's deferred-render green-screen bug — kept dormant for future debug.
 const SELFTEST = false;
 // FACETEST (SH-047) — see the input-override block. dbgFaceDir: 0=D(right,90°),
 // 1=A(left,90°), 2=W+D(45°). MUST be false in shipped builds.
@@ -1055,7 +1060,7 @@ let testFrame = 0;
 // too. Same dormancy contract as SELFTEST/PERFTEST: MUST be false in
 // shipped builds.
 const WATERTEST = false;
-// Wall-clock anchor for the scripted walk â€” getTime() at frame 20 already
+// Wall-clock anchor for the scripted walk — getTime() at frame 20 already
 // includes several seconds of asset loading, so timings are relative to
 // the moment the harness starts the run.
 let waterTestT0 = -1;
@@ -1064,7 +1069,7 @@ let waterTestT0 = -1;
 // Round-9 AI verification: auto-starts the run, keeps the player alive and
 // stationary, and logs each live enemy's kind / AI state / distance once a
 // second so an external batch run can confirm the per-kind state machines
-// (dretch weave, mantis orbitâ†’dartâ†’recover, dragoon windupâ†’charge) actually
+// (dretch weave, mantis orbit→dart→recover, dragoon windup→charge) actually
 // cycle. Same dormancy contract as SELFTEST/WATERTEST/PERFTEST: MUST be
 // false in shipped builds.
 const AITEST = false;
@@ -1201,16 +1206,16 @@ let fpsProbeDone = false;
 // vsync; every later stage runs Mailbox (uncapped) so the vsync cap can't
 // mask differences. The final stage re-enables the shipped config with the
 // engine profiler on and dumps the per-pass CPU/GPU table. Prints PERF /
-// PERFPASS lines to stdout â€” run batch with output redirected. Flip to false
+// PERFPASS lines to stdout — run batch with output redirected. Flip to false
 // (or delete) when the investigation closes.
 const PERFTEST = false;
-// Mode 0 â€” staged feature bisect on the title screen (deterministic backdrop).
-// Mode 1 â€” gameplay timeline: injects a keypress to start the run, keeps the
+// Mode 0 — staged feature bisect on the title screen (deterministic backdrop).
+// Mode 1 — gameplay timeline: injects a keypress to start the run, keeps the
 // player alive, and logs fps / worst-frame / alive-enemy count per 60-frame
 // window; the profiler turns on for the final third to get a combat per-pass
 // table.
 const PERF_MODE = 1;
-// false = stay on the title screen (stationary world backdrop â€” used for
+// false = stay on the title screen (stationary world backdrop — used for
 // external flicker captures); true = auto-start the run at frame 20.
 const PERF_START_GAME = true;
 const PERF_SETTLE = 30;    // frames to let a config change settle
@@ -1241,7 +1246,7 @@ let perfMsD = 0;
 let perfMsE = 0;
 let perfPrevAlive = 0;
 
-// Scripted kill for mode 1 â€” mirrors the rifle-kill death path exactly so
+// Scripted kill for mode 1 — mirrors the rifle-kill death path exactly so
 // death-triggered work (first die-anim playback, body teleport, sound) can
 // be correlated with frame spikes deterministically.
 function perfKillOne(): void {
@@ -1379,8 +1384,14 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
     perfTTop = nowTop;
   }
-  const dtReal = getDeltaTime();
-  // SH-029 â€” hit-stop. `dt` is what the SIMULATION sees, so a kill briefly
+  const dtRaw = getDeltaTime();
+  // A stalled frame — SDF-clipmap re-bake, window drag, driver hiccup — can hand
+  // back 300 ms+ here, and one explicit-Euler step that big teleports the sim:
+  // a charging dragoon (8.5 m/s) crosses ~2.6 m in a single step, clean over a
+  // wall's ~1.3 m repulsion ring and into the house. Cap the step at 100 ms so
+  // below 10 fps the world slows down instead of tunnelling.
+  const dtReal = dtRaw > 0.1 ? 0.1 : dtRaw;
+  // SH-029 — hit-stop. `dt` is what the SIMULATION sees, so a kill briefly
   // freezes the world; `dtReal` keeps driving the feedback decay, the menus and
   // the camera, or a hit-stop would freeze its own recovery.
   const dt = menuOpen() ? 0 : FEEL.applyHitstop(dtReal);
@@ -1388,7 +1399,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   if (GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen()) GS.runElapsed = GS.runElapsed + dt;
   // iOS reports the screen in *pixels*, where macOS reports points (engine
   // EN-024). On a 3x iPhone that makes every hardcoded HUD offset below come
-  // out a third of its intended size â€” an unreadable 13px status line on a
+  // out a third of its intended size — an unreadable 13px status line on a
   // 2622px-wide screen. Rather than rescale forty draw calls, lay the HUD out
   // in a fixed ~1000-unit-wide logical space and let the 2D camera scale the
   // whole pass (see the beginMode2DRaw below). sw/sh are that logical space;
@@ -1425,7 +1436,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     perfOverlayOn = !perfOverlayOn;
     setProfilerEnabled(perfOverlayOn);
   }
-  // Render-pass debug toggles. F5 SSGI, F6 SSAO, F7 SSR, F8 shadows â€” flip
+  // Render-pass debug toggles. F5 SSGI, F6 SSAO, F7 SSR, F8 shadows — flip
   // each off to see which pass owns a visual artifact. Status line in the HUD.
   if (isKeyPressed(Key.F5)) { dbgSsgi = !dbgSsgi; setSsgiEnabled(dbgSsgi); }
   if (isKeyPressed(Key.F6)) { dbgSsao = !dbgSsao; setSsaoEnabled(dbgSsao); }
@@ -1531,7 +1542,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // ---- SH-038: pause + menus -------------------------------------------
   // Esc / Start opens the pause menu mid-fight; the sim freezes (dt = 0 above)
   // but the world keeps rendering behind the dim, so you can see what you
-  // paused. Audio keeps running deliberately â€” a silent pause is jarring.
+  // paused. Audio keeps running deliberately — a silent pause is jarring.
   if (input.pausePressed && GS.gameState === 1 && !GS.gameOver && !DIR.gameWon) {
     if (menuOpen()) {
       closeMenu();
@@ -1541,7 +1552,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       enableCursor();
     }
   }
-  // MENUTEST â€” see the harness block above. Injects into the engine's own key
+  // MENUTEST — see the harness block above. Injects into the engine's own key
   // state, so updateMenu() reads it exactly as it reads a real player.
   if (MENUTEST && !menuTestDone) {
     const f = testFrame;
@@ -1592,7 +1603,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     }
   }
 
-  // PERFTEST stage driver â€” see the harness block above the loop.
+  // PERFTEST stage driver — see the harness block above the loop.
   if (PERFTEST && !perfDone && PERF_MODE === 0) {
     if (perfStageFrame === 0) perfStageApply(perfStage);
     perfStageFrame = perfStageFrame + 1;
@@ -1649,7 +1660,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       perfKillOne();
     }
     // In-engine flicker arbitration: swapchain screenshots (now that
-    // takeScreenshot works on Windows) â€” 4 consecutive frames at 6
+    // takeScreenshot works on Windows) — 4 consecutive frames at 6
     // sample points. Consecutive-frame diffs catch real frame-to-frame
     // change; cross-window diffs catch slower state alternation. The
     // desktop-capture path (DWM) is bypassed entirely.
@@ -1761,14 +1772,14 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       if ((testFrame % 120) === 0) console.log('WATERTEST fps=' + getFPS());
     }
   }
-  // ANIMDBG â€” scripted walk/sprint cycle. See the harness block above.
+  // ANIMDBG — scripted walk/sprint cycle. See the harness block above.
   if (ANIMDBG) {
     if (testFrame === 20 && GS.gameState === 0) startRun();
     GS.playerHP = PLAYER_HP_MAX;
     GS.gameOver = false;
     DIR.waveBreakTimer = 9999;      // no enemies: this walk must not be shoved
-    // Yaw the camera onto the tree at (5.3, 25.9) â€” nearest to the (0, 20)
-    // spawn â€” so the ORBIT (which trails behind the player) sweeps into its
+    // Yaw the camera onto the tree at (5.3, 25.9) — nearest to the (0, 20)
+    // spawn — so the ORBIT (which trails behind the player) sweeps into its
     // canopy and back out as the scripted walk moves down that axis. Walking
     // "forward" here walks away from the tree, so the occlusion builds and
     // releases without any hand-steering.
@@ -1777,7 +1788,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     if (GS.gameState === 1) {
       const tA = getTime();
       const seg = Math.floor(tA / 3);
-      // 3 s walk fwd, 3 s sprint fwd, 3 s walk back, 3 s sprint back â€” so the
+      // 3 s walk fwd, 3 s sprint fwd, 3 s walk back, 3 s sprint back — so the
       // player stays near spawn instead of walking into the far wall (a wall
       // would zero the speed and the probe would read that as the bug).
       dbgSprint = (seg % 2) === 1 ? 1 : 0;
@@ -1792,12 +1803,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
         input.sprintDown = false;
         input.moveZ = testFrame < 42 ? 1 : 0;
       }
-      input.aimDown = false;    // both cancel sprint â€” see wantSprint below
+      input.aimDown = false;    // both cancel sprint — see wantSprint below
       input.fireDown = false;
       if (testFrame > 1200) animDbgDone = true;
     }
   }
-  // AITEST â€” see the harness block above WATERTEST.
+  // AITEST — see the harness block above WATERTEST.
   if (AITEST) {
     if (testFrame === 20 && GS.gameState === 0) {
       startRun();
@@ -1805,7 +1816,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     GS.playerHP = PLAYER_HP_MAX;   // immortal observer
     GS.gameOver = false;
     CAM[0] = 0;
-    CAM[1] = 0.55;              // high-ish pitch â€” survey the field
+    CAM[1] = 0.55;              // high-ish pitch — survey the field
     input.moveX = 0;
     input.moveZ = 0;
     if (GS.gameState === 1 && (testFrame % 60) === 0) {
@@ -1821,7 +1832,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       console.log(line);
     }
   }
-  // Only apply mouse look when cursor is captured â€” avoids jumpy yaw/pitch
+  // Only apply mouse look when cursor is captured — avoids jumpy yaw/pitch
   // when the user is moving the mouse outside the window. The first ~10
   // frames after window creation often report giant mouse deltas (system
   // cursor settling into the captured state), which can fling the camera
@@ -1834,7 +1845,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   const playing = GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen();
 
   // Restart on R when the run has ended (died or won); otherwise R reloads.
-  // Reload is TIMED now (SH-028) â€” you can be punished for it.
+  // Reload is TIMED now (SH-028) — you can be punished for it.
   if (input.reloadPressed) {
     if (GS.gameOver || DIR.gameWon) resetRun();
     else if (playing && !WPN.isReloading()) {
@@ -1850,7 +1861,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   if (isKeyPressed(Key.FOUR))  WPN.selectWeapon(WPN.W_CANNON);
   if (input.swapWeapon) WPN.nextWeapon();
 
-  // SH-032 â€” dodge. Commits the player for 0.25 s, so it is a decision, not a
+  // SH-032 — dodge. Commits the player for 0.25 s, so it is a decision, not a
   // free extra speed. Direction is the movement input, or straight back if the
   // stick is centred (a panic dodge should always do *something*).
   if (playing && input.dodgePressed) {
@@ -1872,7 +1883,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const yawNow = CAM[0];
     const fwd = vec3(Math.sin(yawNow), 0, -Math.cos(yawNow));
     const rgt = vec3(Math.cos(yawNow), 0, Math.sin(yawNow));
-    // Sprint cancels aiming and is cancelled by firing â€” you cannot run and
+    // Sprint cancels aiming and is cancelled by firing — you cannot run and
     // shoot accurately, which is what makes sprint a real trade.
     const wantSprint = input.sprintDown && !input.aimDown && !input.fireDown;
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump,
@@ -1880,8 +1891,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     if (wantSprint && playerSpeed() > 6.5) FEEL.addFovKick(6 * dt * 4);
   }
   stepPhysics(physics, dt);
+  // The one authoritative player-position read per frame. Everything below the
+  // physics step aliases this — four always-on sites used to re-cross the FFI
+  // for a value that cannot change between here and endDrawing.
+  const ppFrame = playerPosition();
 
-  // SH-028 â€” weapon timers (cooldown, reload, spread recovery, aim/spool).
+  // SH-028 — weapon timers (cooldown, reload, spread recovery, aim/spool).
   {
     const wasReloading = WPN.isReloading();
     WPN.updateWeapons(dt, playing && input.fireDown, playing && input.aimDown);
@@ -1891,12 +1906,12 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   SCORE.updateScore(dt);
   if (PERFTEST) perfTA = getTime();
 
-  // Phase 7 â€” footstep / water-entry splats. When the player is
+  // Phase 7 — footstep / water-entry splats. When the player is
   // inside the river band, submit an impulse at their XZ every
   // frame they're moving. The compute pass decays these over ~2s
   // so the water shader can render persistent ripples.
   {
-    const pp = playerPosition();
+    const pp = ppFrame;
     const inRiver = pp.z > ENV.WATER_CZ - ENV.WATER_D * 0.5 &&
                     pp.z < ENV.WATER_CZ + ENV.WATER_D * 0.5 &&
                     Math.abs(pp.x) < ENV.WATER_W * 0.5;
@@ -1907,7 +1922,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       splatCooldown = 0.15;
     }
 
-    // SH-003 â€” footsteps. Distance-accumulated, so the cadence follows sprint
+    // SH-003 — footsteps. Distance-accumulated, so the cadence follows sprint
     // and walk for free. Firing a step also kicks dust (SH-033), which is the
     // pairing that sells a footfall: you hear it AND the ground reacts.
     if (playing) {
@@ -1920,7 +1935,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       if (stepped && inRiver) VFX.emitSplash(pp.x, ENV.WATER_Y, pp.z);
     }
 
-    // SH-035 â€” reverb zone. `enclosure` rises as the player nears the building
+    // SH-035 — reverb zone. `enclosure` rises as the player nears the building
     // footprint, so a firefight by the walls sounds like a firefight by the
     // walls. Ramped, not switched (a hard cut clicks on any tail in flight).
     // The footprint comes from the world's building boxes (BLDG_* above) —
@@ -1970,7 +1985,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       SCORE.resetScore();
       GS.runElapsed = 0;
     }
-    GS.playerHP = PLAYER_HP_MAX;          // immortal â€” we want the fight, not a death
+    GS.playerHP = PLAYER_HP_MAX;          // immortal — we want the fight, not a death
     GS.gameOver = false;
     DIR.waveBreakTimer = 9999;             // suppress the director; we place our own
     CAM[1] = 0.30;
@@ -2049,7 +2064,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   if (GS.levelChangeT > 0) GS.levelChangeT = GS.levelChangeT - dtReal;
   if (GS.waveBonusT > 0) GS.waveBonusT = GS.waveBonusT - dtReal;
   if (GS.unlockBannerT > 0) GS.unlockBannerT = GS.unlockBannerT - dtReal;
-  // SH-029 â€” low-health grading. Ramps in below 25 HP.
+  // SH-029 — low-health grading. Ramps in below 25 HP.
   FEEL.setLowHealth(GS.playerHP < 25 ? (1 - GS.playerHP / 25) : 0);
   MIX.duckForLowHealth(GS.playerHP > 0 && GS.playerHP < 15);
 
@@ -2060,7 +2075,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
                     b: Math.floor(W.ENV_SKY_B * 255), a: 255 });
   // Sun + ambient MUST be re-set every frame: the engine's begin_frame
   // resets the whole lighting block to defaults (immediate-mode convention,
-  // renderer begin_frame â€” verified the hard way in the visual-overhaul
+  // renderer begin_frame — verified the hard way in the visual-overhaul
   // branch). Values come from the world data, so the editor stays the
   // single source of truth.
   setAmbientLight(
@@ -2073,7 +2088,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       b: Math.floor(W.ENV_SUN_B * 255), a: 255 },
     W.ENV_SUN_I);
 
-  // Round-7 â€” keep the audio listener on the camera so playSound3D
+  // Round-7 — keep the audio listener on the camera so playSound3D
   // (alien deaths/attacks, impacts, ricochets) pans and attenuates
   // correctly.
   {
@@ -2092,6 +2107,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   //     to sell speed has never once been visible.
   // One expression fixes both. TP_FOVY stays as the default the setting is seeded
   // with, not as the value the camera uses.
+  if (PERFTEST) perfTB = getTime();   // phase B ends here: sim done, 3D pass begins
   beginMode3D({
     position: vec3(CAM[2], CAM[3], CAM[4]),
     target:   vec3(CAM[5], CAM[6], CAM[7]),
@@ -2106,11 +2122,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // ---- World: static meshes + water + lights (all from the world file) -----
   // (The old "ground plate" drawCube of COLLIDER[0] is gone: the merged
   // world removed the plaza-floor collider, so index 0 is now the NORTH
-  // BOUNDARY WALL â€” the draw was painting an 80Ã—8 m grey slab across the
-  // arena edge. The terrain mesh extends to Â±140 m and fully carries the
+  // BOUNDARY WALL — the draw was painting an 80×8 m grey slab across the
+  // arena edge. The terrain mesh extends to ±140 m and fully carries the
   // ground; the boundary colliders stay invisible physics.)
 
-  // Phase 9 â€” real river. Single drawMeshWithMaterial replaces the old
+  // Phase 9 — real river. Single drawMeshWithMaterial replaces the old
   // 1800-cube tessellated grid. Shader handles Gerstner-wave
   // displacement, per-vertex normal, Fresnel-blended refraction (from
   // the scene-colour snapshot), sky reflection, and foam on crests.
@@ -2119,7 +2135,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       vec3(ENV.WATER_CX, ENV.WATER_Y, ENV.WATER_CZ), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Phase 10 â€” glass. Three panes in the house's south upper-floor windows
+  // Phase 10 — glass. Three panes in the house's south upper-floor windows
   // (visible on the approach from spawn, out of the way of ground-floor
   // fights). The pane used to float in the middle of the ground floor at
   // (-21, 0, -10) — nowhere near an opening. Positions pair with the h_s_f1
@@ -2133,16 +2149,16 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     drawMeshWithMaterial(ENV.matGlass, ENV.matGlassMesh,
       vec3(-14, 4.6, -5.32), 1.0, { r: 255, g: 255, b: 255, a: 255 });
   }
-  // SH-021 â€” instanced grass. One drawMeshWithMaterialInstanced
+  // SH-021 — instanced grass. One drawMeshWithMaterialInstanced
   // covers all 20 000 blades; the canonical 6-vert mesh is drawn N
   // times against the per-instance pos/rot/scale/tint buffer. Wind
   // sway reads frame.wind (EN-013); cascade shadows come through
-  // sample_sun_shadow (EN-016) â€” both folded into the material.
+  // sample_sun_shadow (EN-016) — both folded into the material.
   if (ENV.matGrass > 0 && ENV.matGrassInstances > 0) {
     drawMeshWithMaterialInstanced(ENV.matGrass, ENV.matGrassMesh, 0,
       ENV.matGrassInstances, ENV.GRASS_INSTANCE_COUNT);
   }
-  // Building stone â€” single drawMeshWithMaterial covers all
+  // Building stone — single drawMeshWithMaterial covers all
   // category-1 boxes; the noise + horizontal-band material in
   // the fragment turns them from flat beige into something that
   // reads as plastered stone.
@@ -2151,7 +2167,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
   }
-  // Forest scatter â€” ~120 leaf-card trees pre-placed at startup.
+  // Forest scatter — ~120 leaf-card trees pre-placed at startup.
   // Cached-model path: the scene shader gives alpha-cutout foliage
   // wind sway + backlit transmission, the cutout shadow pipeline
   // gives dappled shadows, and the planar probe reflects them in
@@ -2188,57 +2204,49 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   }
   for (let n = 0; n < FOREST_COUNT; n++) {
     const i = FOREST_ORD[n];
-    const pos = vec3(FOREST_X[i], FOREST_Y[i], FOREST_Z[i]);
-    const v = treeVariants[FOREST_VAR[i]];
-    const tint = { r: FOREST_TINT_R[i], g: FOREST_TINT_G[i], b: FOREST_TINT_B[i], a: 255 };
-    drawModelRotated(v, pos, FOREST_SCALE[i], FOREST_YAW[i], tint);
+    drawModelRotated(treeVariants[FOREST_VAR[i]], FOREST_POS[i],
+                     FOREST_SCALE[i], FOREST_YAW[i], FOREST_TINTO[i]);
   }
-  // Static meshes â€” either drawModel for real GLBs, or coloured drawCube
+  // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
   // tint (0 generic / 1 building / 2 terrain / 3 prop).
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
     // Buildings (category 1) are rendered through the baked ENV.matBuilding
-    // mesh below â€” skip them here to avoid a coplanar double-draw. This
+    // mesh below — skip them here to avoid a coplanar double-draw. This
     // must cover BOTH the placeholder boxes AND real GLBs: the textured
     // building_floor.glb used to slip through to the drawModel branch
-    // and z-fight with the material shell â€” its window-slat texture
+    // and z-fight with the material shell — its window-slat texture
     // rows flickered through the plaster whenever the TAA jitter
     // flipped the per-pixel depth winner (the long-hunted "gray lines"
     // flicker on the building).
     if (W.MESH_CATEGORY[i] === 1 && ENV.matBuilding > 0) continue;
     if (W.MODEL_IS_BOX[mi] === 1) {
-      const c = W.MESH_CATEGORY[i];
-      const col = { r: MESH_TINT_R[c], g: MESH_TINT_G[c], b: MESH_TINT_B[c], a: 255 };
-      drawCube(vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+      drawCube(MESH_POS[i],
                W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
-               col);
+               MESH_COLS[W.MESH_CATEGORY[i]]);
     } else if (mi === terrainPropIdx && matTerrain > 0) {
-      // Tier 2a â€” terrain via the colour-variation material. The
+      // Tier 2a — terrain via the colour-variation material. The
       // material runs in the opaque pass; passes Lambert against
       // PerView's directional sun + ambient, then writes both
       // albedo and hdr.
       drawMeshWithMaterial(matTerrain, meshModelHandles[mi] as any,
-                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
-                W.MESH_SCALE[i], WHITE);
+                MESH_POS[i], W.MESH_SCALE[i], WHITE);
     } else if (mi === treePropIdx) {
-      // World-authored trees â€” variant + yaw + scale jitter from a
+      // World-authored trees — variant + yaw + scale jitter from a
       // stable index hash so the same world always lays out the same.
       const v = treeVariants[i % 3];
       const scaleJitter = 0.85 + ((i * 17) & 31) / 100.0;  // 0.85 .. 1.16
       const sc = W.MESH_SCALE[i] * scaleJitter * 1.15;
-      const pos = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
       const yawDeg = ((i * 47) % 360);
-      drawModelRotated(v, pos, sc, yawDeg, WHITE);
+      drawModelRotated(v, MESH_POS[i], sc, yawDeg, WHITE);
     } else {
-      drawModel(meshModelHandles[mi],
-                vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
-                W.MESH_SCALE[i], WHITE);
+      drawModel(meshModelHandles[mi], MESH_POS[i], W.MESH_SCALE[i], WHITE);
     }
   }
-  // (Water rendering moved up â€” Phase 9 drawMeshWithMaterial replaces
+  // (Water rendering moved up — Phase 9 drawMeshWithMaterial replaces
   // the old cube-grid loop that used to live here.)
-  // Point lights from the world file â€” static scene lights.
+  // Point lights from the world file — static scene lights.
   for (let i = 0; i < W.LIGHT_COUNT; i++) {
     addPointLight(W.LIGHT_X[i], W.LIGHT_Y[i], W.LIGHT_Z[i],
                   W.LIGHT_RANGE[i],
@@ -2252,8 +2260,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // always drawn as a fallback so the player's position is visible even
   // if the skinned model fails to render.
   {
-    const pp = playerPosition();
-    const moving = input.moveX !== 0 || input.moveZ !== 0;
+    const pp = ppFrame;
     const camYaw = CAM[0];
     // Face the camera's horizontal forward direction so the character
     // always looks "away from the camera" (over-the-shoulder feel) and
@@ -2261,16 +2268,16 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     // (sin camYaw, -cos camYaw).
     //
     // SIGN QUIRK, pinned down via debug-pillar screenshots at three camera
-    // yaws: the skinned path (updateModelAnimation â†’ set_joint_matrices_
-    // scaled) applies rotY INVERTED â€” rendered facing = -rotY + Ï€/2 for
-    // this model (the Ï€/2 is the bsuit's rest offset). Three builds
-    // confirmed it: +Ï€/2 â†’ correct at yaw 0 but counter-rotates when
-    // orbiting; 0 â†’ 90Â° off; -Ï€/2 â†’ faces the camera. Solving
-    // -rotY + Ï€/2 = camYaw gives rotY = Ï€/2 - camYaw. If the engine's
+    // yaws: the skinned path (updateModelAnimation → set_joint_matrices_
+    // scaled) applies rotY INVERTED — rendered facing = -rotY + π/2 for
+    // this model (the π/2 is the bsuit's rest offset). Three builds
+    // confirmed it: +π/2 → correct at yaw 0 but counter-rotates when
+    // orbiting; 0 → 90° off; -π/2 → faces the camera. Solving
+    // -rotY + π/2 = camYaw gives rotY = π/2 - camYaw. If the engine's
     // joint-matrix yaw sign ever gets fixed, flip this back to
-    // camYaw + Ï€/2 (and re-check the enemies' faceYaw too â€” they go
+    // camYaw + π/2 (and re-check the enemies' faceYaw too — they go
     // through the same path). The bsuit's only "attack" animation is a
-    // melee swing â€” a ranged shooter shouldn't use it; keep the walk/idle
+    // melee swing — a ranged shooter shouldn't use it; keep the walk/idle
     // pose and fake recoil + muzzle flash on the weapon.
     //
     // SH-047 — turn the BODY to face its movement direction (see playerFaceOffset).
@@ -2339,7 +2346,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
               PLAYER_SCALE, WHITE);
 
-    // ANIMDBG readback â€” must run AFTER animUpdate, or the joint query reads
+    // ANIMDBG readback — must run AFTER animUpdate, or the joint query reads
     // last frame's pose and the amplitude is a frame late.
     if (ANIMDBG) {
       if (AD[2] !== 0 && dtReal > 0) {
@@ -2378,7 +2385,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       }
     }
 
-    // SH-027 â€” the real weapon model + muzzle flash card, at the transform
+    // SH-027 — the real weapon model + muzzle flash card, at the transform
     // computed once in updateWeaponTransform(). Lives in combat.ts; called
     // here so the draw order is exactly what it was.
     drawWeapon();
@@ -2387,7 +2394,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // attack vs walk anim), then drawModel renders with the pose from the
   // joint matrices set by the update. Both calls use the same position so
   // non-skinned fallbacks still sit in the right place.
-  const ppAim = playerPosition();
+  const ppAim = ppFrame;
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enAlive[i] === 0) continue;
     const k = enKind[i];
@@ -2395,13 +2402,13 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const dzA = ppAim.z - enZ[i];
     const distA = Math.hypot(dxA, dzA);
     // Round-9: render the AI's turn-rate-limited heading rather than
-    // hard-facing the player â€” circling mantises and charging dragoons face
+    // hard-facing the player — circling mantises and charging dragoons face
     // where they're actually going. Windup counts as attacking so the dragoon's
     // pounce telegraph reads on the model.
     const attacking = distA <= KIND_MELEE[k] || enAIState[i] === AI_WINDUP;
     const flinching = enAIState[i] === AI_FLINCH;
 
-    // SH-030 / SH-034 â€” the base track is locomotion; the attack rides on an
+    // SH-030 / SH-034 — the base track is locomotion; the attack rides on an
     // UPPER-BODY layer over it (EN-028 masks), so an alien bites while still
     // closing instead of stopping dead to bite. Getting shot interrupts with
     // the pain clip, which is the reward for landing a hit.
@@ -2418,7 +2425,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
                    KIND_SPINE_JOINT[k], 1.0, true);
     }
 
-    // Speed-matched playback â€” the fix that kills foot-sliding. The old code
+    // Speed-matched playback — the fix that kills foot-sliding. The old code
     // played the walk clip at a fixed rate no matter how fast the thing was
     // actually moving, so a charging dragoon's feet skated.
     const spdE = Math.hypot(vxLast[i], vzLast[i]);
@@ -2427,11 +2434,11 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       : Math.max(0.4, Math.min(2.5, spdE / (authoredE > 0.01 ? authoredE : 1)));
 
     // animPlay is idempotent, so stating the clip we want every frame is the
-    // intended use â€” it only crossfades when that actually changed.
+    // intended use — it only crossfades when that actually changed.
     animPlay(enAnim[i], baseClip, flinching ? 0.06 : 0.15, rateE, !flinching);
     enAnimClip[i] = baseClip;
     // Same engine quirk as the player model: the skinned path applies rotY
-    // INVERTED, so pass Ï€/2 âˆ’ yaw or the aliens strafe sideways-on.
+    // INVERTED, so pass π/2 − yaw or the aliens strafe sideways-on.
     animUpdate(enAnim[i], dt, KIND_SCALE[k],
       enX[i], enY[i], enZ[i], Math.PI / 2 - enHeading[i]);
 
@@ -2558,7 +2565,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // SH-038 — the pause / settings menu draws LAST so it sits over the HUD.
   drawMenu(sw, sh);
 
-  // Diagnostic HUD â€” helps verify input is reaching the game. The desktop
+  // Diagnostic HUD — helps verify input is reaching the game. The desktop
   // version is a full-width bar along the bottom, which on a phone lands
   // directly under the thumbs; show just the frame rate up in the corner
   // instead, which is what's actually worth watching on device.
@@ -2566,32 +2573,33 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     drawText('FPS ' + Math.floor(getFPS()), 14, 12, 20,
              { r: 200, g: 210, b: 230, a: 200 });
   }
-  const pp = playerPosition();
-  const diag1 = 'FPS ' + Math.floor(getFPS())
-    + '  world: ' + worldStatus
-    + '  WASD:' + input.moveX.toFixed(1) + ',' + input.moveZ.toFixed(1)
-    + '  jump:' + (input.jump ? '1' : '0')
-    + '  fire:' + (input.fireDown ? '1' : '0')
-    + '  mouse:' + (cursorLocked ? 'locked (Tab to free)' : 'free (Tab to lock)');
-  const diag2 = 'pos ' + pp.x.toFixed(1) + ',' + pp.y.toFixed(1) + ',' + pp.z.toFixed(1)
-    + '  yaw ' + CAM[0].toFixed(2) + '  pitch ' + CAM[1].toFixed(2)
-    + '  cam ' + CAM[2].toFixed(1) + ',' + CAM[3].toFixed(1) + ',' + CAM[4].toFixed(1)
-    + '  shots ' + SCORE.shotsHit() + '/' + SCORE.shotsFired();
-
+  // Diag-bar strings are built inside the gate — MOBILE was paying the
+  // per-frame concatenation for two lines it never drew.
   if (!MOBILE) {
+    const pp = ppFrame;
+    const diag1 = 'FPS ' + Math.floor(getFPS())
+      + '  world: ' + worldStatus
+      + '  WASD:' + input.moveX.toFixed(1) + ',' + input.moveZ.toFixed(1)
+      + '  jump:' + (input.jump ? '1' : '0')
+      + '  fire:' + (input.fireDown ? '1' : '0')
+      + '  mouse:' + (cursorLocked ? 'locked (Tab to free)' : 'free (Tab to lock)');
+    const diag2 = 'pos ' + pp.x.toFixed(1) + ',' + pp.y.toFixed(1) + ',' + pp.z.toFixed(1)
+      + '  yaw ' + CAM[0].toFixed(2) + '  pitch ' + CAM[1].toFixed(2)
+      + '  cam ' + CAM[2].toFixed(1) + ',' + CAM[3].toFixed(1) + ',' + CAM[4].toFixed(1)
+      + '  shots ' + SCORE.shotsHit() + '/' + SCORE.shotsFired();
     drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
     drawText(diag1, 10, sh - 40, 13, { r: 200, g: 210, b: 230, a: 220 });
     drawText(diag2, 10, sh - 20, 13, { r: 180, g: 200, b: 220, a: 220 });
   }
 
-  // Phase 8 â€” profiler overlay (F3). Lists every engine pass with
-  // CPU and GPU (Âµs) averaged over the profiler's 120-frame rolling
+  // Phase 8 — profiler overlay (F3). Lists every engine pass with
+  // CPU and GPU (µs) averaged over the profiler's 120-frame rolling
   // window, sorted by CPU time descending.
   if (perfOverlayOn) {
     const rows = getProfilerOverlay();
     const rowH = 16;
     const ox = sw - 360;
-    // Phase 8 â€” frame-time histogram on top of the pass list so it
+    // Phase 8 — frame-time histogram on top of the pass list so it
     // stays visible regardless of how many passes are running. Each
     // bar is one frame; height = total CPU+GPU time scaled to a
     // 16.7 ms (60 fps) reference. Bars over full height = dropped
@@ -2621,7 +2629,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const oy = histY + histH + 36;
     drawRect(ox - 8, oy - 8, 360, rowH * (rows.length + 2) + 12,
              { r: 0, g: 0, b: 0, a: 180 });
-    drawText('pass                    cpu Âµs    gpu Âµs',
+    drawText('pass                    cpu µs    gpu µs',
              ox, oy, 13, { r: 220, g: 220, b: 255, a: 255 });
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
@@ -2635,7 +2643,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
 
   if (MOBILE) endMode2D();
 
-  // The touch controls are drawn *outside* the scaled camera, in raw pixels â€”
+  // The touch controls are drawn *outside* the scaled camera, in raw pixels —
   // they have to land on exactly the coordinates input.ts hit-tests, and it
   // reads touches in the pixel space the platform delivers them in.
   drawTouchControls();
