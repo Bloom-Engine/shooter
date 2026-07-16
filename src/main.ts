@@ -10,6 +10,7 @@ import {
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
   loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
+  stageModels, commitModel,
   setModelFoliageWind, setFoliageShadowMotion,
   createMesh, createMeshExplicit, genMeshCube,
   drawMeshWithMaterial,
@@ -864,7 +865,22 @@ createPlayer(physics, spawnPos);
 // position, facing the camera's horizontal yaw so the player always looks
 // "away from the camera" (classic 3rd-person over-the-shoulder feel).
 bootStage(BOOT_PLAYER);
-const mdlPlayer  = loadModel('assets/models/player_bsuit.glb');
+// EN-055 boot rework — decode every character GLB in parallel worker threads
+// (stageModels = parallelMap over bloom_stage_model), then commit each on the
+// main thread where its stage needs it. Sub-timing on 2026-07-16 put 4.9 s of
+// the 8.7 s boot in SERIAL loadModel texture decode; the per-slot animation
+// parses SH-049 blamed were 43 ms. The staged commit path needed two engine
+// fixes first (aux-texture remap + normal-map registration kind) — see the
+// EN-055 engine PR; without them this swap would have silently stripped the
+// SH-046 character maps.
+const CHARACTER_GLBS = new Array<string>(1 + KIND_COUNT);
+CHARACTER_GLBS[0] = 'assets/models/player_bsuit.glb';
+for (let k = 0; k < KIND_COUNT; k++) CHARACTER_GLBS[1 + k] = ALIEN_GLB[k];
+const stagedCharacters = stageModels(CHARACTER_GLBS);
+const stagedAliens = new Array<number>(KIND_COUNT);
+for (let k = 0; k < KIND_COUNT; k++) stagedAliens[k] = stagedCharacters[1 + k];
+
+const mdlPlayer  = commitModel(stagedCharacters[0]);
 const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
 // human_bsuit animation indices (IQE declaration order):
 //   0 idle, 7 attack, 8 run, 12 walk.
@@ -976,7 +992,7 @@ initNav();
 
 // ---- Enemies (SH-025: kinds, stats, pool state → src/enemies.ts) ----------
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };
-initDirector(physics);
+initDirector(physics, stagedAliens);
 
 // ---- Combat (SH-025c: weapon/fire/projectiles/pickups → src/combat.ts) ----
 // Phase 7 / Round-3 â€” seconds until the next wading splat may fire.

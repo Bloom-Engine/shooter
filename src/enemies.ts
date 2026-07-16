@@ -13,7 +13,7 @@
 // Perry rules carry over verbatim: flat `new Array<number>(N)` + index
 // assignment, never `.push()` (its `.length` lies), and no per-frame string work.
 
-import { vec3, loadModel, loadModelAnimation, Model } from 'bloom';
+import { vec3, loadModelAnimation, instantiateAnimation, commitModel, Model } from 'bloom';
 import {
   boxShape, createBody, MotionType, Layer, BodyHandle,
 } from 'bloom/physics';
@@ -47,9 +47,10 @@ export const mdlAliens: Model[] = new Array<Model>(KIND_COUNT);
 // handle would advance the same clock twice a frame (double-speed animation)
 // and share each other's flinches.
 //
-// So: one handle per enemy SLOT. The GLB is parsed once more per slot at
-// startup, which is a few MB and a few ms, in exchange for every enemy having
-// its own independent animation state.
+// So: one handle per enemy SLOT — but since EN-055 a slot handle is an
+// INSTANCE over the kind's already-parsed clip set (instantiateAnimation),
+// not another parse of the same GLB. Independence guarantee unchanged;
+// the ~5 s of duplicate GLB parsing at boot is gone.
 export const ALIEN_GLB = [
   'assets/models/enemy_dretch.glb',
   'assets/models/enemy_mantis.glb',
@@ -233,9 +234,12 @@ export const enAnim = new Array<number>(MAX_ENEMIES);
 // tables above because it is the one part that needs the physics world, which
 // main.ts owns — so it is a function taking `physics` rather than module-scope
 // work that would force an import cycle.
-export function initEnemyPool(physics: number): void {
+/// `stagedAliens` are handles from main's boot-time stageModels() batch —
+/// the GLBs are already decoded on worker threads; committing here is just
+/// the GPU upload + registry insert.
+export function initEnemyPool(physics: number, stagedAliens: number[]): void {
   for (let k = 0; k < KIND_COUNT; k++) {
-    mdlAliens[k]  = loadModel(ALIEN_GLB[k]);
+    mdlAliens[k]  = commitModel(stagedAliens[k]);
     animAliens[k] = loadModelAnimation(ALIEN_GLB[k]);
   }
   // Spine joint per kind, once. findJoint parses a STRING — fine at load time,
@@ -247,7 +251,11 @@ export function initEnemyPool(physics: number): void {
     const shape = boxShape(vec3(KIND_HX[k], KIND_HY[k], KIND_HZ[k]));
     for (let j = 0; j < BODIES_PER_KIND; j++) {
       const i = k * BODIES_PER_KIND + j;
-      enAnim[i] = loadModelAnimation(ALIEN_GLB[k]);
+      // EN-055 — an INSTANCE over the per-kind clip set, not another parse of
+      // the same GLB. Same guarantee as before (own mixer, own joint state —
+      // two dretches never share a clock), but "the aliens" boot stage drops
+      // from ~5.1 s to the cost of allocating joint arrays.
+      enAnim[i] = instantiateAnimation(animAliens[k]);
       enX[i] = 0; enY[i] = -100; enZ[i] = 0;
       enHP[i] = 0; enAlive[i] = 0; enAttackCD[i] = 0; enFlashT[i] = 0;
       enPhase[i] = Math.random() * Math.PI * 2;   // stagger the bob phases
@@ -284,4 +292,11 @@ export function initEnemyPool(physics: number): void {
       });
     }
   }
+  // EN-055 verification on the boot log (same rationale as the [music]
+  // probe): a failed instance is a handle of 0, and its symptom at runtime —
+  // enemies frozen in rest pose — is exactly the kind of thing a batch run
+  // cannot see. Handles are allocator-ordered, so slot0 > kind-set proves the
+  // instances are NEW handles, not aliases.
+  console.log('[anim] kind0 clipset=' + animAliens[0]
+            + ' slot0=' + enAnim[0] + ' slot1=' + enAnim[1]);
 }

@@ -1409,6 +1409,18 @@ and it read as a hang.
 per enemy SLOT, not per kind. That is the one number to attack if boot time is
 ever worth fixing.
 
+> **Corrected 2026-07-16, when it WAS attacked (EN-055):** the stage number was
+> right, the attribution was wrong. Sub-timed: the per-slot ModelAnimation
+> parses were **43 ms** — `load_gltf_animation` never decodes images. The 4.9 s
+> was seven SERIAL `loadModel` calls doing PNG decode on the main thread. Fixed
+> by decoding all character GLBs in parallel worker threads (`stageModels`,
+> after engine PR #107 repaired the staged commit path) + EN-055 instances for
+> the per-slot handles. Boot measured **8,702 → 4,372 ms**; `the aliens`
+> 5,098 → 214 ms. The remaining boot is `the marine` (~1.8 s — it hosts the
+> whole parallel batch, bounded by the 22 MB player GLB) and ~1.4 s of world/
+> terrain/grass stages; overlapping the stage batch with those stages is the
+> next lever if boot is ever worth attacking again.
+
 **Also fixed here:** an unconditional `if (isKeyPressed(Key.ESCAPE)) break;` at
 the bottom of the frame loop — a dev-quit binding that predated the pause menu.
 It fired on every ESC regardless of state, so Escaping out of the settings screen
