@@ -2,8 +2,13 @@
 //
 //   bun tools/music-master.ts
 //
-// Reads assets/music/src/*.wav (the raw Suno renders) and writes the game's
-// assets/music/*.wav. Re-runnable: the sources are never modified.
+// Reads assets/music/src/*.wav (the raw Suno renders) and writes loop-cut
+// WAVs into assets/music/. Re-runnable: the sources are never modified.
+//
+// The game loads OGG — run `bun tools/encode-music.ts` afterwards; it encodes
+// each WAV this tool writes and removes the intermediate. NOTE: assets/music/
+// src is untracked (94 MB of masters do not belong in git) — archive the Suno
+// renders somewhere safe; losing them means re-generating the music.
 //
 // Two jobs.
 //

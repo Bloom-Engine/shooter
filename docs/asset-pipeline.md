@@ -11,7 +11,6 @@ The converters produce glTF 2.0 `.glb` files that Bloom loads via
 | Script                         | Inputs                              | Outputs                          |
 |--------------------------------|-------------------------------------|----------------------------------|
 | `convert-aliens-anim.ts`       | `level0.iqe … level4.iqe` + PNGs    | `enemy_dretch.glb` … `enemy_tyrant.glb` (skinned + animated) |
-| `convert-arena.ts`             | 3 tex-tech `.png` (floor/wall/ceil) | `arena.glb` (6 textured quads, UV-tiled) |
 | `convert-aliens.ts`            | same as anim version                | static T-pose GLBs (kept as reference) |
 | `validate-glb.ts <path>`       | GLB                                  | glTF-validator issue report      |
 | `inspect-glb.ts <path>`        | GLB                                  | human-readable node/mesh dump    |
@@ -87,8 +86,7 @@ yaw naturally stacks on top.
   input accessor.
 - One material + texture + PNG image per `material` reference. Images
   are resized to 512×512 via macOS `sips` and embedded as PNG buffer
-  views. Sampler uses `REPEAT` wrap so `convert-arena.ts` can tile
-  UVs.
+  views. Sampler uses `REPEAT` wrap so converters can tile UVs.
 - JOINTS_0 is `UNSIGNED_SHORT VEC4`, WEIGHTS_0 is `FLOAT VEC4`.
   Weights truncated to top-4 by magnitude and renormalised so they
   sum to 1.0. Bloom reads `u16` joints and `f32` weights

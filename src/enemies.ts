@@ -22,11 +22,11 @@ import { findJoint, createRagdoll } from 'bloom/models';
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
 // with the Unvanquished alien classes:
-//   0 = dretch   â€” small, fast, low HP, moderate damage
-//   1 = mantis   â€” quick, medium HP
-//   2 = marauder â€” medium all-round
-//   3 = dragoon  â€” heavier, slower, hits hard
-//   4 = tyrant   â€” boss tier; rare, big, tanky
+//   0 = dretch   — small, fast, low HP, moderate damage
+//   1 = mantis   — quick, medium HP
+//   2 = marauder — medium all-round
+//   3 = dragoon  — heavier, slower, hits hard
+//   4 = tyrant   — boss tier; rare, big, tanky
 // SH-042 — 7 kinds. The two new ones are Unvanquished's UPGRADE classes: the
 // same rigs wearing `body_adv.skin`, which is how that game ships them. Both are
 // RANGED, which is the point: every previous kind could be handled by backing
@@ -43,7 +43,7 @@ export const mdlAliens: Model[] = new Array<Model>(KIND_COUNT);
 // One animation handle PER KIND is enough for a single-clip sampler, because
 // the caller passes the time explicitly on every call. It is NOT enough for the
 // mixer (EN-028): the mixer owns the clock, the crossfade and the layer
-// weights, and that state lives on the handle â€” so two dretches sharing one
+// weights, and that state lives on the handle — so two dretches sharing one
 // handle would advance the same clock twice a frame (double-speed animation)
 // and share each other's flinches.
 //
@@ -81,10 +81,10 @@ for (let k = 0; k < KIND_COUNT; k++) {
 // Per-kind handle, kept only for the load-time joint lookups below.
 // Also deferred to initEnemyPool() — same reason.
 export const animAliens = new Array<number>(KIND_COUNT);
-// Animation indices â€” IQE declaration order. Dretch (and most others):
+// Animation indices — IQE declaration order. Dretch (and most others):
 // 0 stand, 1 attack, 4 die, 14 run, 20 walk. We map gameplay -> anim idx.
 // Per-kind animation indices, in kind order [dretch, mantis, marauder,
-// dragoon, tyrant]. The GLBs do NOT share one layout â€” the old flat
+// dragoon, tyrant]. The GLBs do NOT share one layout — the old flat
 // [14,...]/[1,...] tables played run_right on the dragoon, pain2 on the
 // tyrant, and stand1 as the mantis "attack". Verified against each GLB's
 // animation list (tools/inspect-glb.ts).
@@ -94,7 +94,7 @@ export const animAliens = new Array<number>(KIND_COUNT);
 export const ANIM_WALK_IDX   = [14, 18, 14, 12, 15, 14, 12];   // 'run'
 export const ANIM_ATTACK_IDX = [ 1,  4,  1,  6,  1,  1,  6];   // 'attack'
 export const ANIM_DIE_IDX    = [ 4,  7,  4,  7,  5,  4,  7];   // 'die'
-// SH-030 â€” pain clips, for the flinch state. The IQE sources carry them and the
+// SH-030 — pain clips, for the flinch state. The IQE sources carry them and the
 // converter extracts every clip; indices verified per GLB with
 // tools/inspect-glb.ts. Falls back to the attack clip's neighbour if a kind
 // turns out not to have one, which is harmless (a short twitch).
@@ -109,7 +109,7 @@ export const KIND_IDLE_IDX    = [ 0,  0,  0,  0,  0,  0,  0];
 // freeze on the final collapsed pose instead of re-looping the fall.
 export const ANIM_DIE_DUR    = [1.55, 1.567, 0.883, 1.8, 2.567, 0.883, 1.8];
 // Procedural motion parameters (cheap substitute for skeletal animation).
-// Each enemy has a phase accumulator â€” sinusoids on top give a bob + side-
+// Each enemy has a phase accumulator — sinusoids on top give a bob + side-
 // sway while walking, and a forward-lunge while attacking.
 export const WALK_BOB_Y = 0.12;       // metres
 export const WALK_BOB_RATE = 9.0;     // rad/s
@@ -117,11 +117,11 @@ export const WALK_TILT = 0.06;        // unused; kept for future side-sway
 export const ATTACK_LUNGE_AMP = 0.25; // m forward during attack
 // Per-kind tuning. Collider half-extents are generous (taller than the visual
 // model) so horizontal aim at any range connects.
-// Round-6 rescale â€” the GLBs have wildly different native sizes (engine
+// Round-6 rescale — the GLBs have wildly different native sizes (engine
 // getModelBounds rest-pose heights: dretch 0.74, mantis 2.54, marauder
 // 4.63, dragoon 14.99, tyrant 5.27 m), and the old uniform-ish scales
 // made the later kinds monstrous (dragoon 36 m!). Scales now target
-// world heights â‰ˆ 0.65 / 1.4 / 1.8 / 2.1 / 3.0 m. Colliders unchanged
+// world heights ≈ 0.65 / 1.4 / 1.8 / 2.1 / 3.0 m. Colliders unchanged
 // (they were deliberately generous).
 //                 dretch mantis maraud dragoon tyrant  ADV.MAR  ADV.DRAGOON
 export const KIND_SCALE = [0.88, 0.55, 0.39, 0.14, 0.57,  0.41,    0.15];
@@ -168,7 +168,7 @@ export const RANGED_SPREAD = [0, 0, 0, 0, 0, 0.05, 0.02];   // radians
 export const RANGED_WINDUP = [0, 0, 0, 0, 0, 0.35, 0.6];
 
 
-// Enemy pool â€” each slot is permanently tied to one kind because Jolt body
+// Enemy pool — each slot is permanently tied to one kind because Jolt body
 // shapes can't be swapped in-place. BODIES_PER_KIND dormant bodies per kind
 // give us a fixed pool of MAX_ENEMIES = KIND_COUNT * BODIES_PER_KIND.
 export const BODIES_PER_KIND = 2;
@@ -188,20 +188,20 @@ export const enPhase = new Array<number>(MAX_ENEMIES);        // walk-cycle phas
 export const enDying    = new Array<number>(MAX_ENEMIES);     // 1 = death anim in progress
 export const enDeathT   = new Array<number>(MAX_ENEMIES);     // seconds since the kill
 export const enDeathYaw = new Array<number>(MAX_ENEMIES);     // facing frozen at death
-// Round-9 AI overhaul â€” per-enemy steering state (flat arrays, Perry
+// Round-9 AI overhaul — per-enemy steering state (flat arrays, Perry
 // convention). Each kind runs its own little state machine in the AI
 // block; these carry it between frames.
 export const AI_APPROACH = 0;   // close on the player (kind-specific flavour)
 export const AI_ORBIT    = 1;   // mantis: circle-strafe at ring distance
 export const AI_WINDUP   = 2;   // dragoon: rooted pounce telegraph
-export const AI_CHARGE   = 3;   // mantis dart / dragoon pounce â€” locked direction
+export const AI_CHARGE   = 3;   // mantis dart / dragoon pounce — locked direction
 export const AI_RECOVER  = 4;   // post-attack back-off / cooldown creep
-// SH-030 â€” being shot now interrupts the enemy. Light kinds flinch outright;
+// SH-030 — being shot now interrupts the enemy. Light kinds flinch outright;
 // heavies only stagger once enough damage lands inside a window, so a tyrant
 // stays menacing instead of being stun-locked by a rifle.
 export const AI_FLINCH   = 5;
 export const FLINCH_TIME    = 0.25;
-export const FLINCH_LOCKOUT = 0.60;   // min gap between flinches â€” no stun-lock
+export const FLINCH_LOCKOUT = 0.60;   // min gap between flinches — no stun-lock
 export const STAGGER_WINDOW = 1.0;
 export const STAGGER_FRAC   = 0.15;   // % of max HP inside the window to stagger
 export const STAGGER_TIME   = 0.60;
@@ -209,16 +209,16 @@ export const STAGGER_TIME   = 0.60;
 export const KIND_LIGHT = [1, 1, 1, 0, 0, 1, 1];
 export const enAIState  = new Array<number>(MAX_ENEMIES);
 export const enStateT   = new Array<number>(MAX_ENEMIES);   // seconds left in state
-export const enOrbitDir = new Array<number>(MAX_ENEMIES);   // Â±1 â€” circle/flank side
+export const enOrbitDir = new Array<number>(MAX_ENEMIES);   // ±1 — circle/flank side
 export const enChargeX  = new Array<number>(MAX_ENEMIES);   // locked charge direction
 export const enChargeZ  = new Array<number>(MAX_ENEMIES);
 export const enHeading  = new Array<number>(MAX_ENEMIES);   // smoothed facing yaw
 export const enSpeedMul = new Array<number>(MAX_ENEMIES);   // tyrant momentum
-// SH-030 â€” flinch / stagger bookkeeping.
+// SH-030 — flinch / stagger bookkeeping.
 export const enFlinchLock = new Array<number>(MAX_ENEMIES);  // s until it can flinch again
 export const enDmgWindow  = new Array<number>(MAX_ENEMIES);  // damage inside STAGGER_WINDOW
 export const enDmgTimer   = new Array<number>(MAX_ENEMIES);
-// SH-034 â€” the clip currently requested on the base track, so animPlay is only
+// SH-034 — the clip currently requested on the base track, so animPlay is only
 // called on a real change (it is idempotent, but this keeps the intent clear).
 export const enAnimClip   = new Array<number>(MAX_ENEMIES);
 // Upper-body attack layer weight, blended in/out rather than snapped.
@@ -240,11 +240,11 @@ export const enDeathDY    = new Array<number>(MAX_ENEMIES);
 export const enDeathDZ    = new Array<number>(MAX_ENEMIES);
 export const enDeathImp   = new Array<number>(MAX_ENEMIES);
 // Last frame's steering velocity, so the draw pass can match animation playback
-// rate to actual ground speed (SH-034 â€” the foot-slide fix).
+// rate to actual ground speed (SH-034 — the foot-slide fix).
 export const vxLast = new Array<number>(MAX_ENEMIES);
 export const vzLast = new Array<number>(MAX_ENEMIES);
 export const enBody: BodyHandle[] = new Array<BodyHandle>(MAX_ENEMIES);
-// EN-028 â€” one animation handle per SLOT, so every enemy owns its own mixer
+// EN-028 — one animation handle per SLOT, so every enemy owns its own mixer
 // clock, crossfade and attack-layer weight (see the note at ALIEN_GLB).
 export const enAnim = new Array<number>(MAX_ENEMIES);
 
@@ -271,7 +271,7 @@ export function initEnemyPool(physics: number): void {
       enHP[i] = 0; enAlive[i] = 0; enAttackCD[i] = 0; enFlashT[i] = 0;
       enPhase[i] = Math.random() * Math.PI * 2;   // stagger the bob phases
       enKind[i] = k;
-      // Explicit init â€” Perry arrays don't default-fill, and findDormantSlot
+      // Explicit init — Perry arrays don't default-fill, and findDormantSlot
       // compares enDying with === 0.
       enDying[i] = 0;
       enDeathT[i] = 0;
