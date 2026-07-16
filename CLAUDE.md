@@ -128,7 +128,9 @@ the view moves, and the phone has no headroom to absorb the stall.
   with `INTERPROCEDURAL_OPTIMIZATION=OFF` in the environment. After an
   engine-only rebuild, **touch `src/main.ts`** or perry skips the
   relink; after any engine `package.json` manifest change, also delete
-  `.perry-cache/`.
+  `node_modules/.cache/perry/` — that is where Perry's object cache
+  actually lives (`.perry-cache/` is a stale name; deleting it does
+  nothing, which faked a stale-build conclusion on 2026-07-16).
 - Crashes self-report: the engine prints
   `bloom: FATAL unhandled exception … (main.exe+0x…)` to stderr and
   writes a minidump to `tools/.testout/dumps/` (WER LocalDumps is armed

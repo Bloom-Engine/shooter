@@ -73,9 +73,9 @@ const DEPS: any = { o: null };
 /// return values are not trustworthy anyway (perry-quirks #2).
 const NAVOUT = [0, 0, 0];
 
-export function initDirector(phys: any): void {
+export function initDirector(phys: any, stagedAliens: number[]): void {
   bootStage(BOOT_ALIENS);
-  initEnemyPool(phys);
+  initEnemyPool(phys, stagedAliens);
 }
 
 /// Called once, just before the main loop: some of the handles (the
