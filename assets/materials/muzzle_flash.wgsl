@@ -12,7 +12,7 @@
 #include "material_abi.wgsl"
 
 struct VsOut {
-  @builtin(position) clip_pos: vec4<f32>,
+  @invariant @builtin(position) clip_pos: vec4<f32>,
   @location(0) local_pos: vec3<f32>,
 };
 

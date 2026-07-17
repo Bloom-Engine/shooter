@@ -45,7 +45,7 @@ struct InstancedVertexInput {
 };
 
 struct VsOut {
-  @builtin(position) clip_pos: vec4<f32>,
+  @invariant @builtin(position) clip_pos: vec4<f32>,
   @location(0)       uv:       vec2<f32>,
   @location(1)       tint:     vec4<f32>,
   @location(2)       view_z:   f32,

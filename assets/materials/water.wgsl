@@ -24,7 +24,7 @@ struct WaterParams {
 @group(2) @binding(11) var<uniform> water_params: WaterParams;
 
 struct VsOut {
-  @builtin(position) clip_pos: vec4<f32>,
+  @invariant @builtin(position) clip_pos: vec4<f32>,
   @location(0) world_pos:    vec3<f32>,
   @location(1) world_normal: vec3<f32>,
 };

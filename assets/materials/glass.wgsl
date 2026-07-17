@@ -9,7 +9,7 @@
 #include "common/pbr.wgsl"
 
 struct GlassVsOut {
-  @builtin(position) clip_pos: vec4<f32>,
+  @invariant @builtin(position) clip_pos: vec4<f32>,
   @location(0) world_pos:    vec3<f32>,
   @location(1) world_normal: vec3<f32>,
   @location(2) screen_uv:    vec2<f32>,
