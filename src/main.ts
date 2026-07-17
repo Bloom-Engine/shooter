@@ -1,5 +1,6 @@
 import {
-  initWindow, windowShouldClose, beginDrawing, endDrawing, clearBackground,
+  initWindow, windowShouldClose, closeWindow, runGame,
+  beginDrawing, endDrawing, clearBackground,
   setTargetFPS, getDeltaTime, getFPS, getTime,
   beginMode3D, endMode3D,
   drawCube, drawText, drawRect,
@@ -10,7 +11,7 @@ import {
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
   loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
-  stageModels, commitModel,
+  stageModels, stageModelsSync, commitModel,
   setModelFoliageWind, setFoliageShadowMotion,
   drawMeshWithMaterial, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume, playSound3D, setListenerPosition,
@@ -49,7 +50,7 @@ import {
   TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
   createRagdoll, activateRagdoll, pushRagdoll, updateRagdoll, releaseRagdoll,
 } from 'bloom/models';
-import { initInput, readInput, drawTouchControls, MOBILE } from './input';
+import { initInput, readInput, drawTouchControls, MOBILE, WEB } from './input';
 import {
   createPlayer, updatePlayerController, playerPosition,
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting, isCrouching,
@@ -131,6 +132,7 @@ SET.loadSettings();
 // parsing of FFI strings is not (perry-quirks #5). `--pt off|prog|rt`
 // further below starts in that path-tracing mode without F9 taps.
 function cliArg(name: string): string {
+  if (WEB) return ''; // a browser page has no argv
   const n = process.argv.length;
   for (let i = 0; i < n - 1; i++) {
     if (process.argv[i] === name) return process.argv[i + 1];
@@ -455,6 +457,23 @@ if (MOBILE) {
   setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
 }
 
+// SH-054 — web (WebGPU) profile. The renderer is the same one the desktop
+// runs, but two things argue for starting near the mobile profile: WebGPU
+// has no timestamp queries (so no profiler to steer players with), and the
+// SDF-clipmap GI re-bake stalls are much worse without native-thread
+// headroom. SSAO/shadows/bloom/TAA stay on; GI and SSR stay off (SSR ships
+// off everywhere since the indoor-blizzard bisect anyway).
+if (WEB) {
+  setSsgiEnabled(false);
+  setSsrEnabled(false);
+  setSsaoEnabled(true);
+  setShadowsEnabled(true);
+  setBloomEnabled(true);
+  setTaaEnabled(true);
+  setRenderScale(0.65);
+  setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
+}
+
 // The player's graphics choices win over every default above.
 //
 // This is the last word on purpose: everything before it is what WE think the
@@ -465,8 +484,9 @@ if (MOBILE) {
 // player wants is not something a game gets to decide for them.
 //
 // (MOBILE keeps its own profile: a phone has no settings screen and no headroom
-// to give away.)
-if (!MOBILE) applyGraphicsSettings();
+// to give away. WEB keeps its fixed profile for the same reason for now —
+// revisit once the WebGPU build has perf numbers behind it.)
+if (!MOBILE && !WEB) applyGraphicsSettings();
 // --dbg-off (see the CLI block above) applies after the persisted settings
 // so it always wins for the launch it was asked for.
 if (cliDbgOff === 'shadows') setShadowsEnabled(false);
@@ -910,7 +930,12 @@ bootStage(BOOT_PLAYER);
 const CHARACTER_GLBS = new Array<string>(1 + KIND_COUNT);
 CHARACTER_GLBS[0] = 'assets/models/player_bsuit.glb';
 for (let k = 0; k < KIND_COUNT; k++) CHARACTER_GLBS[1 + k] = ALIEN_GLB[k];
-const stagedCharacters = stageModels(CHARACTER_GLBS);
+// Web: Perry's parallelMap workers each get their own WASM instance, but the
+// engine lives on the main thread — a worker-side stageModel reaches nothing.
+// Same tickets, decoded sequentially instead.
+const stagedCharacters = WEB
+  ? stageModelsSync(CHARACTER_GLBS)
+  : stageModels(CHARACTER_GLBS);
 const stagedAliens = new Array<number>(KIND_COUNT);
 for (let k = 0; k < KIND_COUNT; k++) stagedAliens[k] = stagedCharacters[1 + k];
 
@@ -1428,8 +1453,18 @@ setCombatDeps({
   musicMenu, musicCalm, musicCombat,
 });
 
-while (!windowShouldClose() && !aitestDone && !animDbgDone) {
-  beginDrawing();
+// SH-054 — the frame body, extracted from the old blocking
+// `while (!windowShouldClose())` loop so runGame() can drive it. On native
+// runGame() IS that blocking loop (beginDrawing/update/endDrawing per
+// iteration — identical to what stood here); on web it hands this function
+// to the JS glue, which drives it from requestAnimationFrame, because a
+// browser cannot run a blocking loop. Exits that used to `break` now call
+// closeWindow() and return. Top-level function, not nested — Perry
+// miscompiles nested functions (SH-025).
+function gameFrame(_hostDt: number): void {
+  // The self-test harnesses end the run by closing the window (native: the
+  // runGame loop sees windowShouldClose and exits; web: the glue stops rAF).
+  if (aitestDone || animDbgDone) { closeWindow(); return; }
   if (PERFTEST) {
     const nowTop = getTime();
     perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
@@ -1639,7 +1674,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
       resetRun();
       if (cursorLocked) disableCursor();
     } else if (act === 3) {               // ACT_QUIT
-      break;
+      closeWindow();
+      return;
     } else if (act === 5) {               // ACT_PLAY — start the run
       startRun();
       cursorLocked = true;
@@ -2095,7 +2131,8 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
         + ' shots=' + SCORE.shotsFired()
         + ' hits=' + SCORE.shotsHit()
         + ' fps=' + getFPS().toFixed(1));
-      break;
+      closeWindow();
+      return;
     }
   }
   if (SELFTEST) {
@@ -2109,7 +2146,7 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     }
     if (testFrame === 30)  { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t0_5s.png'); }
     if (testFrame === 180) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t3_0s.png'); }
-    if (testFrame === 185) { break; }
+    if (testFrame === 185) { closeWindow(); return; }
   }
 
   // Fire + player projectile update (SH-028/033/042, M7) — combat.ts. The
@@ -2762,7 +2799,9 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
   // ESC now means "pause" in a run and "back" in a menu (menu.ts), and QUIT is a
   // row in both menus — which is where quitting a real game belongs.)
   if (PERFTEST) perfTD = getTime();
-  endDrawing();
+  // endDrawing() is issued by runGame() after this callback returns, so the
+  // E column (present/swap) now lands in next frame's "begin" gap instead of
+  // being measured here. The A–D splits are unchanged.
   if (PERFTEST) {
     perfPrevEnd = getTime();
     perfMsA = (perfTA - perfTTop) * 1000;
@@ -2771,8 +2810,10 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     perfMsD = (perfTD - perfTC) * 1000;
     perfMsE = (perfPrevEnd - perfTD) * 1000;
   }
-  if (PERFTEST && perfDone) break;
+  if (PERFTEST && perfDone) { closeWindow(); return; }
 }
+
+runGame(gameFrame);
 
 
 

@@ -64,7 +64,7 @@ struct TerrainParams {
 @group(2) @binding(11) var<uniform> tp: TerrainParams;
 
 struct VsOut {
-  @builtin(position) clip_pos:     vec4<f32>,
+  @invariant @builtin(position) clip_pos:     vec4<f32>,
   @location(0)       world_pos:    vec3<f32>,
   @location(1)       world_normal: vec3<f32>,
   @location(2)       curr_clip:    vec4<f32>,
@@ -124,10 +124,21 @@ fn tri_albedo(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32) -> vec3<f32> {
 /// Triplanar normal, whiteout-blended: sample each plane's tangent normal,
 /// swizzle it into world space, and sum. Cheaper than a full TBN per plane and
 /// visually indistinguishable on terrain.
-fn tri_normal(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32, n: vec3<f32>) -> vec3<f32> {
-  let tx = textureSample(normal_array, albedo_array_samp, p.zy * s, layer).rgb * 2.0 - 1.0;
-  let ty = textureSample(normal_array, albedo_array_samp, p.xz * s, layer).rgb * 2.0 - 1.0;
-  let tz = textureSample(normal_array, albedo_array_samp, p.xy * s, layer).rgb * 2.0 - 1.0;
+///
+/// Sampled with EXPLICIT gradients (`dpx`/`dpy` = dpdx/dpdy of `p`, taken by
+/// the caller in uniform control flow): this function is reached from the
+/// per-fragment layer-select branch, where WGSL's uniformity analysis —
+/// enforced by Tint on WebGPU, waved through by naga natively — forbids the
+/// implicit-derivative `textureSample`. The scaled gradients reproduce the
+/// exact mip math the implicit path used, so nothing changes visually.
+fn tri_normal(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32, n: vec3<f32>,
+              dpx: vec3<f32>, dpy: vec3<f32>) -> vec3<f32> {
+  let tx = textureSampleGrad(normal_array, albedo_array_samp, p.zy * s, layer,
+                             dpx.zy * s, dpy.zy * s).rgb * 2.0 - 1.0;
+  let ty = textureSampleGrad(normal_array, albedo_array_samp, p.xz * s, layer,
+                             dpx.xz * s, dpy.xz * s).rgb * 2.0 - 1.0;
+  let tz = textureSampleGrad(normal_array, albedo_array_samp, p.xy * s, layer,
+                             dpx.xy * s, dpy.xy * s).rgb * 2.0 - 1.0;
   let nx = vec3<f32>(0.0, tx.y, tx.x) + n;
   let ny = vec3<f32>(ty.x, 0.0, ty.y) + n;
   let nz = vec3<f32>(tz.x, tz.y, 0.0) + n;
@@ -226,15 +237,20 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // ---- normal -------------------------------------------------------------
   // Blend the dominant layer's normal (blending four normal maps by weight
   // washes them all out; picking by weight keeps the relief crisp).
+  // Position gradients for tri_normal's explicit-grad sampling — must be
+  // taken here, in uniform control flow, not inside the branch (see the
+  // tri_normal note).
+  let tn_dpx = dpdx(p);
+  let tn_dpy = dpdy(p);
   var nrm = n;
   if (w_rock > 0.5) {
-    nrm = tri_normal(3, p, w, s_rock, n);
+    nrm = tri_normal(3, p, w, s_rock, n, tn_dpx, tn_dpy);
   } else if (w_dirt > 0.4) {
-    nrm = tri_normal(2, p, w, s_dirt, n);
+    nrm = tri_normal(2, p, w, s_dirt, n, tn_dpx, tn_dpy);
   } else if (w_dry > 0.5) {
-    nrm = tri_normal(1, p, w, s_dry, n);
+    nrm = tri_normal(1, p, w, s_dry, n, tn_dpx, tn_dpy);
   } else {
-    nrm = tri_normal(0, p, w, s_lush, n);
+    nrm = tri_normal(0, p, w, s_lush, n, tn_dpx, tn_dpy);
   }
   nrm = normalize(mix(n, nrm, tp.scales.w));
 

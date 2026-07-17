@@ -32,6 +32,7 @@ import {
   isAnyInputPressed,
 } from 'bloom';
 import { writeFile } from 'bloom/core';
+import { WEB } from './input';
 
 // ---- Stage table ------------------------------------------------------------
 // The bar is only honest if the weights are what the stages actually COST, so
@@ -231,6 +232,20 @@ function footer(sw: number, sh: number, s: number, a: number): void {
 export function bootSplash(seconds: number): void {
   B[2] = getTime();
   B[3] = getTime();
+  // Web: this whole sequence runs synchronously inside the game module's
+  // top-level code, before the browser ever composites a frame — an animated
+  // loop here is invisible and just delays boot. One static frame instead
+  // (the JS shell owns the visible loading UI).
+  if (WEB) {
+    const sw = getScreenWidth();
+    const sh = getScreenHeight();
+    beginDrawing();
+    backdrop(sw, sh);
+    wordmark(sw, sh, sh / 720, 255);
+    footer(sw, sh, sh / 720, 255);
+    endDrawing();
+    return;
+  }
   const t0 = getTime();
   let t = 0;
   while (t < seconds) {
@@ -288,6 +303,11 @@ export function bootOutro(): void {
     timingLog = timingLog + 'TOTAL = ' + total.toFixed(0) + ' ms\n';
     writeFile(TIMING_PATH, timingLog);
   }
+  // Web: same reasoning as bootSplash — synchronous hold/fade loops are
+  // invisible in a browser (nothing composites until this returns) and only
+  // delay the first playable frame.
+  if (WEB) return;
+
   const holdT = getTime();
   while (getTime() - holdT < 0.35) {
     paintLoading(1.0, 'ready');

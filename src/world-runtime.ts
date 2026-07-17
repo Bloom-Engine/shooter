@@ -84,6 +84,7 @@ export const ARENA_INDEX = pickArena();
 /// level you can only test by adding it to a manifest first is a level you will not
 /// test often enough.
 function worldFromArgs(): string {
+  if (WEB) return ''; // a browser page has no argv; the manifest decides
   const n = process.argv.length;
   for (let i = 0; i < n - 1; i++) {
     if (process.argv[i] === '--world') return process.argv[i + 1];
@@ -103,6 +104,13 @@ export function selectArena(id: string): void {
 
 // Small local wrapper so the import list above stays honest about what it uses.
 import { writeFile as writeFileRaw } from 'bloom/core';
+import { getPlatform } from 'bloom';
+
+// Computed HERE, not imported from input.ts: this module's body runs at
+// import time, and Perry initializes module bodies in main.ts's import order
+// — input.ts's `WEB` const may not exist yet when worldFromArgs() runs
+// (module-scope cross-module reads are a runtime ReferenceError, SH-025).
+const WEB = getPlatform() === 7;
 
 // loadWorld throws on a missing file, bad JSON, or failed validation. Catch it
 // here so a broken world file reports itself and yields an empty arena, rather

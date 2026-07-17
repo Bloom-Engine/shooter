@@ -72,3 +72,8 @@ assets/textures/external/platanus/
 # artefact, not source.
 dxcompiler.dll
 dxil.dll
+
+# SH-054 web build: vendored JoltPhysics.js download cache (build-web.sh
+# re-fetches it; the CDN fallback covers the offline case)
+tools/web/
+
