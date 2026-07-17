@@ -135,6 +135,10 @@ export const KIND_HP    = [3,    4,    6,    10,   20,    8,       14];
 export const KIND_DMG   = [12,   10,   16,   22,   35,    14,      20];
 export const KIND_CD    = [0.9,  0.7,  0.9,  1.1,  1.3,   0.9,     1.1];
 export const KIND_MELEE = [2.0,  2.0,  2.3,  2.6,  3.0,   2.3,     2.6];
+// SH-052 — locomotion audio. Stride = metres of travel per audible step
+// (drives enStepPhase for EVERY kind now, not just the tyrant, whose 2.2 is
+// the pre-SH-052 value unchanged). Small things patter, big things pound.
+export const KIND_STRIDE = [0.7,  1.1,  1.3,  1.6,  2.2,   1.3,     1.6];
 export const DRETCH_HIT_FLASH = 0.18;
 // Ichor colour per kind — drives the blood decal tint (SH-033).
 export const KIND_BLOOD_R = [0.55, 0.50, 0.62, 0.70, 0.45, 0.62, 0.70];

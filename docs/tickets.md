@@ -1675,3 +1675,131 @@ but it is a camping spot until the pathfinding lands.
   3 m/10-step stairwell at (-15,-10). The shipped house v2 (`h_slab_a`,
   `h_stair_a_*`, floors at 0.20/3.90/7.60) did not come from it. Do not "fix" the
   world by re-running that tool.
+
+## SH-052 — The living soundscape: river, wind loops, creature locomotion ✅ *(shipped 2026-07-16)*
+
+**Why:** "we want 3D sounds for the wind, the river, the animals/spiders
+crawling closer." The engine could only fire-and-forget (`playSound3D`), so
+the wind was a retrigger timer, the river was silent, and every enemy but the
+tyrant approached without a sound.
+
+Built on EN-062 (live spatial voices — looping, moveable, per-voice
+volume/pitch/low-pass, real distance model, equal-power pan, air absorption,
+rear head-shadow cue, doppler; also FIXED mirrored stereo and the ~9%-sharp
+44.1k-on-48k playback):
+
+- **River** (`initRiverAmbience`/`updateRiverAmbience`): one looping emitter
+  per water volume, positioned every frame at the closest point of the
+  volume's rectangle to the player — a line source faked with a point source
+  that always stays abreast of you. Rectangles come from the world file:
+  move the river in the editor and its sound moves. refDist ≈ channel
+  half-width (the bank IS full volume).
+- **Wind**: the three forest-centroid sources are true loops now (retrigger
+  timer deleted), detuned 0.94/1.0/1.07 so the treeline decorrelates. Volume
+  still rides the live wind amplitude; distance/pan/absorption are engine-side.
+- **Creature locomotion**, two layers:
+  - *Steps*: every kind runs the tyrant's stride accumulator now
+    (`KIND_STRIDE` per kind, tyrant's 2.2 unchanged); non-tyrants fire
+    positional chitin skitters (light bank = dretch/mantis, heavy =
+    marauder/dragoon/advs), gated on actually moving.
+  - *Crawl bed*: a pool of 4 looping voices assigned to the nearest MOVING
+    enemies within 28 m (O(n²) top-k, allocation-free, slot-stable so voices
+    never teleport between owners). Pitch per kind (small = fast ticking).
+    The thing you haven't seen is audible closing in BETWEEN its steps.
+    Self-gating: no qualifying enemies → all slots silent, menus included.
+- **Assets**: `river_loop`, `skitter_light1-4`, `skitter_heavy1-4`,
+  `crawl_loop` — synthesised stand-ins in `gen-sfx.ts` (appended AFTER the
+  existing emits: one global seeded noise stream, insertion order is the
+  diff-stability contract). Old files byte-identical. ASSET-TODO A7-A9.
+
+Verified with an AITEST probe build (numeric counters, not ears): 351
+skitter steps over 50 s of live combat, crawl slots assigning/releasing as
+enemies moved and parked (a dretch standing at 1.5 m goes silent — the
+moving gate at work), wind voices 5/6/7, river voice 8, zero errors, no
+command-ring pressure. Probe reverted; shipped-config build boots clean.
+
+## SH-052b — The river is a real creek now (and it has width) ✅ *(shipped 2026-07-16, follow-up to SH-052)*
+
+**Why:** "the water sounds fake." It did — the SH-052 stand-in built its babble
+from falling sine chirps, and synthetic water is the one ambience the ear
+always catches. Water needed a recording, not a better formula.
+
+- `river_loop.wav` is now a **32 s seamless cut of a real babbling brook**
+  (Bolt "Immersive Creek — Ambisonic Recordings of Undisturbed Creeks in
+  Vermont", Sonniss GDC 2024 bundle — the same accepted license line as
+  `splash1.wav`; source extracted to gitignored `vendor/sonniss/`).
+- The cut is **scripted and reproducible**: `convert-audio.ts` grew
+  `startAt` + `loopFade` (equal-power tail-over-head cross-fade, chunk-aware
+  WAV patching — ffmpeg slips a LIST chunk before `data`). The 33.5 s window
+  at 49 s was picked by scanning every candidate window for minimum RMS +
+  brightness variance (level-constant, no birds, no handling) — score 0.144.
+  Loop verified numerically: seam first-difference 0.034 vs body max 0.31 —
+  the wrap is quieter than the material's own deltas. No clipping.
+- **Width**: one point emitter reads as a speaker in a field. Each water
+  volume now runs a detuned trio — main at the closest bank point plus two
+  flankers ±8 m up/downstream along the channel axis (0.96/1.05, clamped to
+  the rectangle). Turn your head on the bank and the water has extent.
+- `gen-sfx.ts` no longer emits a river. Removing it shifted the shared
+  seeded-noise stream, so skitter*/crawl_loop regenerated (equivalent
+  variants, committed together) — the "re-run reproduces the repo" contract
+  holds. A river emit must never be re-added there: it would clobber the
+  recording.
+
+## SH-052c — "I still hear white noise": the wind bed, run to ground ✅ *(shipped 2026-07-17)*
+
+**Diagnosis.** Two compounding causes, one a SH-052 regression:
+1. `ambient_wind.wav` was a fixed 700-6500 Hz bandpass × a volume LFO —
+   filtered white noise that only got louder and quieter. A static spectrum
+   is exactly what the ear files under "white noise", however it is dressed.
+2. SH-052 deleted the authored "gone by 40 m" window in favour of the
+   engine's physical rolloff — right call for a recording, wrong for a synth
+   bed: the inverse model's long tail spread a faint hiss carpet over the
+   WHOLE arena, including the open field that used to be silent.
+
+**Fix, both halves:**
+- The generator moves the SPECTRUM with the gust now: two decorrelated
+  registers (350-1800 bough murmur, 1800-8500 leaf sizzle) whose balance
+  rides a slow gust envelope (brightness ∝ gust^1.8), plus leaf-flutter
+  grains (9-17 Hz AM bursts) planted only where the gust is strong, plus a
+  seeded slow wander so passes never repeat. 24 s loop (was 16). Verified
+  numerically, not by ear: brightness-vs-level r = 0.95 across the loop
+  (v1 ≈ 0 by construction); seam delta 0.23 vs body max 0.53; no clipping.
+- `updateWindAmbience` re-applies the authored window on top of the engine
+  rolloff: full inside ~27 m of a source, silent past 45 m. The engine keeps
+  pan/absorption/close-range; the game shapes the far field.
+
+Sonniss part 1of9 has no usable wind-in-trees recording (checked), so the
+stand-in stays a stand-in — but an honest one. ASSET-TODO A3 updated with
+the drop-in requirements for a real recording (must keep a seamless loop —
+cut it with convert-audio's loopFade). Skitter/crawl regenerated again
+(shared seed stream; same determinism contract as SH-052b).
+
+## SH-052d — Wind left out; a real way to test the 3D audio ✅ *(shipped 2026-07-17)*
+
+Two decisions, one commit.
+
+**Wind is out.** Two rebuilds could not make a spectral-only, always-on synth
+bed stop reading as white noise (and the user heard it both times — that is
+the only ground truth that matters for audio). The system stays live and
+dormant: `sfxWind = NO_SOUND` in `initAudioMix`, so every wind path
+early-returns as it does for a missing file. One line brings it back when a
+real canopy recording lands (ASSET-TODO A3). River, footsteps, creatures,
+reverb zones are untouched.
+
+**`--audiotest orbit|flyby|river`** — a deterministic way to HEAR the
+spatialisation, because judging it during a firefight is not judging it:
+- `orbit` — a looping voice (the river loop; broadband, so it reveals BOTH
+  pan and the rear low-pass) circles the listener at 6 m, one lap ~8 s. You
+  should hear it sweep L → behind (darker) → R → front, continuously, and
+  the pan tracks the camera when you turn.
+- `flyby` — the voice flies 35 m ahead → through you → 35 m behind at
+  ~14 m/s on a loop: doppler up on approach, down past you, plus the
+  front/back timbre flip.
+- `river` — free-walk with the river as the ONLY source and a
+  distance-to-nearest-bank readout on the HUD, to correlate what you hear
+  with where the bank is.
+Waves are suppressed in every mode; orbit/flyby silence the river so the
+probe is the single source; `river` skips the probe. Top-centre HUD line
+shows the mode + live geometry. Dormant unless the flag is passed (same
+contract as the other harnesses); verified live — probe voice id 8, orbit
+angle advancing, all three modes + the normal no-flag path boot clean.

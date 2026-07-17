@@ -46,8 +46,22 @@ game-ready files are committed, never pack folders.
 | `rifle_fire2.wav` | Dramatic Cat — SVD Dragunov, DESIGNED Single Shot Core Long |
 | `blaster_fire.wav` | BluezoneCorp — Sci Fi Weapon, gun_shot_008 |
 | `splash1.wav` | BluezoneCorp — Designed Water, impact_006 (first 1.2 s) |
+| `river_loop.wav` | Bolt — Immersive Creek (Vermont), Babbling Brook XY pair; 32 s seamless loop cut at 49 s by `tools/convert-audio.ts` (SH-052b — window chosen by RMS/brightness variance scan, equal-power tail-over-head loop fade) |
 
 ## Pre-existing (provenance predates this file)
 
 `rifle_fire.wav` (superseded by rifle_fire2 but kept), `dretch_attack.wav`,
 `pickup.wav`, `menu.ogg`, `game.ogg`, `ambient.ogg`.
+
+## Synthesised by `tools/gen-sfx.ts` (no external source — GPL-clean by construction)
+
+Deterministic (seeded), so re-running the tool reproduces byte-identical
+files. See docs/ASSET-TODO.md A1/A2/A3/A5/A6/A7/A8/A9 for the intended real
+replacements.
+
+`step_grass{1-4}.wav`, `step_dirt{1-4}.wav`, `step_heavy1.wav`,
+`reload_start.wav`, `reload_end.wav`, `ui_move.wav`, `ui_select.wav`,
+`{rifle,blaster,chain,cannon}_tail.wav`, `ambient_wind.wav` (16 s seamless
+loop), and the SH-052 set: `river_loop.wav` (14 s seamless),
+`skitter_light{1-4}.wav`, `skitter_heavy{1-4}.wav`, `crawl_loop.wav`
+(3.5 s seamless).

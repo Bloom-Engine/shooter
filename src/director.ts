@@ -40,7 +40,7 @@ import {
   enDmgTimer, enAttackLayer, enStepPhase, vxLast, vzLast,
   enAnimClip, enHeading, enDeathT, enDeathYaw,
   enDeathDX, enDeathDY, enDeathDZ, enDeathImp,
-  KIND_HP, KIND_DMG, KIND_CD, KIND_MELEE, KIND_SPEED, KIND_Y_OFF,
+  KIND_HP, KIND_DMG, KIND_CD, KIND_MELEE, KIND_SPEED, KIND_Y_OFF, KIND_STRIDE,
   KIND_SCALE, KIND_BLOOD_R, KIND_BLOOD_G, KIND_BLOOD_B,
   KIND_RANGED, RANGED_MIN, RANGED_MAX, RANGED_CD, RANGED_SHOTS,
   RANGED_DMG, RANGED_SPEED, RANGED_SPREAD,
@@ -770,17 +770,23 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       if (enFlashT[i]   > 0) enFlashT[i]   = enFlashT[i]   - dt;
       enPhase[i] = enPhase[i] + dt;   // seconds into current animation
 
-      // SH-003 — the tyrant's footfalls. You should hear (and faintly feel) the
-      // big one coming before you see it: the trauma is distance-scaled, so it
-      // telegraphs through walls without ever being loud enough to annoy.
-      if (k === 4) {
+      // SH-003/SH-052 — locomotion is audible for EVERY kind now, from the
+      // same per-kind stride accumulator the tyrant has always used. The
+      // tyrant keeps his heavy step + trauma + dust; everything else gets a
+      // positional chitin skitter (light or heavy bank by kind), which is the
+      // sound of something closing in that you haven't seen yet.
+      {
         const spd = Math.sqrt(vx * vx + vz * vz);
         enStepPhase[i] = enStepPhase[i] + spd * dt;
-        if (enStepPhase[i] > 2.2) {
+        if (enStepPhase[i] > KIND_STRIDE[k]) {
           enStepPhase[i] = 0;
-          MIX.tyrantStep(enX[i], enY[i], enZ[i]);
-          if (dist < 15) FEEL.addTrauma(0.05 * (1 - dist / 15));
-          VFX.emitFootDust(enX[i], enY[i] + 0.05, enZ[i], 3);
+          if (k === 4) {
+            MIX.tyrantStep(enX[i], enY[i], enZ[i]);
+            if (dist < 15) FEEL.addTrauma(0.05 * (1 - dist / 15));
+            VFX.emitFootDust(enX[i], enY[i] + 0.05, enZ[i], 3);
+          } else if (spd > 0.4) {
+            MIX.skitterStep(k, enX[i], enY[i] + 0.15, enZ[i]);
+          }
         }
       }
     }

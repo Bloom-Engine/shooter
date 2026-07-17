@@ -161,6 +161,17 @@ else if (cliPt === 'rt' || cliPt === '2') SET.set(SET.SET_PT, 2);
 // isolated. Debug aid — costs nothing when absent.
 const cliDbgOff = cliArg('--dbg-off');
 
+// SH-052d — `--audiotest orbit|flyby|river` starts a quiet scene (waves
+// suppressed) so the 3D audio can be judged directly. orbit = a voice circles
+// your head (pan + rear cue), flyby = a voice flies through you (doppler +
+// front/back), river = free-walk with the river as the only source and a
+// distance-to-bank readout. See the harness block in the frame loop.
+const cliAudioTest = cliArg('--audiotest');
+const AUDIOTEST = cliAudioTest === 'orbit' || cliAudioTest === 'flyby' || cliAudioTest === 'river';
+const audioTestMode = cliAudioTest === 'orbit' ? 1 : (cliAudioTest === 'flyby' ? 2 : 0);
+let audioTestT0 = -1;
+let audioTestStatus = '';
+
 FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
 initMenus();
 
@@ -993,6 +1004,11 @@ MIX.initAudioMix();
 // the tree positions in the world file, so moving the forest in the editor moves
 // the sound with it.
 MIX.initWindAmbience(W.FOREST_X, W.FOREST_Z, W.FOREST_COUNT, WIND_AMP);
+// SH-052 — the river gets a live emitter per water volume (EN-062 looping
+// voices). Rectangles come from the world file, so moving the river in the
+// editor moves its sound; the per-frame update tracks the closest bank point.
+MIX.initRiverAmbience(W.WATER_COUNT, W.WATER_CX, W.WATER_CY, W.WATER_CZ,
+                      W.WATER_SX, W.WATER_SZ);
 
 // Weapons: stat table + state.
 WPN.initWeapons();
@@ -1982,6 +1998,14 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const enclosure = near < 1 ? (1 - near) : 0;
     MIX.updateReverbZone(dtReal, enclosure);
     MIX.updateWindAmbience(dtReal, pp.x, pp.z, WIND_AMP);
+    // SH-052 — the river emitter slides along its bank to stay abreast of the
+    // player; the crawl-bed pool follows the nearest moving enemies (it goes
+    // silent by itself when nothing qualifies, menus included).
+    // SH-052d — the orbit/flyby probe wants a SINGLE source, so the river (and
+    // the enemyless crawl pool) stand down in those two modes; `river` mode
+    // keeps the river and skips the probe, so each test hears one thing.
+    if (!(AUDIOTEST && audioTestMode !== 0)) MIX.updateRiverAmbience(pp.x, pp.z);
+    MIX.updateCreatureLoops(pp.x, pp.z);
   }
 
   // Smooth orbit camera follow after the physics step: occlusion-aware
@@ -2131,6 +2155,43 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     const ll = Math.sqrt(lfx * lfx + lfy * lfy + lfz * lfz);
     if (ll > 0.0001) {
       setListenerPosition(CAM[2], CAM[3], CAM[4], lfx / ll, lfy / ll, lfz / ll);
+    }
+  }
+
+  // ---- AUDIOTEST harness (SH-052d) — HEAR the spatialisation, don't infer it.
+  // Placed right after the listener is set, so the probe reads the exact same
+  // CAM this frame's mixer got. Waves are suppressed in every mode so the test
+  // source stands alone; the player stays fully controllable (walk and turn —
+  // the orbit re-centres on you, so it keeps circling). Dormant unless
+  // --audiotest is passed; same contract as the other harnesses.
+  if (AUDIOTEST) {
+    GS.playerHP = PLAYER_HP_MAX;      // immortal observer
+    GS.gameOver = false;
+    DIR.waveBreakTimer = 9999;        // no waves — only the probe / the river
+    if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+    if (GS.gameState === 1) {
+      if (audioTestMode !== 0) {
+        if (audioTestT0 < 0) { audioTestT0 = getTime(); MIX.startAudioProbe(); }
+        audioTestStatus = MIX.updateAudioProbe(
+          audioTestMode, getTime() - audioTestT0, CAM[2], CAM[3], CAM[4]);
+      } else {
+        // river mode: distance to the nearest bank point of any water volume.
+        const ppA = playerPosition();
+        let best = 1e9;
+        for (let i = 0; i < W.WATER_COUNT; i++) {
+          let ex = ppA.x;
+          const x0 = W.WATER_CX[i] - W.WATER_SX[i] * 0.5;
+          const x1 = W.WATER_CX[i] + W.WATER_SX[i] * 0.5;
+          if (ex < x0) ex = x0; if (ex > x1) ex = x1;
+          let ez = ppA.z;
+          const z0 = W.WATER_CZ[i] - W.WATER_SZ[i] * 0.5;
+          const z1 = W.WATER_CZ[i] + W.WATER_SZ[i] * 0.5;
+          if (ez < z0) ez = z0; if (ez > z1) ez = z1;
+          const d = Math.sqrt((ppA.x - ex) * (ppA.x - ex) + (ppA.z - ez) * (ppA.z - ez));
+          if (d < best) best = d;
+        }
+        audioTestStatus = 'river   dist-to-nearest-bank ' + best.toFixed(1) + ' m';
+      }
     }
   }
   // SH-045/SH-029 — the camera's FOV is the player's SETTING plus the transient
@@ -2628,6 +2689,14 @@ while (!windowShouldClose() && !aitestDone && !animDbgDone) {
     drawRect(0, sh - 44, sw, 44, { r: 0, g: 0, b: 0, a: 150 });
     drawText(diag1, 10, sh - 40, 13, { r: 200, g: 210, b: 230, a: 220 });
     drawText(diag2, 10, sh - 20, 13, { r: 180, g: 200, b: 220, a: 220 });
+  }
+
+  // SH-052d — AUDIOTEST readout, top-centre, so what you HEAR can be checked
+  // against where the source actually is.
+  if (AUDIOTEST) {
+    const label = 'AUDIOTEST ' + cliAudioTest + '   ' + audioTestStatus;
+    drawRect(0, 0, sw, 26, { r: 0, g: 0, b: 0, a: 160 });
+    drawText(label, 14, 5, 16, { r: 255, g: 230, b: 140, a: 255 });
   }
 
   // Phase 8 — profiler overlay (F3). Lists every engine pass with
