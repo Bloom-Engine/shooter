@@ -81,7 +81,25 @@ bun tools/build-terrain-textures.ts    # rebuild the 4 terrain splat layers
 bun tools/build-building-textures.ts   # rebuild the building wall/slab slices
 ./tools/deploy-ios.sh                  # build + sign + install + launch on iPhone
 ./tools/deploy-ios.sh --console        # ...and stream the device's stdout/stderr
+./tools/build-web.sh                   # SH-054: browser build -> dist/web (add --serve to host it)
+bun tools/web-check.ts                 # headless-Edge boot check (console + screenshot)
+bun tools/web-play-check.ts            # drives PLAY, walks, fires, screenshots gameplay
 ```
+
+### Web (browser, WASM + WebGPU)
+
+`tools/build-web.sh` produces `dist/web`: the engine's `bloom_web.wasm`
+(wasm-pack, `../engine/native/web`), the Perry game wasm (`--target web`,
+spliced HTML), the asset tree plus `assets_manifest.json` (the JS glue
+prefetches it and treats it as authoritative for `fileExists`). Serve the
+directory (`python -m http.server 8080`) — `file://` won't do, the loaders
+fetch same-origin. WebGPU required (Chrome/Edge 113+); there is no WebGL2
+fallback for the 3D path. The main loop is `runGame(gameFrame)` — identical
+blocking loop on native, rAF on web — so never reintroduce a bare
+`while (!windowShouldClose())`. Web-specific guards hang off `WEB` in
+`src/input.ts`. Writes via `writeFile` land in localStorage under
+`bloom_fs:`. Three Perry wasm-codegen fixes this port depends on live on
+perry branch `fix/wasm-new-array-sized`; the engine side is EN-063.
 
 ### iOS
 
