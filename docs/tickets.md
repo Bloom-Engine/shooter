@@ -1773,3 +1773,33 @@ stand-in stays a stand-in — but an honest one. ASSET-TODO A3 updated with
 the drop-in requirements for a real recording (must keep a seamless loop —
 cut it with convert-audio's loopFade). Skitter/crawl regenerated again
 (shared seed stream; same determinism contract as SH-052b).
+
+## SH-052d — Wind left out; a real way to test the 3D audio ✅ *(shipped 2026-07-17)*
+
+Two decisions, one commit.
+
+**Wind is out.** Two rebuilds could not make a spectral-only, always-on synth
+bed stop reading as white noise (and the user heard it both times — that is
+the only ground truth that matters for audio). The system stays live and
+dormant: `sfxWind = NO_SOUND` in `initAudioMix`, so every wind path
+early-returns as it does for a missing file. One line brings it back when a
+real canopy recording lands (ASSET-TODO A3). River, footsteps, creatures,
+reverb zones are untouched.
+
+**`--audiotest orbit|flyby|river`** — a deterministic way to HEAR the
+spatialisation, because judging it during a firefight is not judging it:
+- `orbit` — a looping voice (the river loop; broadband, so it reveals BOTH
+  pan and the rear low-pass) circles the listener at 6 m, one lap ~8 s. You
+  should hear it sweep L → behind (darker) → R → front, continuously, and
+  the pan tracks the camera when you turn.
+- `flyby` — the voice flies 35 m ahead → through you → 35 m behind at
+  ~14 m/s on a loop: doppler up on approach, down past you, plus the
+  front/back timbre flip.
+- `river` — free-walk with the river as the ONLY source and a
+  distance-to-nearest-bank readout on the HUD, to correlate what you hear
+  with where the bank is.
+Waves are suppressed in every mode; orbit/flyby silence the river so the
+probe is the single source; `river` skips the probe. Top-centre HUD line
+shows the mode + live geometry. Dormant unless the flag is passed (same
+contract as the other harnesses); verified live — probe voice id 8, orbit
+angle advancing, all three modes + the normal no-flag path boot clean.

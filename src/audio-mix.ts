@@ -143,7 +143,15 @@ export function initAudioMix(): void {
   sfxUiMove      = optional('assets/sounds/ui_move.wav',   0.35, BUS_UI, 0);
   sfxUiSelect    = optional('assets/sounds/ui_select.wav', 0.45, BUS_UI, 0);
 
-  sfxWind = optional('assets/sounds/ambient_wind.wav', 0.55, BUS_SFX, 0.25);
+  // SH-052d — wind is intentionally LEFT OUT. The synth bed read as white
+  // noise (SH-052c improved it but could not make synthesis pass as a
+  // spectral-only, always-on ambience), and part 1of9 of the Sonniss bundle
+  // has no wind-in-trees recording to swap in. The whole wind SYSTEM stays
+  // live and dormant: force the handle to null and every wind path
+  // early-returns exactly as it does for a missing file. Re-enable in one line
+  // — restore this `optional(...)` call — the moment a real recording lands
+  // (ASSET-TODO A3). The asset + generator are kept for that A/B.
+  sfxWind = NO_SOUND;
   sfxRiver = optional('assets/sounds/river_loop.wav', 0.5, BUS_SFX, 0.05);
   sfxCrawl = optional('assets/sounds/crawl_loop.wav', 0.45, BUS_SFX, 0.1);
   for (let i = 0; i < 4; i++) {
@@ -517,6 +525,57 @@ export function updateCreatureLoops(px: number, pz: number): void {
     if (g > 1) g = 1;
     voiceSetVolume(crawlVoice[s], 0.45 * (0.35 + 0.65 * g));
   }
+}
+
+// ---- SH-052d: AUDIOTEST probe -----------------------------------------------
+//
+// A MOVING emitter you can hear against silence, so the spatialisation can be
+// judged directly instead of inferred from a firefight. The source is the
+// river loop on purpose: broadband material reveals BOTH the pan and the rear
+// low-pass (a pure tone would localise for pan but hide the rear cue). This is
+// test-only surface, driven by main's --audiotest harness, never by gameplay.
+let probeVoice = 0;
+let probeSrc: Sound = NO_SOUND;
+
+/// Start the probe. mode is informational; the geometry is chosen in update.
+export function startAudioProbe(): void {
+  if (probeVoice !== 0) return;
+  probeSrc = optional('assets/sounds/river_loop.wav', 0.9, BUS_SFX, 0.0);
+  if (probeSrc.handle === 0) return;
+  // refDist 3 (loud and close), never culled (max 0 = infinite), physical
+  // rolloff so distance behaves like the real thing.
+  probeVoice = playSound3DEx(probeSrc, 0, 0, 0, true, 3.0, 0.0, 1.0);
+  voiceSetVolume(probeVoice, 0.9);
+}
+
+/// Move the probe relative to the listener at (lx,ly,lz) and return a one-line
+/// status for the HUD/log. `t` = seconds since start. mode 2 = flyby (doppler
+/// + front/back), anything else = orbit (pan + rear cue).
+export function updateAudioProbe(mode: number, t: number, lx: number, ly: number, lz: number): string {
+  if (probeVoice === 0) return 'no probe voice (river_loop.wav missing?)';
+  if (mode === 2) {
+    // Fly straight through the listener along the world Z axis: 35 m ahead to
+    // 35 m behind over 5 s, then wrap. ~14 m/s — a clear doppler shift.
+    const u = (t % 5.0) / 5.0;
+    const z = lz - 35.0 + u * 70.0;
+    voiceSetPosition(probeVoice, lx, ly, z);
+    const rel = z - lz;
+    const where = rel < -1 ? 'AHEAD' : (rel > 1 ? 'BEHIND' : '>>> AT YOU <<<');
+    return 'flyby  relZ ' + rel.toFixed(1) + 'm  ' + where;
+  }
+  // Orbit: circle the listener at 6 m, one lap ~8 s, in WORLD space — so the
+  // pan tracks wherever the camera is actually looking (turn the mouse and the
+  // orbit's stereo position shifts, which is itself the test).
+  const ang = t * 2 * Math.PI * 0.125;
+  const sx = lx + Math.cos(ang) * 6.0;
+  const sz = lz + Math.sin(ang) * 6.0;
+  voiceSetPosition(probeVoice, sx, ly, sz);
+  const deg = ((ang * 180 / Math.PI) % 360 + 360) % 360;
+  return 'orbit  ' + deg.toFixed(0) + 'deg  (world +X=E +Z=S)';
+}
+
+export function stopAudioProbe(): void {
+  if (probeVoice !== 0) { voiceStop(probeVoice); probeVoice = 0; }
 }
 
 /// SH-052 — one audible step for a non-tyrant kind (the director drives this
