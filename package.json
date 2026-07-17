@@ -16,9 +16,18 @@
   "perry": {
     "allow": {
       "nativeLibrary": [
-        "bloom", "bloom/core", "bloom/scene", "bloom/physics", "bloom/world",
-        "bloom/models", "bloom/audio", "bloom/vfx"
+        "bloom",
+        "bloom/core",
+        "bloom/scene",
+        "bloom/physics",
+        "bloom/world",
+        "bloom/models",
+        "bloom/audio",
+        "bloom/vfx"
       ]
     }
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.3.0"
   }
 }

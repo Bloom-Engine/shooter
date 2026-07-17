@@ -2,7 +2,7 @@ import {
   isKeyDown, isKeyPressed,
   isMouseButtonDown, isMouseButtonPressed,
   getMouseDeltaX, getMouseDeltaY,
-  isMobile,
+  isMobile, getPlatform,
   getTouchX, getTouchY, isTouchActive, getMaxTouchPoints,
   getScreenWidth, getScreenHeight,
   drawCircle, drawCircleLines, drawText, measureText,
@@ -77,6 +77,12 @@ const TOUCH_PITCH_PER_SCREEN = 2.4;
 const JOY_DEADZONE = 0.14;
 
 export const MOBILE = isMobile();
+
+// SH-054 — running in a browser (Perry --target web, engine on WebGPU).
+// Deliberately distinct from MOBILE: desktop web is keyboard+mouse and full
+// HUD; what changes on web is the frame loop (runGame → rAF), CLI/file
+// access, and the render profile.
+export const WEB = getPlatform() === 7;
 
 // ---- Touch state ------------------------------------------------------------
 // Which touch slot owns each control, or T_NONE. Tracking the slot — rather
