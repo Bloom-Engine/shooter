@@ -203,29 +203,75 @@ function weaponTail(lo: number, hi: number, decay: number, dur: number,
   return norm(mix(tail, boom), 0.75);
 }
 
-// AMBIENT WIND / LEAF RUSTLE (SH-001). Must LOOP, so the last second is
-// cross-faded into the first — a rustle bed with a seam in it is worse than none.
-// Structure: a broadband bed, band-passed to the "leaves" register, modulated by
-// several slow LFOs at incommensurate rates so gusts swell and fade without ever
-// landing on an obvious period.
+// AMBIENT WIND / LEAF RUSTLE (SH-001, rebuilt in SH-052c). Must LOOP, so the
+// tail is cross-faded into the head — a rustle bed with a seam in it is worse
+// than none.
+//
+// SH-052c — the v1 bed was ONE fixed bandpass × a volume LFO: filtered white
+// noise that got louder and quieter, which is exactly what the ear reports as
+// "white noise". What makes real wind-in-trees read as wind is that the
+// SPECTRUM moves with the gust: a lull is a dark low murmur of boughs, a gust
+// is bright leaf-sizzle, and strong gusts carry individual leaf-flutter (an
+// 8-16 Hz flapping granularity). So: two decorrelated registers whose BALANCE
+// rides a slow gust envelope (brightness ∝ gust^1.8, not just level), plus
+// flutter bursts seeded only where the gust is strong.
 function ambientWind(dur: number): Float32Array {
   const n = Math.floor(dur * SR);
-  const bed = bandpass(noise(dur + 1.0), 700, 6500);
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const t = i / SR;
-    const gust =
-        0.55
-      + 0.26 * Math.sin(2 * Math.PI * 0.037 * t)
-      + 0.13 * Math.sin(2 * Math.PI * 0.091 * t + 1.7)
-      + 0.09 * Math.sin(2 * Math.PI * 0.231 * t + 3.1);
-    out[i] = bed[i] * gust;
+  // Two decorrelated registers: bough mass (dark) and leaf sizzle (bright).
+  const lowBand  = bandpass(noise(dur + 1.5), 350, 1800);
+  const highBand = bandpass(noise(dur + 1.5), 1800, 8500);
+  // Gust envelope: incommensurate LFOs + a very slow seeded wander so two
+  // loop passes never feel identical. Sampled per-sample (it is glacial).
+  const gust = new Float32Array(n + Math.floor(1.5 * SR));
+  {
+    // Wander: heavily low-passed noise, normalised to ±1.
+    const w = lowpass(noise((n + Math.floor(1.5 * SR)) / SR + 0.1), 0.08);
+    let wm = 0;
+    for (let i = 0; i < gust.length; i++) wm = Math.max(wm, Math.abs(w[i]));
+    const ws = wm > 1e-9 ? 1 / wm : 0;
+    for (let i = 0; i < gust.length; i++) {
+      const t = i / SR;
+      let g =
+          0.42
+        + 0.26 * Math.sin(2 * Math.PI * 0.031 * t + 0.7)
+        + 0.15 * Math.sin(2 * Math.PI * 0.083 * t + 2.1)
+        + 0.10 * Math.sin(2 * Math.PI * 0.017 * t + 4.0)
+        + 0.14 * (w[i] * ws);
+      if (g < 0.05) g = 0.05;
+      if (g > 1) g = 1;
+      gust[i] = g;
+    }
   }
-  // Seamless loop: fade the tail over the head.
-  const xf = Math.floor(1.0 * SR);
+  // Leaf flutter: short 3-5.5 kHz bursts amplitude-modulated at flapping rate,
+  // planted only where the gust is strong — a lull never flutters.
+  const flutter = new Float32Array(gust.length);
+  const tries = Math.floor(dur * 3.0);
+  for (let b = 0; b < tries; b++) {
+    const at = Math.floor(Math.abs(rnd()) * (flutter.length - SR * 0.15));
+    if (gust[at] < 0.62) continue;
+    const len = Math.floor((0.05 + Math.abs(rnd()) * 0.06) * SR);
+    const flap = 9 + Math.abs(rnd()) * 8;           // Hz — leaf flapping rate
+    const seg = bandpass(noise(len / SR + 0.02), 3000, 5500);
+    for (let i = 0; i < len && at + i < flutter.length; i++) {
+      const e = Math.sin((i / len) * Math.PI);      // rise and fall, no click
+      const am = 0.5 + 0.5 * Math.sin(2 * Math.PI * flap * i / SR);
+      flutter[at + i] += seg[i] * e * am;
+    }
+  }
+  const raw = new Float32Array(gust.length);
+  for (let i = 0; i < raw.length; i++) {
+    const g = gust[i];
+    const bright = Math.pow(g, 1.8);
+    raw[i] = lowBand[i] * (0.45 + 0.35 * g)
+           + highBand[i] * (0.12 + 0.88 * bright)
+           + flutter[i] * 0.5 * g;
+  }
+  const out = raw.subarray(0, n) as Float32Array;
+  // Seamless loop: fade the (gust-continuous) tail over the head.
+  const xf = Math.floor(1.5 * SR);
   for (let i = 0; i < xf; i++) {
     const w = i / xf;
-    out[i] = out[i] * w + bed[n + i] * (1 - w) * 0.6;
+    out[i] = out[i] * w + raw[n + i] * (1 - w);
   }
   return norm(out, 0.55);
 }
@@ -318,7 +364,7 @@ emit('rifle_tail.wav',   weaponTail(300, 4200, 0.28, 1.1, 90));
 emit('blaster_tail.wav', weaponTail(700, 6500, 0.18, 0.8, 140));
 emit('chain_tail.wav',   weaponTail(220, 3600, 0.34, 1.3, 75));
 emit('cannon_tail.wav',  weaponTail(120, 2600, 0.70, 2.4, 48));
-emit('ambient_wind.wav', ambientWind(16.0));
+emit('ambient_wind.wav', ambientWind(24.0));
 // SH-052 — the living soundscape. NOTE: these must stay AFTER the emits above:
 // the noise source is one global seeded stream, so inserting an emit earlier
 // would shift every file behind it in the diff. (river_loop.wav is a real
