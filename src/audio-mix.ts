@@ -342,19 +342,32 @@ export function initWindAmbience(
   }
 }
 
-/// Per-frame: ride each forest emitter's volume on the CURRENT wind amplitude.
-/// Crank setWind()'s amplitude and the trees lean harder and the rustle swells
-/// with them. Distance, panning and air absorption are the engine's job now
-/// (EN-062) — the px/pz parameters remain for call-site stability but the
-/// manual 40 m window is gone: a treeline is faintly audible across a field,
-/// and that is correct.
+/// Per-frame: ride each forest emitter's volume on the CURRENT wind amplitude
+/// AND the player's distance to that source. Crank setWind()'s amplitude and
+/// the trees lean harder and the rustle swells with them.
+///
+/// SH-052c — the authored distance window is BACK on top of the engine's
+/// physical rolloff. Dropping it in SH-052 ("a treeline is faintly audible
+/// across a field, and that is correct") was correct for a recording and
+/// wrong for this stand-in: the engine's inverse model has a long tail, so a
+/// synthesised noise bed became a faint hiss carpet over the whole arena —
+/// which the ear reports as exactly what it is, white noise. Full inside
+/// ~27 m of a source, silent past 45 m; the engine still owns pan/absorption
+/// and the close-range curve.
 export function updateWindAmbience(
   dt: number, px: number, pz: number, windAmp: number,
 ): void {
   if (sfxWind.handle === 0) return;
   const amp = windAmp / windAmpRef;
   for (let i = 0; i < WIND_SOURCES; i++) {
-    voiceSetVolume(windVoice[i], 0.55 * amp);
+    if (windVoice[i] === 0) continue;
+    const dx = px - windSrcX[i];
+    const dz = pz - windSrcZ[i];
+    const d = Math.sqrt(dx * dx + dz * dz);
+    let near = (45.0 - d) / 18.0;
+    if (near > 1) near = 1;
+    if (near < 0) near = 0;
+    voiceSetVolume(windVoice[i], 0.55 * amp * near);
   }
 }
 

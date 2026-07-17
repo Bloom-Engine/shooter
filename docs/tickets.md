@@ -1744,3 +1744,32 @@ always catches. Water needed a recording, not a better formula.
   variants, committed together) — the "re-run reproduces the repo" contract
   holds. A river emit must never be re-added there: it would clobber the
   recording.
+
+## SH-052c — "I still hear white noise": the wind bed, run to ground ✅ *(shipped 2026-07-17)*
+
+**Diagnosis.** Two compounding causes, one a SH-052 regression:
+1. `ambient_wind.wav` was a fixed 700-6500 Hz bandpass × a volume LFO —
+   filtered white noise that only got louder and quieter. A static spectrum
+   is exactly what the ear files under "white noise", however it is dressed.
+2. SH-052 deleted the authored "gone by 40 m" window in favour of the
+   engine's physical rolloff — right call for a recording, wrong for a synth
+   bed: the inverse model's long tail spread a faint hiss carpet over the
+   WHOLE arena, including the open field that used to be silent.
+
+**Fix, both halves:**
+- The generator moves the SPECTRUM with the gust now: two decorrelated
+  registers (350-1800 bough murmur, 1800-8500 leaf sizzle) whose balance
+  rides a slow gust envelope (brightness ∝ gust^1.8), plus leaf-flutter
+  grains (9-17 Hz AM bursts) planted only where the gust is strong, plus a
+  seeded slow wander so passes never repeat. 24 s loop (was 16). Verified
+  numerically, not by ear: brightness-vs-level r = 0.95 across the loop
+  (v1 ≈ 0 by construction); seam delta 0.23 vs body max 0.53; no clipping.
+- `updateWindAmbience` re-applies the authored window on top of the engine
+  rolloff: full inside ~27 m of a source, silent past 45 m. The engine keeps
+  pan/absorption/close-range; the game shapes the far field.
+
+Sonniss part 1of9 has no usable wind-in-trees recording (checked), so the
+stand-in stays a stand-in — but an honest one. ASSET-TODO A3 updated with
+the drop-in requirements for a real recording (must keep a seamless loop —
+cut it with convert-audio's loopFade). Skitter/crawl regenerated again
+(shared seed stream; same determinism contract as SH-052b).
