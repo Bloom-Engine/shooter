@@ -22,11 +22,12 @@ see SH-052) — runnable with
   (~2,100 lines; the SH-025 module split is complete). Flat-array
   state per Perry convention. The dormant test harnesses
   (SELFTEST/AITEST/ANIMDBG/MENUTEST/FACETEST/LOCOPROBE/KEYPROBE/
-  COMBATSHOT/PLAYERSHOT/PERFTEST) and the
+  COMBATSHOT/PLAYERSHOT/P2TEST/P2BOT/PERFTEST) and the
   diagnostics (diag bar, profiler overlay) live here too.
 - The game is split by subsystem, one module each: `enemies.ts`
   (kind tables + pool), `director.ts` (waves + per-kind AI + enemy
-  projectiles), `combat.ts` (weapons/fire/player projectiles/pickups),
+  projectiles), `combat.ts` (weapons/fire/player projectiles/pickups/grenades/melee),
+  `hitshapes.ts` (where a shot lands on a creature: shapes on its live skeleton),
   `camera.ts` (orbit + canopy occlusion), `hud.ts`, `environment.ts`
   (water/grass/building/glass/GI proxies), `gamestate.ts` (shared run
   scalars as `const GS`), plus `feel/vfx/weapons/menu/settings/score/
@@ -45,7 +46,8 @@ see SH-052) — runnable with
 - `assets/models/` — committed GLBs, built by the asset pipeline below
   (`tools/gen/`, `tools/blender/`).
 - `docs/aaa-plan.md` — the current plan: what is missing for AAA quality, in
-  order. Phase 0 (bugs and hygiene) landed 2026-11-14.
+  order. Phases 0 (bugs and hygiene), 1 (the player on screen) and 2 (combat) landed
+  2026-11-14; each phase's header says what it left open.
 
 ## Read before changing things
 
@@ -235,11 +237,14 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   0 crouch_idle, 1 crouch_walk, 2 death_back, 3 death_front, 4 hit_back, 5 hit_front, 6 idle, 7 roll,
   8 run, 9 sprint, 10 strafe_left, 11 strafe_right, 12 walk, 13 walk_back. Prompts: `art/source/trooper_clips.md`.
 - Trees are two primitives, bark then leaves (`TREE_GLB_PARTS`); leaves are alpha MASK, double sided.
-- Mixamo skeleton under a static `Root` bone that the importer adds: 66 joints (67 on the Trooper
-  with `tag_weapon`). `Root` must stay joint 0: with root motion off the engine pins joint 0's
+- Mixamo skeleton under a static `Root` bone that the importer adds: 67 joints on the Trooper
+  (with `tag_weapon`), 23 on every creature (`tools/gen/strip_joints.py` drops fingers, toe ends
+  and the head top after import; `build_cast.sh` runs it; their hands are open claws in every clip). `Root` must stay joint 0: with root motion off the engine pins joint 0's
   translation, and if that were the hips a death would lie down in mid-air and a crouch would not
-  lower the body. The engine has 1024 joint matrices per frame for ALL skinned draws:
-  67 + 7 kinds x 2 pool slots x 66 = 991, so there is no room for a third pool slot.
+  lower the body. The engine has 1024 joint matrices per frame for ALL skinned draws
+  and fails silently past it (the draw that does not fit is posed with another model's matrices):
+  67 + 30 pool slots x 23 = 757. The pool is per kind (`KIND_POOL` / `KIND_SLOT0` in
+  `src/enemies.ts`: 8 Skitters down to 2 Colossi); 41 creature slots is the ceiling.
 - The Trooper's rig sits on top of its clips (engine EN-064, the player block of `src/main.ts`):
   the spine leans with the camera pitch, the off hand is pulled onto the weapon's handguard by IK
   (and walks handguard -> magazine -> belt -> magazine during a reload), and every gait except the
@@ -250,7 +255,17 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   weapon tables (`WEAPON_HAND_*`, `WEAPON_GRIP_*`, `WEAPON_MAG_*`) say where the hands go on each
   model. Judge any change with the PLAYERSHOT harness: 26 captures of the Trooper (poses from three
   sides, all four weapons, roll, reload, hit, death).
-- Enemies die by their authored clip; the engine's auto-ragdoll is switched off (`DEATH_RAGDOLL` in
+- Combat rules the code rests on (Phase 2, SH-057). A creature only knows where the player is
+  while it perceives them (`enAware`, sight cone + range + one ray, hearing radius, touch); the
+  director steers at `enLast*`, never at the player directly. Melee is wind-up / active / recovery
+  (`AI_STRIKE_*`, tables `STRIKE_*`): damage exists only in the active frames, and the attack
+  layer is restarted per strike (`enStrikeSeq`) at the speed that puts `ATTACK_HIT_T` at the end of
+  the wind-up. Attack tokens cap how many are mid-attack. Shots are tested against
+  `hitshapes.ts` and the static world separately; the creatures' physics boxes only block the
+  player. All damage to the player goes through `director.damagePlayer`. HP and weapon damage
+  are x10 the pre-November numbers. Judge changes with P2TEST (scripted checks, `P2 ...` log
+  lines and pictures) and P2BOT (a stand-in plays a whole run).
+- Enemies die by their authored clip (chosen by the blow: `enDeathClip`); the engine's auto-ragdoll is switched off (`DEATH_RAGDOLL` in
   `src/main.ts`) because it mangles this skeleton.
 - Developer overlays (render-pass line, diagnostics bar) are hidden; F1 or `--debughud 1` shows them.
 - No vertex colours (the engine multiplies `COLOR_0` into albedo).

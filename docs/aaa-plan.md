@@ -14,7 +14,7 @@ they are: player animation, world art, combat depth, UI, audio/VFX variety, cont
 has an acceptance test. `[bug]` items are defects, the rest are missing or shallow features.
 "Verified" means re-checked on 2026-11-14; "reported" means found by code reading and not yet
 reproduced in play. Sizes are for one person with the current tooling. Ticket ids are not assigned
-here; register items in `docs/tickets.md` (next free: SH-057) as they are picked up.
+here; register items in `docs/tickets.md` (next free: SH-058) as they are picked up.
 
 **Rule carried over from July:** no performance win may cost visual quality at default settings.
 
@@ -101,7 +101,31 @@ character, not a statue with a gun.
 
 ---
 
-## Phase 2 - Combat that can be read and mastered (4-6 weeks)
+## Phase 2 - Combat that can be read and mastered - LANDED 2026-11-14 (ticket SH-057)
+
+**State.** All nine items have code behind them; `docs/tickets.md` SH-057 has the per-item record
+and how each was checked (the P2TEST and P2BOT harnesses in `src/main.ts`: numbers in a log and
+still frames, plus a whole run played by a stand-in). **None of it has been played by a person,**
+and tuning is where this phase is least finished: sight and hearing distances, wind-up lengths,
+token counts, recoil patterns and damage numbers are first guesses that ran, not values anyone
+has felt. **Decisions taken** (the plan left them open): deaths are authored clips chosen by the
+blow, not ragdolls (2.4); swarms came from stripping the creature rigs to 23 joints, not from
+raising the engine's limit (2.6); the vault is a scripted mantle with no clip of its own (2.7);
+each weapon got a handling quirk, not an alt-fire (2.8). **Carried forward:**
+
+- **A third death per kind and real flinch clips (2.4).** The cast has two usable deaths (thrown
+  on its back, crumpling where it stands) and one pain clip; direction comes from a procedural
+  spine jolt. More needs Tripo Text2Motion on seven rigs (about 20 credits a clip, one download
+  per rig): Ralph's call.
+- **Ragdoll for this skeleton, and more than 1024 joint matrices (engine).** Both still open; the
+  limit is a 64 KiB uniform buffer, so raising it means a storage buffer. The game no longer
+  needs it for the current pool (757 of 1024 used).
+- **Cover (2.7)** was left out as the plan said.
+- **Vault, jump and melee have no clips.** The vault and the jump borrow the crouch and the gait;
+  the rifle-butt strike is a spine twist and a swung weapon.
+- **Perception does not cross floors honestly.** A creature hunting blind inside the flow grid is
+  routed toward the player, not toward its guess, whenever the house is in the way.
+- **Touch and pad bindings for the strike and the grenade** were added and not tried on a device.
 
 2.1 **Perception.** Sight cone plus hearing radius, with idle, alerted, searching states. Enemies
 currently read the player position every frame (`src/director.ts:335`).

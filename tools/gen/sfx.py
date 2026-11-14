@@ -64,6 +64,14 @@ SFX.update({
     "cannon_fire":   (1.2, f"A heavy energy cannon discharging one charged shot: a deep concussive thump with a crackling electric snap and a low bass punch. {NO}"),
     "explosion":     (2.0, f"A large explosion at medium distance outdoors: a hard initial crack, a deep booming body, then debris and dirt raining down. {NO}"),
     "step_heavy1":   (0.8, f"One enormous heavy footfall of a giant creature landing on soft earth: deep ground-shaking thud with a little debris. {NO}"),
+    # --- fourth pass (2026-11-14, plan Phase 2): the claw swing every melee attack makes as it
+    # goes active, the critical-hit confirm, and the player's new kit.
+    "swing":         (0.5, f"A fast heavy swing through the air: one sharp airy whoosh of a large clawed arm slashing past, no impact. {NO}"),
+    "crit_hit":      (0.5, f"A bullet punching through bone: one sharp wet crack with a short bright snap on top, very short. {NO}"),
+    "melee_hit":     (0.6, f"A rifle stock smashing into a body: one hard dull thud of wood and metal on flesh and armour with a short grunt of impact. {NO}"),
+    "grenade_throw": (0.7, f"A grenade pin pulled and the grenade thrown: a small metallic click and ping, then a short cloth whoosh of an arm. {NO}"),
+    "grenade_bounce":(0.5, f"A steel hand grenade bouncing once on hard ground: one dull metallic clunk and a short rattle. {NO}"),
+    "heal":          (0.8, f"A field medical injector used: a short pneumatic hiss and click followed by a soft rising tone of relief. {NO}"),
 })
 for i in range(1, 5):
     SFX[f"step_grass{i}"] = (0.5, f"One single footstep of a booted soldier on dry grass, variation {i}: short soft crunch and rustle. {NO}")

@@ -35,6 +35,8 @@ export interface InputState {
   dodgePressed: boolean;    // Ctrl / B
   pausePressed: boolean;    // Esc / Start
   shoulderPressed: boolean; // V / RB — camera to the other shoulder
+  meleePressed: boolean;    // F / LB — rifle-butt strike (plan 2.7)
+  grenadePressed: boolean;  // G / Back — throw a grenade (plan 2.7)
   /// True when a pad was the last thing touched — the HUD swaps its glyphs.
   padActive: boolean;
 }
@@ -116,6 +118,8 @@ let swapPrev = false;
 let dodgePrev = false;
 let pausePrev = false;
 let sidePrev = false;
+let meleePrev = false;
+let nadePrev = false;
 let aimBtnPrev = false;
 let crouchBtnPrev = false;
 // AIM and CROUCH are latches on touch: a thumb cannot hold a button and steer.
@@ -128,7 +132,7 @@ let padCrouchOn = false;
 // Control geometry, recomputed each frame from the screen size and shared with
 // the draw pass — the circles you see are hit-tested from these same numbers,
 // so what you press is always what you touched.
-const CTRL = new Array<number>(29);
+const CTRL = new Array<number>(35);
 const C_SCALE = 0;
 const C_JOY_R = 1;
 const C_FIRE_X = 2;
@@ -158,6 +162,12 @@ const C_PAUSE_R = 25;
 const C_SIDE_X = 26;
 const C_SIDE_Y = 27;
 const C_SIDE_R = 28;
+const C_MELEE_X = 29;
+const C_MELEE_Y = 30;
+const C_MELEE_R = 31;
+const C_NADE_X = 32;
+const C_NADE_Y = 33;
+const C_NADE_R = 34;
 
 function layoutControls(sw: number, sh: number): void {
   // Size everything off the screen height, capped so the controls don't balloon
@@ -202,6 +212,13 @@ function layoutControls(sw: number, sh: number): void {
   CTRL[C_SIDE_R] = s * 0.055;
   CTRL[C_SIDE_X] = sw - s * 0.23;
   CTRL[C_SIDE_Y] = s * 0.09;
+  // Third ring (plan 2.7): melee beside the fire button, grenade above the gun swap.
+  CTRL[C_MELEE_R] = s * 0.07;
+  CTRL[C_MELEE_X] = sw - s * 0.40;
+  CTRL[C_MELEE_Y] = sh - s * 0.60;
+  CTRL[C_NADE_R] = s * 0.07;
+  CTRL[C_NADE_X] = sw - s * 0.62;
+  CTRL[C_NADE_Y] = sh - s * 0.53;
 }
 
 function hits(x: number, y: number, cx: number, cy: number, r: number): boolean {
@@ -265,6 +282,8 @@ function readTouch(): InputState {
   let dodgeDown = false;
   let pauseDown = false;
   let sideDown = false;
+  let meleeDown = false;
+  let nadeDown = false;
   let aimBtnDown = false;
   let crouchBtnDown = false;
   let fireDown = false;
@@ -341,6 +360,14 @@ function readTouch(): InputState {
       sideDown = true;
       continue;
     }
+    if (hits(tx, ty, CTRL[C_MELEE_X], CTRL[C_MELEE_Y], CTRL[C_MELEE_R])) {
+      meleeDown = true;
+      continue;
+    }
+    if (hits(tx, ty, CTRL[C_NADE_X], CTRL[C_NADE_Y], CTRL[C_NADE_R])) {
+      nadeDown = true;
+      continue;
+    }
 
     // Left of the split moves, right of it looks. The stick's origin is
     // wherever the thumb lands, so there's no fixed circle to hunt for by feel.
@@ -393,6 +420,10 @@ function readTouch(): InputState {
   pausePrev = pauseDown;
   const sidePressedNow = sideDown && !sidePrev;
   sidePrev = sideDown;
+  const meleePressedNow = meleeDown && !meleePrev;
+  const nadePressedNow = nadeDown && !nadePrev;
+  meleePrev = meleeDown;
+  nadePrev = nadeDown;
   aimBtnPrev = aimBtnDown;
   crouchBtnPrev = crouchBtnDown;
 
@@ -418,6 +449,8 @@ function readTouch(): InputState {
     dodgePressed: dodgePressedNow,
     pausePressed: pausePressedNow,
     shoulderPressed: sidePressedNow,
+    meleePressed: meleePressedNow,
+    grenadePressed: nadePressedNow,
     padActive: false,
   };
 }
@@ -461,6 +494,8 @@ export function readInput(dt: number): InputState {
   let swapWeapon = isKeyPressed(Key.Q);
   let pausePressed = isKeyPressed(Key.ESCAPE);
   let shoulderPressed = isKeyPressed(Key.V);
+  let meleePressed = isKeyPressed(Key.F);
+  let grenadePressed = isKeyPressed(Key.G);
 
   // --- gamepad, folded into the same verbs ---------------------------------
   // Anything the pad reports is OR'd in rather than replacing the keyboard, so
@@ -502,6 +537,8 @@ export function readInput(dt: number): InputState {
     if (isGamepadButtonPressed(GP_Y)) { swapWeapon = true; padUsed = true; }
     if (isGamepadButtonPressed(GP_START)) { pausePressed = true; padUsed = true; }
     if (isGamepadButtonPressed(GP_RB)) { shoulderPressed = true; padUsed = true; }
+    if (isGamepadButtonPressed(GP_LB)) { meleePressed = true; padUsed = true; }
+    if (isGamepadButtonPressed(GP_BACK)) { grenadePressed = true; padUsed = true; }
     // Crouch: click the right stick to drop, click again (or sprint, or jump) to
     // stand. Until 2026-11 crouch had no pad binding at all.
     if (isGamepadButtonPressed(GP_RS)) { padCrouchOn = !padCrouchOn; padUsed = true; }
@@ -529,9 +566,14 @@ export function readInput(dt: number): InputState {
     dodgePressed: dodgePressed,
     pausePressed: pausePressed,
     shoulderPressed: shoulderPressed,
+    meleePressed: meleePressed,
+    grenadePressed: grenadePressed,
     padActive: padWasActive,
   };
 }
+
+/// True when a pad was the last device touched (the pad-only aim assists ask).
+export function padIsActive(): boolean { return padWasActive; }
 
 /// SH-039 — pad aim assist. Inside a narrow cone of a target, slow the look
 /// stick down. This is the standard console-shooter concession: it is not
@@ -598,6 +640,12 @@ export function drawTouchControls(): void {
 
   drawCircle(CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R], idle);
   labelAt('<>', CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R] * 0.70, ink);
+
+  drawCircle(CTRL[C_MELEE_X], CTRL[C_MELEE_Y], CTRL[C_MELEE_R], idle);
+  labelAt('HIT', CTRL[C_MELEE_X], CTRL[C_MELEE_Y], CTRL[C_MELEE_R] * 0.52, ink);
+
+  drawCircle(CTRL[C_NADE_X], CTRL[C_NADE_Y], CTRL[C_NADE_R], idle);
+  labelAt('NADE', CTRL[C_NADE_X], CTRL[C_NADE_Y], CTRL[C_NADE_R] * 0.42, ink);
 }
 
 function labelAt(text: string, cx: number, cy: number, size: number,

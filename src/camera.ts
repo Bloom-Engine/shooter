@@ -16,6 +16,8 @@ import * as W from './world-runtime';
 import { playerPosition, isCrouching } from './player';
 import { MAX_ENEMIES, enAlive, enX, enZ } from './enemies';
 import { aimAssistScale } from './input';
+import { nearestAimPoint } from './hitshapes';
+import * as SET from './settings';
 import * as FEEL from './feel';
 import * as WPN from './weapons';
 
@@ -104,9 +106,22 @@ export const CAMDBG = { orbit: 0, want: 0 };
 //
 // SH-039 — pad aim assist: slow the look stick inside a narrow cone of the
 // nearest enemy. Not magnetism; the stick still does all the aiming.
-export function updateCameraLook(lookX: number, lookY: number, padActive: boolean): void {
+//
+// Plan 2.9 adds, for a pad: ROTATIONAL assist (while the player is moving or steering, the view
+// follows a creature that is already near the crosshair by a share of its own angular motion,
+// the thing a thumb cannot do and a wrist can) and, for every device, a separate look speed
+// while aiming down the sights. Bullet magnetism is in combat.ts, at the shot. All three pad
+// assists hang off one setting (SET_AIM_ASSIST).
+//   AST: 0 slot being followed (-1 none)  1 its yaw from the player last frame  2 its pitch
+const AST = [-1, 0, 0];
+const ASTP = [0, 0, 0, 0];
+const ROT_ASSIST = 0.5;                    // share of the target's angular motion followed
+const ROT_CONE_COS = 0.9925;               // 7 degrees
+export function updateCameraLook(lookX: number, lookY: number, padActive: boolean,
+                                 moving: boolean): void {
   let assist = 1;
-  if (padActive) {
+  const assistOn = padActive && SET.get(SET.SET_AIM_ASSIST) !== 0;
+  if (assistOn) {
     const ppA = playerPosition();
     const cyA = Math.cos(CAM[1]);
     const fxA = Math.sin(CAM[0]) * cyA;
@@ -122,9 +137,41 @@ export function updateCameraLook(lookX: number, lookY: number, padActive: boolea
       if (c > bestCos) bestCos = c;
     }
     assist = aimAssistScale(bestCos);
+
+    // Rotational assist, measured from the camera along its real forward (pitch included).
+    const cp = Math.cos(-CAM[1]);
+    const dX = Math.sin(CAM[0]) * cp, dY = Math.sin(-CAM[1]), dZ = -Math.cos(CAM[0]) * cp;
+    const ti = nearestAimPoint(CAM[2], CAM[3], CAM[4], dX, dY, dZ, 45, ROT_CONE_COS, ASTP);
+    if (ti >= 0) {
+      const vx = ASTP[0] - CAM[2], vy = ASTP[1] - CAM[3], vz = ASTP[2] - CAM[4];
+      const yawT = Math.atan2(vx, -vz);
+      const pitT = Math.atan2(vy, Math.sqrt(vx * vx + vz * vz));
+      const active = moving || lookX !== 0 || lookY !== 0;
+      if (ti === AST[0] && active) {
+        let dyaw = yawT - AST[1];
+        while (dyaw > Math.PI) dyaw = dyaw - Math.PI * 2;
+        while (dyaw < -Math.PI) dyaw = dyaw + Math.PI * 2;
+        const dpit = pitT - AST[2];
+        // A jump this large is a teleport or a new target, not motion to follow.
+        if (dyaw < 0.06 && dyaw > -0.06 && dpit < 0.06 && dpit > -0.06) {
+          CAM[0] = CAM[0] + dyaw * ROT_ASSIST;
+          CAM[1] = CAM[1] - dpit * ROT_ASSIST;
+        }
+      }
+      AST[0] = ti; AST[1] = yawT; AST[2] = pitT;
+    } else {
+      AST[0] = -1;
+    }
+  } else {
+    AST[0] = -1;
   }
-  CAM[0] = CAM[0] + lookX * assist;
-  const np = CAM[1] + lookY * assist;
+  // Look speed while aiming: the hip speed times SET_ADS_SENS, eased in with the aim itself.
+  const ads = 1 + (SET.get(SET.SET_ADS_SENS) - 1) * WPN.aimBlend();
+  const lx = lookX * assist * ads;
+  const ly = lookY * assist * ads;
+  WPN.consumeRecoil(lx, ly);
+  CAM[0] = CAM[0] + lx;
+  const np = CAM[1] + ly;
   CAM[1] = np < TP_PITCH_MIN ? TP_PITCH_MIN : (np > TP_PITCH_MAX ? TP_PITCH_MAX : np);
 }
 

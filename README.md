@@ -22,13 +22,15 @@ Controls:
 |------------------|-------------------------------------------|
 | WASD             | Move (the body turns to face where it moves) |
 | Mouse            | Look                                      |
-| Space            | Jump                                      |
+| Space            | Jump; moving into something up to chest height, vault it |
 | Left mouse       | Fire (rifle = full-auto, blaster = tap)   |
 | Right mouse      | Aim down sights (hold, or toggle — settings); moving while aiming or firing is at half speed |
 | Shift            | Sprint (hold, or toggle — settings)       |
 | C                | Crouch (hold)                             |
 | Ctrl             | Dodge: a roll, invulnerable for most of it |
 | V                | Camera to the other shoulder              |
+| F                | Rifle-butt strike (knocks back and stuns) |
+| G                | Throw a grenade (two-second fuse; crates refill one) |
 | 1 / 2 / 3 / 4    | Switch weapon (rifle / blaster / chaingun / cannon) |
 | Q                | Cycle weapon                              |
 | R                | Reload / restart after death              |
@@ -48,7 +50,7 @@ Controls:
 Runs at ~50 fps on an iPhone 16 Pro, landscape. Touch controls: the left half
 of the screen is a movement stick that appears under your thumb wherever it
 lands, the right half is drag-to-look, and FIRE / JUMP / R / GUN / AIM / DASH /
-DUCK sit along the right edge, with pause in the top-right corner. AIM and DUCK
+DUCK / HIT / NADE sit along the right edge, with pause in the top-right corner. AIM and DUCK
 are toggles. Holding FIRE still steers, so you can shoot and aim with the same
 thumb.
 
@@ -64,7 +66,11 @@ Connect API-only). See `CLAUDE.md` for the provisioning details.
 
 Left stick moves, right stick looks, RT fires, LT aims, A jumps, B dodges,
 X reloads, Y cycles weapons, click the left stick to sprint and the right stick
-to crouch, RB moves the camera to the other shoulder, Start pauses.
+to crouch, RB moves the camera to the other shoulder, LB is the rifle-butt
+strike, Back throws a grenade, Start pauses. A pad gets aim assist (slowdown
+near a target, the view following a target that moves, and a small bullet
+magnetism); it is one switch in the settings, next to a separate look speed for
+aiming down the sights.
 
 ### The game
 
@@ -75,6 +81,18 @@ answer. Rifle and blaster from the start; clearing the first arena unlocks the
 chaingun and clearing the second the cannon. Picking another arena in the menu
 relaunches the game into it (on phones and TV boxes, which cannot relaunch an
 app, it asks you to reopen it). Ammo crates respawn around the arena.
+
+How a fight works (November 2026): the aliens have to see or hear you. A crouch
+is silent and seen at half the distance, a sprint and a shot carry; break their
+line of sight for five seconds and they go back to hunting where they last knew
+you were. Every melee attack is a wind-up (a flare at the head, the attack
+voice), a short moment when it can hit, and a recovery: step aside or roll
+through it and punish the recovery. Only two or three attack at once; the rest
+circle. Shots land where they land: a head is worth double (more with the
+rifle), a limb less, the Bruiser and the Colossus have a soft belly and an
+armoured back, and the Bombard's launcher tubes are its weak point. Health
+comes back on its own up to 40; past that it takes the field dressings some
+kills drop.
 
 ## Prerequisites
 

@@ -30,9 +30,14 @@ cannon_tail
 chain_fire
 chain_tail
 crawl_loop
+crit_hit
 dretch_attack
 explosion
+grenade_bounce
+grenade_throw
+heal
 impact_flesh
+melee_hit
 pickup
 player_die1
 player_die2
@@ -65,5 +70,6 @@ step_grass2
 step_grass3
 step_grass4
 step_heavy1
+swing
 ui_move
 ui_select

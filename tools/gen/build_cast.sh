@@ -25,6 +25,9 @@ creature() {   # name height "run phrase" "attack phrase" ["phrase of a supersed
   if [[ -n "${5:-}" ]]; then ren="$ren,$5=old_attack"; drop="$drop,old_attack"; fi
   tools/gen/make_character.sh "$1" "$2" --rename "$ren" \
     --trim "slash=1.0:2.6,death=0.6:3.0" --loop "c_run" --active "c_attack" --drop-clips "$drop"
+  # Plan 2.6: fingers, toe tips and the head tip come off (66 joints -> 23), so the engine's 1024
+  # joint matrices per frame hold a swarm. The claws then stay in their bind pose, spread open.
+  python3 tools/gen/strip_joints.py "assets/models/$1.glb" "assets/models/$1.glb"
 }
 # Skitter and Bruiser: second, more forceful attack takes (their first came out as a guard pose).
 creature enemy_skitter  0.8 "scurries forward"              "Furious melee attack"      "lunges forward and attacks"

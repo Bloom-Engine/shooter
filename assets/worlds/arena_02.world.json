@@ -21056,7 +21056,7 @@
       ],
       "userData": {
         "kind": "wave_config",
-        "waves": "[{\"count\": 4, \"enemy\": \"skitter,skitter,stalker,skitter\"}, {\"count\": 7, \"enemy\": \"stalker,skitter,ravager,spitter,stalker,skitter,ravager\"}, {\"count\": 11, \"enemy\": \"ravager,spitter,bruiser,bombard,stalker,spitter,ravager,bruiser,skitter,bombard,colossus\"}]"
+        "waves": "[{\"count\": 6, \"enemy\": \"skitter,skitter,stalker,skitter,skitter,skitter\"}, {\"count\": 10, \"enemy\": \"skitter,skitter,skitter,skitter,stalker,ravager,spitter,stalker,skitter,ravager\"}, {\"count\": 19, \"enemy\": \"skitter,skitter,skitter,skitter,skitter,skitter,skitter,skitter,ravager,spitter,bruiser,bombard,stalker,spitter,ravager,bruiser,skitter,bombard,colossus\"}]"
       }
     },
     {

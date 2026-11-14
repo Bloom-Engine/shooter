@@ -17,12 +17,12 @@ import { drawRect, drawCircle, getTime } from 'bloom';
 import { drawText, measureText } from './ui-text';
 import { GS } from './gamestate';
 import { ARENA_INDEX, ARENAS } from './world-runtime';
-import { DIR, wavePlan, countAlive } from './director';
+import { DIR, wavePlan, countAlive, REGEN_CAP } from './director';
 import { PLAYER_HP_MAX } from './combat';
 import { dodgeCooldownFrac } from './player';
 import { MOBILE } from './input';
 import {
-  MAX_ENEMIES, KIND_NAME, AI_WINDUP, enAlive, enKind, enAIState,
+  MAX_ENEMIES, KIND_NAME, AI_WINDUP, AI_STRIKE_WIND, enAlive, enKind, enAIState,
 } from './enemies';
 import * as WPN from './weapons';
 import * as SCORE from './score';
@@ -40,7 +40,10 @@ function drawTelegraphCaptions(sw: number, sh: number): void {
   let kind = -1;
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enAlive[i] === 0) continue;
-    if (enAIState[i] !== AI_WINDUP) continue;
+    // The rooted wind-ups (pounce, volley) and the heavies' strikes. A Skitter's 0.3 s claw is
+    // not captioned: a line that flickers ten times a fight is one the player stops reading.
+    const heavyStrike = enAIState[i] === AI_STRIKE_WIND && enKind[i] >= 3;
+    if (enAIState[i] !== AI_WINDUP && !heavyStrike) continue;
     kind = enKind[i];
     break;                       // one caption: the first telegraph in flight
   }
@@ -123,13 +126,34 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
     // SH-043 — hit confirmation is a white FLASH + a tick, not a colour change:
     // a colourblind player gets the same information as anyone else.
     if (GS.hitMarkT > 0) {
-      const ha = Math.floor((GS.hitMarkT / 0.18) * 255);
+      const crit = GS.hitMarkCrit === 1;
+      const ha = Math.min(255, Math.floor((GS.hitMarkT / (crit ? 0.28 : 0.18)) * 255));
       const hc = { r: 255, g: 255, b: 255, a: ha };
       const d = 10;
       drawRect(cx - d, cy - d, 6, 2, hc);
       drawRect(cx + d - 6, cy - d, 6, 2, hc);
       drawRect(cx - d, cy + d - 2, 6, 2, hc);
       drawRect(cx + d - 6, cy + d - 2, 6, 2, hc);
+      // Plan 2.3 - a head or weak-point hit: a second, larger and heavier set of ticks with
+      // upright arms. A different SHAPE (and a different sound), not a different colour.
+      if (crit) {
+        const e = 17;
+        drawRect(cx - e, cy - e, 9, 3, hc);
+        drawRect(cx + e - 9, cy - e, 9, 3, hc);
+        drawRect(cx - e, cy + e - 3, 9, 3, hc);
+        drawRect(cx + e - 9, cy + e - 3, 9, 3, hc);
+        drawRect(cx - e, cy - e, 3, 9, hc);
+        drawRect(cx + e - 3, cy - e, 3, 9, hc);
+        drawRect(cx - e, cy + e - 9, 3, 9, hc);
+        drawRect(cx + e - 3, cy + e - 9, 3, 9, hc);
+      }
+    }
+    // A dodge that made a blow miss says so, under the crosshair.
+    if (DIR.dodgedT > 0) {
+      const da = Math.floor(Math.min(1, DIR.dodgedT / 0.3) * 235);
+      const dm = 'DODGED';
+      const dw = measureText(dm, 16);
+      drawText(dm, cx - dw / 2, cy + 30, 16, { r: 150, g: 215, b: 255, a: da });
     }
   }
 
@@ -164,7 +188,14 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
   drawRect(10, sh - 68, phpW, 18, { r: 30, g: 10, b: 10, a: 180 });
   drawRect(10, sh - 68, phpFill, 18,
     { r: Math.floor(180 * lowT + 60), g: 60, b: 50, a: 230 });
-  drawText('HP ' + GS.playerHP, 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
+  // The notch health regenerates to on its own (plan 2.7); past it only a field dressing helps.
+  drawRect(10 + Math.floor(phpW * REGEN_CAP / PLAYER_HP_MAX), sh - 68, 2, 18,
+    { r: 240, g: 240, b: 240, a: 110 });
+  if (GS.healFlashT > 0) {
+    drawRect(10, sh - 68, phpFill, 18,
+      { r: 120, g: 255, b: 150, a: Math.floor((GS.healFlashT / 0.6) * 170) });
+  }
+  drawText('HP ' + Math.ceil(GS.playerHP), 18, sh - 65, 14, { r: 240, g: 240, b: 240, a: 255 });
 
   // Dodge cooldown — a thin bar under HP, so you know when you can commit.
   {
@@ -229,6 +260,21 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
     const ammoX = sw - 18 - ammoW;
     drawRect(ammoX - 8, wy - 2, ammoW + 16, 22, { r: 0, g: 0, b: 0, a: 150 });
     drawText(ammoLine, ammoX, wy, ammoSize, ammoCol);
+    // Grenades (plan 2.7): a pip per grenade carried, hollow for an empty slot, and the key.
+    {
+      const gy = wy + 28;
+      const glabel = MOBILE ? 'GRENADES' : (padActive ? 'GRENADES  [Back]   STRIKE  [LB]' : 'GRENADES  [G]   STRIKE  [F]');
+      const glw = measureText(glabel, 13);
+      const pipsW = GS.grenadeMax * 16;
+      const gx0 = sw - 18 - glw - pipsW - 10;
+      drawRect(gx0 - 8, gy - 3, glw + pipsW + 26, 20, { r: 0, g: 0, b: 0, a: 120 });
+      for (let g = 0; g < GS.grenadeMax; g++) {
+        const px = gx0 + g * 16 + 5;
+        if (g < GS.grenades) drawCircle(px, gy + 7, 5, { r: 230, g: 225, b: 190, a: 240 });
+        else drawCircle(px, gy + 7, 2, { r: 150, g: 150, b: 150, a: 150 });
+      }
+      drawText(glabel, gx0 + pipsW + 10, gy, 13, { r: 200, g: 200, b: 195, a: 210 });
+    }
 
     // Reload progress. A timed reload the player cannot SEE is just an
     // unexplained dead trigger; the bar is what turns it into a decision about
@@ -279,6 +325,14 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
       const label = 'WAVE ' + (DIR.waveIdx + 1) + ' — ' + remaining + ' / ' + waveSize;
       const lw = measureText(label, 20);
       drawText(label, (sw - lw) / 2, 18, 20, { r: 230, g: 220, b: 160, a: 230 });
+      // Plan 2.1 - whether anything knows where you are. "UNSEEN" while creatures are alive
+      // and none is alerted; "HUNTED n" otherwise. Words, so it does not lean on colour.
+      if (DIR.aliveCount > 0) {
+        const tag = DIR.awareCount === 0 ? 'UNSEEN' : 'HUNTED  ' + DIR.awareCount;
+        const tw = measureText(tag, 14);
+        drawText(tag, (sw - tw) / 2, 44, 14,
+          DIR.awareCount === 0 ? { r: 150, g: 215, b: 255, a: 220 } : { r: 255, g: 190, b: 120, a: 220 });
+      }
     }
   }
 

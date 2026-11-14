@@ -36,6 +36,12 @@ export const FLOW_CELL = 0.5;
 /// only in the mounting zone, and elsewhere they still shepherd the body.
 export const FLOW_WALL_PAD = 0.25;
 
+/// Plan 2.5 - how far past the building's walls the grid reaches. It was 2 m, enough to mount
+/// the stairs; at 10 m the field also routes a creature AROUND the house on the ground when the
+/// house is between it and the player (see flowSegBlocked / the director's same-floor routing).
+/// Keep it a multiple of FLOW_CELL so the cells inside stay exactly where they were.
+export const FLOW_APRON = 10.0;
+
 export const FLOW: any = {
   ready: 0,        // grid built (initFlow ran and found a building + stairs)
   active: 0,       // field currently seeded at a reachable player node
@@ -126,8 +132,8 @@ export function initFlow(): void {
   FLOW.lvlY = lvl;
 
   // ---- grid over the building bounds + apron ------------------------------
-  const x0 = NAV.bx0 - 2.0, x1 = NAV.bx1 + 2.0;
-  const z0 = NAV.bz0 - 2.0, z1 = NAV.bz1 + 2.0;
+  const x0 = NAV.bx0 - FLOW_APRON, x1 = NAV.bx1 + FLOW_APRON;
+  const z0 = NAV.bz0 - FLOW_APRON, z1 = NAV.bz1 + FLOW_APRON;
   const nx = Math.max(1, Math.ceil((x1 - x0) / FLOW_CELL));
   const nz = Math.max(1, Math.ceil((z1 - z0) / FLOW_CELL));
   FLOW.x0 = x0; FLOW.z0 = z0; FLOW.nx = nx; FLOW.nz = nz;
@@ -155,6 +161,12 @@ export function initFlow(): void {
         const s = surfaceHeightAt(x, z, y + 0.1);
         if (Math.abs(s - y) <= 0.6
             && !flowWallBlocked(x, z, y, mount === 1 ? 0.0 : FLOW_WALL_PAD)) ok = 1;
+        // Outside the footprint the ground is terrain, which rolls: on the lowest level any
+        // cell within a floor's height of it is walkable (a walker there maps to this level).
+        if (ok === 0 && l === 0
+            && (x < NAV.bx0 || x > NAV.bx1 || z < NAV.bz0 || z > NAV.bz1)
+            && Math.abs(s - y) <= SAME_FLOOR_EPS
+            && !flowWallBlocked(x, z, s, FLOW_WALL_PAD)) ok = 1;
         walk[nodeOf(l, ix, iz)] = ok;
       }
     }
@@ -328,6 +340,65 @@ function flightCorridor(f: number, x: number, y: number, z: number): boolean {
 export function flowBlockedAt(x: number, z: number, y: number): boolean {
   if (NAV.hasBldg !== 1) return false;
   return flowWallBlocked(x, z, y, 0.0);
+}
+
+/// Is there building mass on the straight line from (x0,z0) to (x1,z1) at walker height y?
+/// An exact segment-against-box test in plan (walls are 0.3 m thick: sampling the line every
+/// half metre stepped straight over them, and a creature inside the house then leaned on the
+/// wall between it and the player for the rest of the wave). The first 40 m only.
+/// This is what tells the director a creature should follow the field on the SAME floor
+/// instead of walking at a wall (plan 2.5).
+export function flowSegBlocked(x0: number, z0: number, x1: number, z1: number, y: number): boolean {
+  if (NAV.hasBldg !== 1) return false;
+  let dx = x1 - x0, dz = z1 - z0;
+  const len = Math.sqrt(dx * dx + dz * dz);
+  if (len < 1.0) return false;
+  if (len > 40) { dx = dx * 40 / len; dz = dz * 40 / len; }
+  // Cheap reject: the segment's box against the building's.
+  const ex = x0 + dx, ez = z0 + dz;
+  const lox = x0 < ex ? x0 : ex, hix = x0 < ex ? ex : x0;
+  const loz = z0 < ez ? z0 : ez, hiz = z0 < ez ? ez : z0;
+  if (hix < NAV.bx0 || lox > NAV.bx1 || hiz < NAV.bz0 || loz > NAV.bz1) return false;
+  for (let i = 0; i < NAV.boxCount; i++) {
+    if (NAV.boxTop[i] <= y + 0.4) continue;   // low enough to step over / stand on
+    if (NAV.boxBot[i] >= y + 1.5) continue;   // high enough to walk under
+    // Liang-Barsky: clip the segment's parameter range against the box's two slabs.
+    let t0 = 0, t1 = 1, hit = 1;
+    if (dx > -0.000001 && dx < 0.000001) {
+      if (x0 < NAV.boxX0[i] || x0 > NAV.boxX1[i]) hit = 0;
+    } else {
+      let ta = (NAV.boxX0[i] - x0) / dx, tb = (NAV.boxX1[i] - x0) / dx;
+      if (ta > tb) { const tt = ta; ta = tb; tb = tt; }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+    }
+    if (hit === 1) {
+      if (dz > -0.000001 && dz < 0.000001) {
+        if (z0 < NAV.boxZ0[i] || z0 > NAV.boxZ1[i]) hit = 0;
+      } else {
+        let ta = (NAV.boxZ0[i] - z0) / dz, tb = (NAV.boxZ1[i] - z0) / dz;
+        if (ta > tb) { const tt = ta; ta = tb; tb = tt; }
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+      }
+    }
+    if (hit === 1 && t0 <= t1) return true;
+  }
+  return false;
+}
+
+/// Inside the building's footprint, grown by `margin` metres.
+export function flowInBuilding(x: number, z: number, margin: number): boolean {
+  if (NAV.hasBldg !== 1) return false;
+  return x > NAV.bx0 - margin && x < NAV.bx1 + margin && z > NAV.bz0 - margin && z < NAV.bz1 + margin;
+}
+
+/// True when (x,z) is inside the grid, i.e. the field can route a walker standing there.
+export function flowCovers(x: number, z: number): boolean {
+  if (FLOW.ready !== 1 || FLOW.active !== 1) return false;
+  const ix = Math.floor((x - FLOW.x0) / FLOW_CELL);
+  const iz = Math.floor((z - FLOW.z0) / FLOW_CELL);
+  return ix >= 0 && ix < FLOW.nx && iz >= 0 && iz < FLOW.nz;
 }
 
 /// The full cross-floor routing goal, superseding nav.ts's navGoal for the

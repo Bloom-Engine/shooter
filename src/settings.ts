@@ -60,7 +60,11 @@ export const SET_BLOOM      = 18;  // 0/1
 // gameplay mode). Applied only when the device reports ray-query
 // support; on anything else the setting is inert and the menu says so.
 export const SET_PT         = 19;
-export const SET_COUNT      = 20;
+// Plan 2.9 - look speed while aiming down the sights, as a multiple of the hip speed, and
+// the pad's aim assist (slowdown, rotation, magnetism) as one switch.
+export const SET_ADS_SENS   = 20;
+export const SET_AIM_ASSIST = 21;  // 0/1
+export const SET_COUNT      = 22;
 
 const V = new Array<number>(SET_COUNT);
 
@@ -75,6 +79,8 @@ function defaults(): void {
   V[SET_SFX_VOL]    = 1.0;
   V[SET_SENS]       = 1.0;
   V[SET_PAD_SENS]   = 1.0;
+  V[SET_ADS_SENS]   = 0.7;
+  V[SET_AIM_ASSIST] = 1;
   V[SET_INVERT_Y]   = 0;
   V[SET_FOV]        = 70;
   V[SET_SHAKE]      = 1.0;
@@ -180,6 +186,8 @@ export function loadSettings(): void {
   const c: any = o['controls'];
   V[SET_SENS]        = num(c, 'sensitivity',   V[SET_SENS]);
   V[SET_PAD_SENS]    = num(c, 'padSensitivity', V[SET_PAD_SENS]);
+  V[SET_ADS_SENS]    = num(c, 'adsSensitivity', V[SET_ADS_SENS]);
+  V[SET_AIM_ASSIST]  = num(c, 'aimAssist', V[SET_AIM_ASSIST]);
   V[SET_INVERT_Y]    = num(c, 'invertY',       V[SET_INVERT_Y]);
   V[SET_AIM_TOGGLE]  = num(c, 'aimToggle',     V[SET_AIM_TOGGLE]);
   V[SET_SPRINT_TOGGLE] = num(c, 'sprintToggle', V[SET_SPRINT_TOGGLE]);
@@ -215,6 +223,8 @@ export function saveSettings(): void {
         + ', "sfx": ' + V[SET_SFX_VOL] + ' },\n';
   s = s + '  "controls": { "sensitivity": ' + V[SET_SENS]
         + ', "padSensitivity": ' + V[SET_PAD_SENS]
+        + ', "adsSensitivity": ' + V[SET_ADS_SENS]
+        + ', "aimAssist": ' + V[SET_AIM_ASSIST]
         + ', "invertY": ' + V[SET_INVERT_Y]
         + ', "aimToggle": ' + V[SET_AIM_TOGGLE]
         + ', "sprintToggle": ' + V[SET_SPRINT_TOGGLE] + ' },\n';

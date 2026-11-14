@@ -131,8 +131,17 @@ export const KIND_HX    = [1.0,  0.9,  1.2,  1.4,  1.8,   1.2,     1.4];
 export const KIND_HY    = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5];
 export const KIND_HZ    = [1.1,  1.0,  1.3,  1.6,  2.0,   1.3,     1.6];
 export const KIND_Y_OFF = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5];
+// The PHYSICS box (what the player's capsule bumps into) is the body's real size since plan 2.3:
+// shots are tested against the hit shapes now, so the box no longer has to be "generous", and
+// the old one (2 m tall and 2 m wide for an 0.8 m Skitter) shoved the player from a metre away.
+// Half extents; the box is centred KIND_BOX_Y above the feet.
+export const KIND_BOX_HX = [0.28, 0.32, 0.42, 0.58, 0.95, 0.36, 0.62];
+export const KIND_BOX_HY = [0.38, 0.82, 0.92, 1.15, 1.70, 0.92, 1.15];
+export const KIND_BOX_Y  = [0.40, 0.85, 0.95, 1.20, 1.75, 0.95, 1.20];
 export const KIND_SPEED = [3.0,  4.5,  3.5,  2.5,  2.2,   4.0,     2.4];
-export const KIND_HP    = [3,    4,    6,    10,   20,    8,       14];
+// Plan 2.3 rescaled HP and weapon damage by ten (rifle 1 -> 10 against Skitter 3 -> 30), so a
+// headshot, a limb hit and range falloff can all be fractions of a body shot.
+export const KIND_HP    = [30,   40,   60,   100,  200,   80,      140];
 export const KIND_DMG   = [12,   10,   16,   22,   35,    14,      20];
 export const KIND_CD    = [0.9,  0.7,  0.9,  1.1,  1.3,   0.9,     1.1];
 export const KIND_MELEE = [2.0,  2.0,  2.3,  2.6,  3.0,   2.3,     2.6];
@@ -177,8 +186,15 @@ export const RANGED_WINDUP = [0, 0, 0, 0, 0, 0.35, 0.6];
 // Enemy pool — each slot is permanently tied to one kind because Jolt body
 // shapes can't be swapped in-place. BODIES_PER_KIND dormant bodies per kind
 // give us a fixed pool of MAX_ENEMIES = KIND_COUNT * BODIES_PER_KIND.
-export const BODIES_PER_KIND = 2;
-export const MAX_ENEMIES = KIND_COUNT * BODIES_PER_KIND;
+// Plan 2.6 - the pool is sized PER KIND now. The creature rigs lost their finger and toe joints
+// (tools/gen/strip_joints.py: 66 -> 23 joints), and the engine's budget is 1024 joint matrices a
+// frame for every skinned draw: 67 (Trooper) + 30 slots x 23 = 757. Past the budget the engine
+// does not fail loudly: the draw that does not fit is posed with another model's matrices. Slots of one kind are
+// contiguous: kind k owns KIND_SLOT0[k] .. KIND_SLOT0[k] + KIND_POOL[k] - 1.
+//                      skitter stalker ravager bruiser colossus spitter bombard
+export const KIND_POOL  = [8,    5,     5,      3,      2,       4,      3];
+export const KIND_SLOT0 = [0,    8,     13,     18,     21,      23,     27];
+export const MAX_ENEMIES = 30;
 export const enX = new Array<number>(MAX_ENEMIES);
 export const enY = new Array<number>(MAX_ENEMIES);
 export const enZ = new Array<number>(MAX_ENEMIES);
@@ -249,6 +265,119 @@ export const enDeathImp   = new Array<number>(MAX_ENEMIES);
 // rate to actual ground speed (SH-034 — the foot-slide fix).
 export const vxLast = new Array<number>(MAX_ENEMIES);
 export const vzLast = new Array<number>(MAX_ENEMIES);
+// ---- Plan 2.1: perception -------------------------------------------------------------------
+// enAware 0 = hunting blind (walks to the last place the pack believes the player is),
+// 1 = alerted (sees, hears or was just hurt: runs its kind's combat behaviour).
+export const enAware   = new Array<number>(MAX_ENEMIES);
+export const enSeenT   = new Array<number>(MAX_ENEMIES);   // seconds since it last perceived the player
+export const enLastX   = new Array<number>(MAX_ENEMIES);   // last known player position (feet)
+export const enLastY   = new Array<number>(MAX_ENEMIES);
+export const enLastZ   = new Array<number>(MAX_ENEMIES);
+export const enLos     = new Array<number>(MAX_ENEMIES);   // cached line of sight to the player (0/1)
+export const enLosT    = new Array<number>(MAX_ENEMIES);   // seconds until the next sight ray
+export const enReactT  = new Array<number>(MAX_ENEMIES);   // "noticed you" pause before it acts
+export const enSearchT = new Array<number>(MAX_ENEMIES);   // seconds until the pack re-guesses
+export const enBlockT  = new Array<number>(MAX_ENEMIES);   // ranged: seconds without a clear shot
+export const enRouteT  = new Array<number>(MAX_ENEMIES);   // seconds until the next wall-in-the-way test
+export const enRouted  = new Array<number>(MAX_ENEMIES);   // 1 = a wall is between it and its target
+// How far each kind sees (m, standing target in the open) and the half-angle of its sight cone.
+export const KIND_SIGHT = [26, 34, 30, 28, 30, 38, 40];
+export const SIGHT_COS = 0.26;          // cos 75 deg: a 150 deg cone while unaware
+export const SIGHT_CROUCH_MUL = 0.5;    // a crouched Trooper is seen at half the distance
+export const SENSE_NEAR = 3.5;          // inside this it knows, whatever it faces
+export const LOSE_TIME = 5.0;           // seconds without perceiving before it stops being alerted
+export const ALERT_SHARE_R = 12.0;      // an alerted creature rouses others this close
+
+// ---- Plan 2.2: telegraphed melee ------------------------------------------------------------
+// Every melee attack is wind-up -> active -> recovery. The hit shape (a disc in front of the
+// attacker) exists only during the active frames; the wind-up is the tell and the dodge window.
+export const AI_STRIKE_WIND = 6;
+export const AI_STRIKE_HIT  = 7;
+export const AI_STRIKE_REC  = 8;
+//                              skitter stalker ravager bruiser colossus spitter bombard
+export const STRIKE_WINDUP   = [0.34,  0.40,   0.48,   0.62,   0.80,    0,      0];
+export const STRIKE_ACTIVE   = [0.14,  0.14,   0.16,   0.20,   0.24,    0,      0];
+export const STRIKE_RECOVER  = [0.45,  0.50,   0.60,   0.85,   1.20,    0,      0];
+export const STRIKE_START    = [1.5,   1.9,    2.1,    2.6,    3.3,     0,      0];   // begin a strike inside this
+export const STRIKE_REACH    = [0.9,   1.2,    1.3,    1.6,    2.2,     0,      0];   // disc centre, ahead of the body
+export const STRIKE_RADIUS   = [0.9,   1.0,    1.1,    1.4,    1.9,     0,      0];
+export const STRIKE_LUNGE    = [4.0,   5.0,    4.0,    3.0,    1.5,     0,      0];   // m/s forward while active
+// The attack clip, and when in it the blow lands (measured per rig): the upper-body layer is
+// played at ATTACK_HIT_T / STRIKE_WINDUP speed so the claw arrives as the active frames open.
+export const ATTACK_HIT_T    = [0.42,  0.46,   0.50,   0.80,   0.55,    0.15,   1.50];
+export const enHitDone  = new Array<number>(MAX_ENEMIES);   // this strike already landed or whiffed
+export const enStrikeSeq = new Array<number>(MAX_ENEMIES);  // bumped per strike; the draw restarts the layer on a change
+export const enHasToken = new Array<number>(MAX_ENEMIES);   // holds an attack token (plan 2.5)
+
+// ---- Plan 2.3: locational damage ------------------------------------------------------------
+// Sizes measured from each mesh in its idle pose (85th percentile of the vertices skinned to the
+// part), then floored: the Skitter's real torso is 6 cm thick and nobody could hit that.
+//                             skitter stalker ravager bruiser colossus spitter bombard
+export const KIND_HEAD_OFF_X = [0.03,  0.05,   0.07,   0.11,   0.18,    0.07,   0.15];
+export const KIND_HEAD_OFF_Y = [0.03,  0.04,   0.07,   0.00,  -0.09,    0.07,  -0.05];
+export const KIND_HEAD_R     = [0.14,  0.18,   0.20,   0.25,   0.31,    0.21,   0.21];
+export const KIND_TORSO_R    = [0.16,  0.17,   0.28,   0.44,   0.74,    0.20,   0.47];
+export const KIND_ARM_R      = [0.07,  0.10,   0.13,   0.18,   0.36,    0.09,   0.26];
+export const KIND_LEG_R      = [0.08,  0.10,   0.14,   0.19,   0.42,    0.10,   0.18];
+export const KIND_HEIGHT     = [0.80,  1.70,   1.89,   2.40,   3.51,    1.90,   2.37];
+// A weak point per heavy (the plan's phrase): a sphere riding a joint, offset in the model's axes
+// (X forward, Y up, Z right; a non-zero Z is mirrored to both sides). FRONT = it only counts for
+// a shot coming in from the front, where the pale belly is; the Bombard's launcher tubes sit on
+// top of its back and can be hit from anywhere.
+export const KIND_WEAK_JOINT_NAME = ['', '', '', 'mixamorig:Spine', 'mixamorig:Spine', '', 'mixamorig:Neck'];
+export const KIND_WEAK_X     = [0, 0, 0, 0.25, 0.36, 0, 0.00];
+export const KIND_WEAK_Y     = [0, 0, 0, 0.00, 0.04, 0, 0.28];
+export const KIND_WEAK_Z     = [0, 0, 0, 0.00, 0.00, 0, 0.32];
+export const KIND_WEAK_R     = [0, 0, 0, 0.27, 0.42, 0, 0.24];
+export const KIND_WEAK_FRONT = [0, 0, 0, 1,    1,    0, 0];
+// Shelled backs: a body shot that comes in from behind a Bruiser or a Colossus glances.
+export const KIND_SHELL      = [0, 0, 0, 1,    1,    0, 0];
+export const LOC_LIMB = 0;
+export const LOC_BODY = 1;
+export const LOC_HEAD = 2;
+export const LOC_WEAK = 3;
+export const LOC_SHELL = 4;
+export const LOC_MUL  = [0.7, 1.0, 2.0, 2.5, 0.5];   // head is multiplied again per weapon (W_HEAD_MUL)
+// Joints the hit shapes ride, looked up once per kind in initEnemyPool (HS_J * KIND_COUNT).
+export const HS_J = 17;
+export const HSJ_HEAD = 0, HSJ_NECK = 1, HSJ_HIPS = 2;
+export const HSJ_ARM_L = 3, HSJ_FARM_L = 4, HSJ_HAND_L = 5;
+export const HSJ_ARM_R = 6, HSJ_FARM_R = 7, HSJ_HAND_R = 8;
+export const HSJ_ULEG_L = 9, HSJ_LEG_L = 10, HSJ_FOOT_L = 11;
+export const HSJ_ULEG_R = 12, HSJ_LEG_R = 13, HSJ_FOOT_R = 14;
+export const HSJ_WEAK = 15, HSJ_SPINE2 = 16;
+export const KIND_HS_JOINT = new Array<number>(KIND_COUNT * HS_J);
+const HS_JOINT_NAMES = [
+  'mixamorig:Head', 'mixamorig:Neck', 'mixamorig:Hips',
+  'mixamorig:LeftArm', 'mixamorig:LeftForeArm', 'mixamorig:LeftHand',
+  'mixamorig:RightArm', 'mixamorig:RightForeArm', 'mixamorig:RightHand',
+  'mixamorig:LeftUpLeg', 'mixamorig:LeftLeg', 'mixamorig:LeftFoot',
+  'mixamorig:RightUpLeg', 'mixamorig:RightLeg', 'mixamorig:RightFoot',
+  '', 'mixamorig:Spine2',
+];
+// The transform each slot's skeleton was last posed with (what animUpdate got), so a shot is
+// tested against the pose on screen.
+export const enPoseX   = new Array<number>(MAX_ENEMIES);
+export const enPoseY   = new Array<number>(MAX_ENEMIES);
+export const enPoseZ   = new Array<number>(MAX_ENEMIES);
+export const enPoseYaw = new Array<number>(MAX_ENEMIES);
+export const enPosed   = new Array<number>(MAX_ENEMIES);   // 1 once the slot has a pose this life
+
+// ---- Plan 2.4: hit reactions ----------------------------------------------------------------
+export const enHitDX   = new Array<number>(MAX_ENEMIES);   // world direction of the last hit (unit, XZ)
+export const enHitDZ   = new Array<number>(MAX_ENEMIES);
+export const enHitK    = new Array<number>(MAX_ENEMIES);   // jolt strength, decays to 0
+export const enDeathClip = new Array<number>(MAX_ENEMIES); // which clip this death plays
+export const enDeathVX = new Array<number>(MAX_ENEMIES);   // a body thrown by a blast slides
+export const enDeathVZ = new Array<number>(MAX_ENEMIES);
+export const enDeathVY = new Array<number>(MAX_ENEMIES);
+export const enDeathLift = new Array<number>(MAX_ENEMIES); // height above the ground while thrown
+// The second death: clip 3 ("fall") crumples where it stands, but only after a second of
+// swaying, so it is entered at ANIM_FALL_SKIP by playing that first second very fast.
+export const ANIM_FALL_IDX = 3;
+export const ANIM_FALL_SKIP = 1.05;
+export const ANIM_FALL_DUR = 3.0;
+
 export const enBody: BodyHandle[] = new Array<BodyHandle>(MAX_ENEMIES);
 // EN-028 — one animation handle per SLOT, so every enemy owns its own mixer
 // clock, crossfade and attack-layer weight (see the note at ALIEN_GLB).
@@ -272,9 +401,16 @@ export function initEnemyPool(physics: number, stagedAliens: number[]): void {
     KIND_SPINE_JOINT[k] = findJoint(animAliens[k], 'spine');
   }
   for (let k = 0; k < KIND_COUNT; k++) {
-    const shape = boxShape(vec3(KIND_HX[k], KIND_HY[k], KIND_HZ[k]));
-    for (let j = 0; j < BODIES_PER_KIND; j++) {
-      const i = k * BODIES_PER_KIND + j;
+    for (let j = 0; j < HS_J; j++) {
+      let nm = HS_JOINT_NAMES[j];
+      if (j === HSJ_WEAK) nm = KIND_WEAK_JOINT_NAME[k];
+      KIND_HS_JOINT[k * HS_J + j] = nm.length > 0 ? findJoint(animAliens[k], nm) : -1;
+    }
+  }
+  for (let k = 0; k < KIND_COUNT; k++) {
+    const shape = boxShape(vec3(KIND_BOX_HX[k], KIND_BOX_HY[k], KIND_BOX_HX[k]));
+    for (let j = 0; j < KIND_POOL[k]; j++) {
+      const i = KIND_SLOT0[k] + j;
       // EN-055 — an INSTANCE over the per-kind clip set, not another parse of
       // the same GLB. Same guarantee as before (own mixer, own joint state —
       // two dretches never share a clock), but "the aliens" boot stage drops
@@ -305,6 +441,13 @@ export function initEnemyPool(physics: number, stagedAliens: number[]): void {
       enRangedCD[i] = 0;
       enBurst[i] = 0;
       enBurstT[i] = 0;
+      enAware[i] = 0; enSeenT[i] = 0; enLastX[i] = 0; enLastY[i] = 0; enLastZ[i] = 0;
+      enLos[i] = 0; enLosT[i] = 0; enReactT[i] = 0; enSearchT[i] = 0; enBlockT[i] = 0;
+      enRouteT[i] = 0; enRouted[i] = 0;
+      enHitDone[i] = 0; enStrikeSeq[i] = 0; enHasToken[i] = 0;
+      enPoseX[i] = 0; enPoseY[i] = 0; enPoseZ[i] = 0; enPoseYaw[i] = 0; enPosed[i] = 0;
+      enHitDX[i] = 0; enHitDZ[i] = 0; enHitK[i] = 0;
+      enDeathClip[i] = 2; enDeathVX[i] = 0; enDeathVZ[i] = 0; enDeathVY[i] = 0; enDeathLift[i] = 0;
       enRagdoll[i] = createRagdoll();
       enRagActive[i] = 0;
       vxLast[i] = 0;
@@ -322,5 +465,7 @@ export function initEnemyPool(physics: number, stagedAliens: number[]): void {
   // cannot see. Handles are allocator-ordered, so slot0 > kind-set proves the
   // instances are NEW handles, not aliases.
   console.log('[anim] kind0 clipset=' + animAliens[0]
-            + ' slot0=' + enAnim[0] + ' slot1=' + enAnim[1]);
+            + ' slot0=' + enAnim[0] + ' slot1=' + enAnim[1]
+            + ' head=' + KIND_HS_JOINT[HSJ_HEAD] + ' hips=' + KIND_HS_JOINT[HSJ_HIPS]
+            + ' foot=' + KIND_HS_JOINT[HSJ_FOOT_R]);
 }

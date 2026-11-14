@@ -1873,3 +1873,37 @@ gait), a weapon-swap animation, turn-in-place, and nothing here has been played 
 every check above is a still frame.
 
 Engine: EN-064 (`animSetBlend`, `animSetJointRotation`, `animSetIK`, `animSetIKPole`, `animTime`).
+
+---
+
+## SH-057 — AAA plan, Phase 2: combat that can be read and mastered ✅ *(landed 2026-11-14; not played, tuning open)*
+
+Checked with two new harnesses in `src/main.ts`. **P2TEST** scripts one situation per feature
+and prints numbers (`P2 ...` lines) and pictures. **P2BOT** lets a stand-in play a whole run:
+it stands at the spawn, turns to the nearest creature it could see and holds the trigger.
+Neither is a person playing.
+
+| Plan item | What changed | Checked how |
+|---|---|---|
+| 2.1 Perception | A creature has to see the player (range per kind 26-40 m, a 150 degree cone while unaware, a clear line: one ray per creature every 0.2 s), hear them (crouch silent, walk 5 m, run 9 m, sprint 16 m, a shot 30-50 m, a blast 60 m; a wall takes 40%) or be touched or shot. Alerted, it rouses others within 12 m and pauses 0.3-0.5 s before acting. Five seconds without perceiving and it goes back to hunting the last place it knew. Spawned creatures hunt a guess within ten metres of the player and re-guess every 9-13 s, so a wave cannot stall. HUD: UNSEEN / HUNTED n under the wave line | P2TEST: a Ravager walking away at 12 m stayed unaware of a silent player (`aware=0`), one rifle shot alerted it (`aware=1`). P2BOT: waves cleared |
+| 2.2 Telegraphed melee | Every melee attack is wind-up (0.34-0.80 s by kind, rooted, turning with the player for the first two thirds then committed), active frames (0.14-0.24 s: a disc in front of the body is the hit shape, one hit per strike), recovery (0.45-1.2 s). The Bruiser's charge is its active window. The attack clip is restarted per strike and played so its blow (measured per rig) lands as the active frames open. Tell: attack voice, a flare and light at the head that build through the wind-up, a swing sound as it goes | P2TEST: wind-up 0.52 s, 16 damage on the active frames and not before, second strike rolled away from with health unchanged |
+| 2.3 Locational damage | `src/hitshapes.ts`: head sphere, torso capsule, two capsules per arm and leg and a weak-point sphere, riding each creature's live skeleton. Hitscan and bolts test those and the static world separately; the physics boxes are body-sized and only block the player. Limb x0.7, body x1, head x2 (x2.5 rifle, x1.5 chaingun), weak point x2.5 and triple toward a stagger: Bruiser and Colossus belly from the front, Bombard launcher tubes. Shots into a Bruiser's or Colossus's back glance (x0.5, sparks, ricochet). HP and weapon damage x10. Larger tick marker and a crack for a critical hit | P2TEST: rays at head / chest / foot / beside / weak point / from behind reported 2 / 1 / 0 / miss / 3 / 4 as expected for all seven kinds (after fixing the Colossus, whose head sits inside its chest capsule); rifle steered onto a Ravager's head did 25 a round and killed in 3 |
+| 2.4 Hit reactions | Decision: authored deaths, not ragdoll. From the front it is thrown onto its back; from behind or by a headshot it crumples (the "fall" clip entered one second in); a blast or a blow of 45+ throws a light creature along the hit, on an arc, to slide to a stop. Every hit jolts the spine along the shot for a quarter second (`animSetJointRotation`); heavies stagger off the existing meter | compiled and run in both harnesses; **the look of the jolt and of the thrown bodies was not reviewed frame by frame** |
+| 2.5 Group behaviour | Attack tokens: two creatures mid-attack at once (three in the last wave); Bruiser, Colossus and a darting Stalker do not queue. Token-less light kinds, and any on cooldown, circle 1.6 m outside their reach. Ranged kinds that lose their shot for a second close in and circle, reversing every two seconds. The flow field reaches 10 m past the house (was 2 m) and routes on the same floor whenever a wall is on the straight line | P2TEST: eight Skitters round the player, never more than 2 mid-attack. STAIRTEST: creatures still climb to a player on the first floor |
+| 2.6 Swarms | `tools/gen/strip_joints.py` removes finger, toe-end and head-top joints from the seven creature GLBs (66 to 23 joints; weights go to the nearest kept parent; clips, order and durations unchanged). Pool is per kind: 8 Skitters, 5 Stalkers, 5 Ravagers, 3 Bruisers, 2 Colossi, 4 Spitters, 3 Bombards = 30 bodies, 757 of 1024 joint matrices. 12 alive at once. Waves grew (arena_02 22 to 35 creatures, arena_03 25 to 39), the last one opening with eight Skitters | P2TEST: eight Skitters on screen at 40 fps (4K, M1 Max); P2BOT: see below |
+| 2.7 Player kit | Health regenerates to 40 after 5 s unhurt; kills drop a field dressing (+30) with a chance by kind, doubled when the player is under 40. Rifle-butt strike (F / LB / HIT): 45 damage in a 2.2 m arc, knocks back and stuns. Grenade (G / Back / NADE): 2 carried of 4, 2 s fuse, bounces, 160 at the centre of 6 m; every ammo crate gives one. Vault: jump while moving into something 0.35-1.25 m high | P2TEST: strike killed 2 of 8 Skitters, grenade 3 of 6, vault carried the Trooper over the house crate. Found on the way: every prop's collider sat half its height into the floor; lifted |
+| 2.8 Weapon identity | Recoil follows a ten-step pattern per weapon and the view comes back between bursts by whatever the player did not pull back themselves. Hitscan falloff (rifle full to 30 m, 60% at 55 m; chaingun full to 14 m, 40% at 38 m). Rifle: first aimed round has no spread, best headshots. Blaster: bolts pass through one body. Chaingun: cone tightens from 5.5 to 1.6 degrees as it fires, walking is 40% slower spun up. Weapon switch takes 0.35 s and the new one comes up from the ground. Pickups are an ammo crate with the weapon turning above it | pickups in a P2TEST frame; **recoil, falloff and the quirks were compiled and read, not felt** |
+| 2.9 Gamepad aim | Rotational assist (the view follows half of a near-crosshair target's angular motion while moving or steering), bullet magnetism (1.2 degrees from the hip, 2.1 aiming), both pad-only and behind a new PAD AIM ASSIST switch with the old slowdown; AIMING SENSITIVITY slider (default 0.7x) for every device | compiled; **no pad was connected** |
+
+P2BOT, both arenas (M1 Max, 3456x2168): Outdoor Plaza cleared in 105 s, 35 kills, 12 alive at
+most, never more than 2 mid-attack, 18 hits taken by a stand-in that never moves; Riverbend Ravine
+in 100 s, 39 kills, 8 hits. Frame rate 35-50 with 10-12 creatures alive. The first bot runs found
+three faults that the scripted checks had not: creatures leaning on a wall the "wall in the way"
+test had stepped over, a Ravager parked in the house's south door, and shots at a creature
+clawing at the player missing because the aim ray began 1.6 m past the Trooper. All fixed.
+COMBATSHOT, PLAYERSHOT and STAIRTEST still run; COMBATSHOT's blind fire between two creatures
+now hits 3 of 33 where the old boxes caught most of it, which is the hit shapes working.
+
+Sounds: six new effects from `tools/gen/sfx.py` (swing, crit_hit, melee_hit, grenade_throw,
+grenade_bounce, heal).
+

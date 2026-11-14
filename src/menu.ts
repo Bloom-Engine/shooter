@@ -90,7 +90,7 @@ const SET_LABELS: string[] = [
   'SHADOWS', 'AMBIENT OCCLUSION', 'REFLECTIONS', 'GLOBAL ILLUMINATION', 'BLOOM',
   'PATH TRACING',
   'MASTER VOLUME', 'MUSIC VOLUME', 'SFX VOLUME',
-  'LOOK SENSITIVITY', 'PAD SENSITIVITY', 'INVERT Y',
+  'LOOK SENSITIVITY', 'PAD SENSITIVITY', 'AIMING SENSITIVITY', 'PAD AIM ASSIST', 'INVERT Y',
   'FIELD OF VIEW', 'CAMERA SHAKE',
   'AIM: HOLD/TOGGLE', 'SPRINT: HOLD/TOGGLE',
   'TELEGRAPH CAPTIONS',
@@ -101,7 +101,7 @@ const SET_KINDS: number[] = [
   ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE,
   ROW_TRI,
   ROW_SLIDER, ROW_SLIDER, ROW_SLIDER,
-  ROW_SLIDER, ROW_SLIDER, ROW_TOGGLE,
+  ROW_SLIDER, ROW_SLIDER, ROW_SLIDER, ROW_TOGGLE, ROW_TOGGLE,
   ROW_SLIDER, ROW_SLIDER,
   ROW_TOGGLE, ROW_TOGGLE,
   ROW_TOGGLE,
@@ -112,7 +112,7 @@ const SET_IDX: number[] = [
   SET.SET_SHADOWS, SET.SET_SSAO, SET.SET_SSR, SET.SET_SSGI, SET.SET_BLOOM,
   SET.SET_PT,
   SET.SET_MASTER_VOL, SET.SET_MUSIC_VOL, SET.SET_SFX_VOL,
-  SET.SET_SENS, SET.SET_PAD_SENS, SET.SET_INVERT_Y,
+  SET.SET_SENS, SET.SET_PAD_SENS, SET.SET_ADS_SENS, SET.SET_AIM_ASSIST, SET.SET_INVERT_Y,
   SET.SET_FOV, SET.SET_SHAKE,
   SET.SET_AIM_TOGGLE, SET.SET_SPRINT_TOGGLE,
   SET.SET_CAPTIONS,
@@ -126,7 +126,7 @@ const SET_MIN:  number[] = [
   0, 0, 0, 0, 0,
   0,
   0, 0, 0,
-  0.2, 0.2, 0,
+  0.2, 0.2, 0.3, 0, 0,
   60, 0,
   0, 0,
   0, 0];
@@ -135,7 +135,7 @@ const SET_MAX:  number[] = [
   1, 1, 1, 1, 1,
   2,
   1, 1, 1,
-  3.0, 3.0, 1,
+  3.0, 3.0, 1.0, 1, 1,
   100, 1,
   1, 1,
   1, 0];
@@ -144,13 +144,13 @@ const SET_STEP: number[] = [
   1, 1, 1, 1, 1,
   1,
   0.05, 0.05, 0.05,
-  0.1, 0.1, 1,
+  0.1, 0.1, 0.05, 1, 1,
   5, 0.1,
   1, 1,
   1, 0];
 // MUST equal the length of the six arrays above — they are parallel and indexed
 // by row, so a mismatch silently misaligns every row past the short one.
-const SET_COUNT_ROWS = 20;
+const SET_COUNT_ROWS = 22;
 
 export function initMenus(): void {
   S[0] = MENU_NONE; S[1] = 0; S[2] = 0; S[3] = MENU_PAUSE;
@@ -389,8 +389,10 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
 /// x, y, rowWidth, rowHeight of the row list.
 function layout(sw: number, sh: number): number[] {
   const rowW = sw * 0.5;
-  const rowH = 46;
   const n = rowCount();
+  // The settings list is 22 rows: at 46 units it would run past a 1080-unit-tall screen.
+  let rowH = 46;
+  if (n * rowH + 110 > sh) rowH = Math.floor((sh - 110) / n);
   const x0 = (sw - rowW) / 2;
   const y0 = sh * 0.5 - (n * rowH) / 2 + 20;
   return [x0, y0, rowW, rowH];

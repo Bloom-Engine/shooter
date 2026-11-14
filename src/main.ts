@@ -10,7 +10,7 @@ import {
   isKeyPressed, isKeyDown, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
-  loadModel, drawModel, drawModelRotated, getModelBounds, loadModelAnimation, updateModelAnimation,
+  loadModel, drawModel, drawModelRotated, drawSphere, getModelBounds, loadModelAnimation, updateModelAnimation,
   stageModels, stageModelsSync, commitModel,
   setModelFoliageWind, setFoliageShadowMotion,
   drawMeshWithMaterial, drawMeshWithMaterialInstanced,
@@ -57,18 +57,19 @@ import {
   createPlayer, updatePlayerController, playerPosition,
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting, isCrouching,
   dodgeDirX, dodgeDirZ, dodgeDuration, setSquared,
-  setPlayerPosition,
+  setPlayerPosition, setCarryMul, vaultProgress, isVaulting, VD,
 } from './player';
 import * as W from './world-runtime';
 import { ENV, initEnvironment, initGiProxies } from './environment';
 import { GS } from './gamestate';
 import {
   DIR, initDirector, setDirectorDeps, updateDirector, updateEnemyProjectiles,
-  countAlive, WAVE_BREAK_DELAY,
+  countAlive, WAVE_BREAK_DELAY, despawnAllEnemies, hpX, hpY, hpZ, hpLife,
 } from './director';
 import {
   setCombatDeps, updateWeaponTransform, updateCombat, drawWeapon,
   drawCombatWorld, startRun, resetRun, PLAYER_HP_MAX,
+  throwGrenade, startMelee, meleeSwing,
   PICKUP_COUNT, PICKUP_RADIUS, PICKUP_RESPAWN, PICKUP_RIFLE,
   pickupActive, pickupKind, pickupRespawnT, pickupX, pickupY, pickupZ,
 } from './combat';
@@ -77,6 +78,7 @@ import {
   updateCameraLook, updateCameraOrbit, swapShoulder,
 } from './camera';
 import { drawHud, drawOverlays, drawArenaNotice } from './hud';
+import { hitShapesBeginFrame, shapeJoint, rayEnemies } from './hitshapes';
 import {
   // KIND_COUNT + ALIEN_GLB re-added by the EN-055 merge: the boot-time
   // stageModels batch needs the kind GLB paths (a green Perry compile would
@@ -85,8 +87,15 @@ import {
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
   KIND_SPINE_JOINT, KIND_TINTO,
   KIND_SCALE, KIND_Y_OFF, KIND_SPEED, KIND_HP, KIND_MELEE, DRETCH_HIT_FLASH,
-  AI_WINDUP, AI_FLINCH,
-  BODIES_PER_KIND, MAX_ENEMIES,
+  AI_WINDUP, AI_FLINCH, AI_STRIKE_WIND, AI_STRIKE_HIT, AI_STRIKE_REC,
+  KIND_POOL, KIND_SLOT0, MAX_ENEMIES,
+  STRIKE_WINDUP, ATTACK_HIT_T, KIND_HEIGHT, KIND_RANGED, RANGED_WINDUP,
+  enStrikeSeq, enPoseX, enPoseY, enPoseZ, enPoseYaw, enPosed,
+  enHitDX, enHitDZ, enHitK, enDeathClip, enDeathVX, enDeathVZ, enDeathVY, enDeathLift,
+  ANIM_FALL_IDX, ANIM_FALL_SKIP, ANIM_FALL_DUR, KIND_LIGHT,
+  enAware, enLastX, enLastY, enLastZ, enLos, enHasToken, enStateT, enReactT, enSearchT,
+  HSJ_HEAD, HSJ_NECK, HSJ_HIPS, HSJ_HAND_L, HSJ_HAND_R, HSJ_FOOT_L, HSJ_FOOT_R, HSJ_WEAK,
+  KIND_HEAD_R, KIND_TORSO_R, KIND_WEAK_R, KIND_WEAK_Z, KIND_BOX_Y,
   enX, enY, enZ, enHP, enAlive, enKind, enAttackCD, enFlashT,
   enDying, enDeathT, enDeathYaw,
   enAIState, enHeading,
@@ -112,8 +121,8 @@ import {
 // an alias so the height-sampling call sites read the same as they always have.
 import * as T from './world-runtime';
 import { terrainHeightAt } from './terrain';
-import { initNav } from './nav';
-import { initFlow } from './flow';
+import { initNav, surfaceHeightAt } from './nav';
+import { initFlow, flowBlockedAt } from './flow';
 
 // Borderless fullscreen at the monitor's native resolution (the engine
 // resizes its swapchain + all render targets on the WM_SIZE this triggers).
@@ -221,6 +230,26 @@ if (sfxFireChain !== sfxFireRifle) setSoundVolume(sfxFireChain, 0.38);
 if (sfxFireCannon !== sfxFireRifle) setSoundVolume(sfxFireCannon, 0.60);
 if (sfxExplosion !== sfxFireBlaster) setSoundVolume(sfxExplosion, 0.85);
 const sfxFireByWeapon = [sfxFireRifle, sfxFireBlaster, sfxFireChain, sfxFireCannon];
+// Phase 2 (SH-057): the claw swing, the critical-hit confirm and the player's kit. Optional
+// files with stand-ins, like the three above.
+const sfxSwing = fileExists('assets/sounds/swing.wav')
+  ? loadSound('assets/sounds/swing.wav') : sfxAttack;
+const sfxCrit = fileExists('assets/sounds/crit_hit.wav')
+  ? loadSound('assets/sounds/crit_hit.wav') : sfxPickup;
+const sfxMeleeHit = fileExists('assets/sounds/melee_hit.wav')
+  ? loadSound('assets/sounds/melee_hit.wav') : sfxAttack;
+const sfxNadeThrow = fileExists('assets/sounds/grenade_throw.wav')
+  ? loadSound('assets/sounds/grenade_throw.wav') : sfxPickup;
+const sfxNadeBounce = fileExists('assets/sounds/grenade_bounce.wav')
+  ? loadSound('assets/sounds/grenade_bounce.wav') : sfxPickup;
+const sfxHeal = fileExists('assets/sounds/heal.wav')
+  ? loadSound('assets/sounds/heal.wav') : sfxPickup;
+if (sfxSwing !== sfxAttack) setSoundVolume(sfxSwing, 0.55);
+if (sfxCrit !== sfxPickup) setSoundVolume(sfxCrit, 0.70);
+if (sfxMeleeHit !== sfxAttack) setSoundVolume(sfxMeleeHit, 0.70);
+if (sfxNadeThrow !== sfxPickup) setSoundVolume(sfxNadeThrow, 0.55);
+if (sfxNadeBounce !== sfxPickup) setSoundVolume(sfxNadeBounce, 0.50);
+if (sfxHeal !== sfxPickup) setSoundVolume(sfxHeal, 0.55);
 const sfxImpactFlesh = loadSound('assets/sounds/impact_flesh.wav');
 setSoundVolume(sfxImpactFlesh, 0.45);
 const sfxRicochet = [loadSound('assets/sounds/ricochet1.wav'),
@@ -673,8 +702,10 @@ for (let i = 0; i < FOREST_COUNT; i++) {
 
 let treePropIdx = -1;
 let terrainPropIdx = -1;
+let cratePropIdx = -1;      // the crate model doubles as the ammo cache and the field dressing
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
   if (W.UNIQUE_MODELS[i] === 'assets/models/prop_tree.glb')     { treePropIdx    = i; }
+  if (W.UNIQUE_MODELS[i] === 'assets/models/prop_crate.glb')    { cratePropIdx   = i; }
   // SH-040: any terrain_*.glb is THE terrain shell (arena_02 ships
   // terrain_hills, arena_03 terrain_ravine) — matching one exact filename
   // was the last per-arena hardcode in the load path.
@@ -966,7 +997,12 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
     const shape = boxShape(vec3(W.MESH_COLLIDER_HX[i], W.MESH_COLLIDER_HY[i], W.MESH_COLLIDER_HZ[i]));
     createBody(physics, shape, {
       motionType: MotionType.STATIC,
-      position: vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]),
+      // A box placeholder is centred on its position; a prop MODEL has its origin at the
+      // base, so its collider is lifted by its half height. (Until 2026-11 the furniture's
+      // colliders sat half their height into the floor, under the crates you could see.)
+      position: vec3(W.MESH_X[i],
+        W.MESH_Y[i] + (W.MODEL_IS_BOX[W.MESH_MODEL_IDX[i]] === 1 ? 0 : W.MESH_COLLIDER_HY[i]),
+        W.MESH_Z[i]),
       objectLayer: Layer.NON_MOVING,
       friction: 0.9,
     });
@@ -1130,6 +1166,13 @@ const WEAPON_HAND_Y = [0.07, 0.08, 0.10, 0.09];
 //   9 clip on the layer      10-12 weapon forward and 13-15 weapon up, in the hand's own frame
 //   16 those are known (0/1) 17 weapon follows the hand (eased 0..1)
 const PLRIG = [0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0];
+// Phase 2 - per enemy slot: the strike the attack layer was last restarted for, and whether a
+// hit jolt is currently applied to its spine (so it is cleared exactly once).
+const enLayerSeq = new Array<number>(MAX_ENEMIES);
+const enJoltOn = new Array<number>(MAX_ENEMIES);
+for (let i = 0; i < MAX_ENEMIES; i++) { enLayerSeq[i] = 0; enJoltOn[i] = 0; }
+const JOLT_ANGLE = 0.55;       // radians the upper body is knocked at full strength
+const TMP3 = [0, 0, 0];
 // ANIMDBG only — a joint that swings hard in any gait, so "is the pose actually
 // moving?" is a number and not an opinion.
 const dbgAnkle = findJoint(animPlayer, 'ankle.R');
@@ -1355,6 +1398,63 @@ const PSHOT_COUNT = 26;   // 13 rows, rows 3 and 5 again with each of the other 
                           // then seven action shots: roll, reload, hit, late in a roll, strafe
                           // left from the front, death (falling, down)
 const PSHOT_FRAMES = 50;
+
+// ---- P2TEST harness (plan Phase 2, SH-057) -----------------------------------
+// A scripted pass over what Phase 2 added, with numbers in the log and pictures on disk:
+//   1 SHAPES   one of each kind in a row; rays at head / chest / foot / beside / weak point
+//              must come back with the right location; a picture with the shapes drawn; then
+//              real rifle fire steered onto a head.
+//   2 SENSES   a Ravager walking away at 22 m does not notice a silent player; one shot and
+//              it does. It closes and strikes: wind-up, hit, recovery, timed and logged with
+//              the player's health. The second strike is answered with a roll.
+//   3 PACK     eight Skitters at once (the swarm, plan 2.6) around the player: how many are
+//              mid-attack at the same moment (attack tokens); then the rifle butt, then a grenade.
+//   4 VAULT    the Trooper runs at a crate in the house and jumps.
+//   5 a picture of an ammo cache and a field dressing.
+// MUST be false in shipped builds.
+const P2TEST = false;
+//   0 last logged Ravager state  1 time of its last wind-up  2 HP at that wind-up
+//   3 strikes seen  4 most creatures mid-attack at once  5 alive before melee
+//   6 alive before grenade  7 aim settle frames  8 stage-2 shot fired (0/1)
+const P2 = [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+// P2BOT - a whole run played by a stand-in: it stands at the spawn, turns to the nearest creature
+// it could see, and holds the trigger. Health is held full. What it proves is flow, not feel:
+// that waves of hunting creatures find the player, fight, die and the arena clears, with the
+// larger pool, in a few minutes, without a stall or a crash. MUST be false in shipped builds.
+const P2BOT = false;
+//   0 last wave index logged  1 most alive at once  2 most mid-attack at once  3 hits taken
+//   4 HP last frame
+const PB = [-1, 0, 0, 0, 100];
+const P2OUT = [0, 0, 0, 0, 0];
+
+function p2Place(slot: number, x: number, z: number, heading: number): void {
+  const k = enKind[slot];
+  enX[slot] = x; enZ[slot] = z;
+  enY[slot] = terrainHeightAt(x, z);
+  enHP[slot] = KIND_HP[k];
+  enAlive[slot] = 1; enDying[slot] = 0;
+  enAnimClip[slot] = -1;
+  enAttackCD[slot] = 0;
+  enAIState[slot] = 0; enStateT[slot] = 0;
+  enHeading[slot] = heading;
+  enAware[slot] = 0; enReactT[slot] = 0; enSearchT[slot] = 999;
+  enLastX[slot] = x; enLastY[slot] = enY[slot]; enLastZ[slot] = z;
+  enPosed[slot] = 0;
+  setBodyPosition(enBody[slot], vec3(x, enY[slot] + KIND_BOX_Y[k], z), true);
+}
+
+/// One ray from (ox,oy,oz) at slot i's shape joint j (plus an offset to the side): the
+/// location it reports, or -1 for a miss, or -2 when it hit some other slot.
+function p2Probe(ox: number, oy: number, oz: number, i: number, j: number, side: number): number {
+  shapeJoint(i, j, TMP3);
+  const tx = TMP3[0] + side, ty = TMP3[1], tz = TMP3[2];
+  const dx = tx - ox, dy = ty - oy, dz = tz - oz;
+  const dl = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const hit = rayEnemies(ox, oy, oz, dx / dl, dy / dl, dz / dl, dl + 3, 0, P2OUT);
+  if (hit < 0) return -1;
+  if (hit !== i) return -2;
+  return P2OUT[1];
+}
 
 // ---- COMBATSHOT harness -----------------------------------------------------
 // Drives a REAL fight and screenshots it, because the AAA-round systems (VFX,
@@ -1603,7 +1703,12 @@ setDirectorDeps({
   OBST_X, OBST_Z, OBST_R,
   sfxAlienAttack, sfxAlienDie, sfxAlienPain, sfxPlayerPain, sfxPlayerDie,
   pickupActive, pickupKind, pickupRespawnT, pickupX, pickupY, pickupZ,
+  sfxSwing, sfxCrit, sfxHeal, sfxRicochet, PLAYER_HP_MAX,
 });
+// The crate model for pickups: the world's own copy when the arena has crates, else loaded.
+const hasCrate = (cratePropIdx >= 0 || fileExists('assets/models/prop_crate.glb')) ? 1 : 0;
+const mdlCrate: any = cratePropIdx >= 0 ? meshModelHandles[cratePropIdx]
+  : (hasCrate === 1 ? loadModel('assets/models/prop_crate.glb') : 0);
 
 // SH-025c — same pattern for the combat module: camera + physics handles,
 // the player model the weapon rides, the weapon models + their ABI columns,
@@ -1615,7 +1720,280 @@ setCombatDeps({
   sfxFireRifle, sfxFireBlaster, sfxRicochet, sfxPlayerDie, stingDeath,
   sfxFireByWeapon, sfxFireRifleB, sfxExplosion, sfxPlayerPain,
   musicMenu, musicCalm, musicCombat,
+  mdlCrate, hasCrate, sfxSwing, sfxMeleeHit, sfxNadeThrow, sfxNadeBounce,
 });
+
+// ---- P2TEST (see the harness block above) --------------------------------------------------
+// Frames: 30-200 shapes, 200-560 senses and the strike, 560-990 the pack, the rifle butt and a
+// grenade, 990-1100 the vault, 1100-1170 pickups.
+function p2Early(input: any): void {
+  const f = testFrame;
+  if (f === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+  DIR.waveBreakTimer = 9999;
+  GS.gameOver = false;
+  input.moveX = 0; input.moveZ = 0;
+  if (f < 200 || (f >= 560 && f < 990) || f >= 990) GS.playerHP = PLAYER_HP_MAX;
+  if (f === 30) {
+    // one of each kind, 8 m ahead, 3 m apart, facing the player, told to stand
+    for (let k = 0; k < KIND_COUNT; k++) {
+      p2Place(KIND_SLOT0[k], -9 + k * 3, 12, Math.PI);
+      enReactT[KIND_SLOT0[k]] = 1089;
+    }
+  }
+  if (f === 200) {
+    despawnAllEnemies();
+    setPlayerPosition(vec3(0, terrainHeightAt(0, 27) + 1.2, 27));
+    const sl = KIND_SLOT0[2];
+    p2Place(sl, 1.5, 17, 0);                 // 10 m ahead, back turned, walking away
+    enLastX[sl] = 1.5; enLastZ[sl] = -30;
+    GS.playerHP = PLAYER_HP_MAX;
+    P2[0] = -1; P2[3] = 0; P2[8] = 0; P2[9] = 0;
+  }
+  if (f === 560) {
+    despawnAllEnemies();
+    setPlayerPosition(vec3(0, terrainHeightAt(0, 24) + 1.2, 24));
+    for (let j = 0; j < 8; j++) {
+      const a = j * Math.PI / 4;
+      p2Place(KIND_SLOT0[0] + j, Math.sin(a) * 9, 24 - Math.cos(a) * 9, a + Math.PI);
+      enAware[KIND_SLOT0[0] + j] = 1;
+      enLastX[KIND_SLOT0[0] + j] = 0; enLastZ[KIND_SLOT0[0] + j] = 24;
+    }
+    P2[4] = 0;
+  }
+  if (f === 990) {
+    despawnAllEnemies();
+    // 1.6 m short of the ground-floor crate at (-16.5, -14), facing it (-Z)
+    setPlayerPosition(vec3(-16.5, 0.2 + 1.2, -12.2));
+  }
+  if (f >= 1005 && f < 1090) {
+    input.moveZ = -1;
+    input.jump = f === 1025;
+    if ((f % 6) === 0) {
+      const pv = playerPosition();
+      console.log('P2 vault f=' + f + ' z=' + pv.z.toFixed(2) + ' y=' + pv.y.toFixed(2)
+        + ' vault=' + vaultProgress().toFixed(2) + ' grounded=' + (playerGrounded() ? 1 : 0)
+        + ' why=' + VD[0] + ' h=' + VD[1].toFixed(2));
+    }
+  }
+  if (f === 1100) {
+    setPlayerPosition(vec3(0, terrainHeightAt(0, -10.5) + 1.2, -10.5));
+    hpX[0] = 1.6; hpZ[0] = -13.5; hpY[0] = terrainHeightAt(1.6, -13.5); hpLife[0] = 20;
+    GS.playerHP = PLAYER_HP_MAX;      // full health: the dressing is left lying for the picture
+  }
+  if (f >= 1100) { CAM[0] = 0; CAM[1] = 0.25; }
+}
+
+function p2Late(): boolean {
+  const f = testFrame;
+  const pp = playerPosition();
+  let fire = false;
+  // ---- 1 shapes
+  if (f === 60) {
+    const oy = pp.y + 0.5;
+    for (let k = 0; k < KIND_COUNT; k++) {
+      const sl = KIND_SLOT0[k];
+      const head = p2Probe(pp.x, oy, pp.z, sl, HSJ_HEAD, 0);
+      shapeJoint(sl, HSJ_HIPS, TMP3);
+      const hx = TMP3[0], hy = TMP3[1], hz = TMP3[2];
+      shapeJoint(sl, HSJ_NECK, TMP3);
+      const mx = (hx + TMP3[0]) * 0.5, my = (hy + TMP3[1]) * 0.5, mz = (hz + TMP3[2]) * 0.5;
+      let dx = mx - pp.x, dy = my - oy, dz = mz - pp.z;
+      let dl = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const chestI = rayEnemies(pp.x, oy, pp.z, dx / dl, dy / dl, dz / dl, dl + 3, 0, P2OUT);
+      const chest = chestI === sl ? P2OUT[1] : -1;
+      const foot = p2Probe(pp.x, oy, pp.z, sl, HSJ_FOOT_L, 0);
+      const beside = p2Probe(pp.x, oy, pp.z, sl, HSJ_HEAD, 1.4);
+      const weak = KIND_WEAK_R[k] > 0 ? p2Probe(pp.x, oy, pp.z, sl, HSJ_WEAK, KIND_WEAK_Z[k]) : -9;
+      // and the same chest ray from BEHIND the creature (shell kinds must report 4)
+      dx = -dx; dz = -dz;
+      const bx = mx - dx / dl * 6, bz = mz - dz / dl * 6;
+      const backI = rayEnemies(bx, my, bz, dx / dl, 0, dz / dl, 9, 0, P2OUT);
+      const back = backI === sl ? P2OUT[1] : -1;
+      console.log('P2 shapes ' + KIND_NAME[k] + ' head=' + head + ' chest=' + chest
+        + ' foot=' + foot + ' beside=' + beside + ' weak=' + weak + ' back=' + back
+        + ' headY=' + (TMP3[1] - enY[sl]).toFixed(2));
+    }
+  }
+  if (f === 75) takeScreenshot('shooter_p2_shapes.png');
+  // real fire, steered onto the Ravager's head (kind 2, at x = -3)
+  if (f >= 90 && f < 190) {
+    const sl = KIND_SLOT0[2];
+    if (enAlive[sl] === 1) {
+      shapeJoint(sl, HSJ_HEAD, TMP3);
+      const dx = TMP3[0] - CAM[2], dy = TMP3[1] - CAM[3], dz = TMP3[2] - CAM[4];
+      CAM[0] = Math.atan2(dx, -dz);
+      CAM[1] = -Math.atan2(dy, Math.sqrt(dx * dx + dz * dz));
+      P2[7] = P2[7] + 1;
+      if (P2[7] > 25) {
+        fire = true;
+        if ((f % 4) === 0) {
+          console.log('P2 fire f=' + f + ' ravagerHP=' + enHP[sl].toFixed(1)
+            + ' crit=' + GS.hitMarkCrit + ' hits=' + SCORE.shotsHit() + '/' + SCORE.shotsFired());
+        }
+      }
+      if (f === 130) takeScreenshot('shooter_p2_headshot.png');
+    } else if (P2[7] > 0) {
+      console.log('P2 fire: ravager dead at f=' + f + ' shots=' + SCORE.shotsFired()
+        + ' hits=' + SCORE.shotsHit());
+      P2[7] = 0;
+    }
+  }
+  // ---- 2 senses and the strike
+  if (f >= 200 && f < 560) {
+    const sl = KIND_SLOT0[2];
+    CAM[0] = 0; CAM[1] = 0.3;
+    const d = Math.hypot(pp.x - enX[sl], pp.z - enZ[sl]);
+    if (f === 258) console.log('P2 senses before the shot: aware=' + enAware[sl] + ' dist=' + d.toFixed(1));
+    if (f === 262 && P2[8] === 0) { fire = true; P2[8] = 1; }
+    if (f === 275) console.log('P2 senses after the shot: aware=' + enAware[sl] + ' dist=' + d.toFixed(1));
+    if (enAlive[sl] === 1 && enAIState[sl] !== P2[0]) {
+      const tN = getTime();
+      console.log('P2 strike state ' + P2[0] + ' -> ' + enAIState[sl] + ' t=' + tN.toFixed(2)
+        + ' dist=' + d.toFixed(2) + ' hp=' + Math.ceil(GS.playerHP)
+        + ' dodged=' + (DIR.dodgedT > 0 ? 1 : 0));
+      if (enAIState[sl] === AI_STRIKE_WIND) { P2[1] = tN; P2[2] = GS.playerHP; P2[3] = P2[3] + 1; }
+      if (enAIState[sl] === AI_STRIKE_REC) {
+        console.log('P2 strike ' + P2[3] + ': wind-up to recovery ' + (tN - P2[1]).toFixed(2)
+          + ' s, hp ' + Math.ceil(P2[2]) + ' -> ' + Math.ceil(GS.playerHP));
+      }
+      P2[0] = enAIState[sl];
+    }
+    // answer the second and later strikes with a roll to the right, 0.2 s into the wind-up
+    if (P2[3] >= 2 && enAIState[sl] === AI_STRIKE_WIND && getTime() - P2[1] > 0.2) {
+      if (startDodge(1, 0)) console.log('P2 rolled at t=' + getTime().toFixed(2));
+    }
+    // one picture late in the first wind-up (the tell), one during the first recovery
+    if (P2[9] === 0 && P2[3] === 1 && enAIState[sl] === AI_STRIKE_WIND && enStateT[sl] < 0.14) {
+      takeScreenshot('shooter_p2_windup.png'); P2[9] = 1;
+    }
+    if (P2[9] === 1 && enAIState[sl] === AI_STRIKE_REC) {
+      takeScreenshot('shooter_p2_recover.png'); P2[9] = 2;
+    }
+  }
+  // ---- 3 the pack
+  if (f >= 560 && f < 990) {
+    CAM[0] = 0; CAM[1] = 0.55;
+    let mid = 0, alive = 0, ring = 0;
+    for (let i = 0; i < MAX_ENEMIES; i++) {
+      if (enAlive[i] === 0) continue;
+      alive = alive + 1;
+      if (enAIState[i] === AI_STRIKE_WIND || enAIState[i] === AI_STRIKE_HIT) mid = mid + 1;
+      if (Math.hypot(pp.x - enX[i], pp.z - enZ[i]) < 4.5) ring = ring + 1;
+    }
+    if (mid > P2[4]) P2[4] = mid;
+    if (f === 630 || f === 690 || f === 750) {
+      takeScreenshot('shooter_p2_pack_f' + f + '.png');
+      console.log('P2 pack f=' + f + ' alive=' + alive + ' within4.5m=' + ring
+        + ' midAttackNow=' + mid + ' maxMidAttack=' + P2[4] + ' fps=' + getFPS().toFixed(0));
+    }
+    if (f === 790) { P2[5] = alive; startMelee(); }
+    if (f === 796) takeScreenshot('shooter_p2_melee.png');
+    if (f === 820) console.log('P2 melee: alive ' + P2[5] + ' -> ' + alive);
+    if (f >= 828 && f < 832) CAM[1] = 1.0;
+    if (f === 830) { P2[6] = alive; console.log('P2 grenade thrown=' + (throwGrenade() ? 1 : 0)); }
+    if (f === 842) takeScreenshot('shooter_p2_grenade.png');
+    if (f === 985) console.log('P2 grenade: alive ' + P2[6] + ' -> ' + alive
+      + ' grenadesLeft=' + GS.grenades + ' maxMidAttack=' + P2[4]);
+  }
+  if (f === 1035 || f === 1045) takeScreenshot('shooter_p2_vault_f' + f + '.png');
+  if (f === 1150) takeScreenshot('shooter_p2_pickup.png');
+  if (f === 1170) { console.log('P2TEST done'); aitestDone = true; }
+  return fire;
+}
+
+function p2Bot(): boolean {
+  const f = testFrame;
+  if (f === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+  if (GS.gameState !== 1) return false;
+  if (GS.playerHP < PB[4] - 0.5) PB[3] = PB[3] + 1;
+  GS.playerHP = PLAYER_HP_MAX; PB[4] = PLAYER_HP_MAX;
+  GS.gameOver = false;
+  WPN.addAmmo(WPN.currentWeapon(), 1);
+  const pp = playerPosition();
+  let best = -1, bestD = 1e9, alive = 0, mid = 0;
+  for (let i = 0; i < MAX_ENEMIES; i++) {
+    if (enAlive[i] === 0) continue;
+    alive = alive + 1;
+    if (enAIState[i] === AI_STRIKE_WIND || enAIState[i] === AI_STRIKE_HIT) mid = mid + 1;
+    const d = Math.hypot(pp.x - enX[i], pp.z - enZ[i]);
+    // only what it could see: alerted, or within 30 m with a clear line
+    if ((enAware[i] === 1 || enLos[i] === 1) && d < 45 && d < bestD) { bestD = d; best = i; }
+  }
+  if (alive > PB[1]) PB[1] = alive;
+  if (mid > PB[2]) PB[2] = mid;
+  let fire = false;
+  if (best >= 0) {
+    shapeJoint(best, HSJ_NECK, TMP3);
+    const dx = TMP3[0] - CAM[2], dy = TMP3[1] - 0.15 - CAM[3], dz = TMP3[2] - CAM[4];
+    CAM[0] = Math.atan2(dx, -dz);
+    CAM[1] = -Math.atan2(dy, Math.sqrt(dx * dx + dz * dz));
+    fire = true;
+  }
+  if (DIR.waveIdx !== PB[0] || (f % 600) === 0) {
+    PB[0] = DIR.waveIdx;
+    console.log('P2BOT f=' + f + ' t=' + GS.runElapsed.toFixed(0) + ' wave=' + (DIR.waveIdx + 1)
+      + ' spawned=' + DIR.waveSpawned + ' alive=' + alive + ' aware=' + DIR.awareCount
+      + ' kills=' + SCORE.kills() + ' acc=' + Math.round(SCORE.accuracy() * 100)
+      + ' maxAlive=' + PB[1] + ' maxMidAttack=' + PB[2] + ' hitsTaken=' + PB[3]
+      + ' fps=' + getFPS().toFixed(0));
+  }
+  // The stragglers, when few are left: where each is and what it thinks.
+  if ((f % 600) === 0 && alive > 0 && alive <= 6) {
+    for (let i = 0; i < MAX_ENEMIES; i++) {
+      if (enAlive[i] === 0) continue;
+      console.log('P2BOT   left: slot=' + i + ' kind=' + enKind[i] + ' st=' + enAIState[i]
+        + ' aware=' + enAware[i] + ' los=' + enLos[i]
+        + ' hp=' + enHP[i].toFixed(0) + (i === best ? ' TARGET' : '')
+        + ' pos=' + enX[i].toFixed(1) + ',' + enY[i].toFixed(1) + ',' + enZ[i].toFixed(1)
+        + ' goal=' + enLastX[i].toFixed(1) + ',' + enLastY[i].toFixed(1) + ',' + enLastZ[i].toFixed(1)
+        + ' react=' + enReactT[i].toFixed(1) + ' search=' + enSearchT[i].toFixed(1)
+        + ' v=' + Math.hypot(vxLast[i], vzLast[i]).toFixed(2)
+        + ' player=' + pp.x.toFixed(1) + ',' + pp.y.toFixed(1) + ',' + pp.z.toFixed(1));
+    }
+  }
+  if (DIR.gameWon || f > 30000) {
+    console.log('P2BOT done won=' + (DIR.gameWon ? 1 : 0) + ' t=' + GS.runElapsed.toFixed(0)
+      + ' kills=' + SCORE.kills() + ' maxAlive=' + PB[1] + ' maxMidAttack=' + PB[2]
+      + ' hitsTaken=' + PB[3]);
+    aitestDone = true;
+  }
+  return fire;
+}
+
+function p2Cam(): void {
+  const f = testFrame;
+  if (f >= 30 && f < 90) {
+    CAM[2] = 0; CAM[3] = terrainHeightAt(0, 19) + 2.4; CAM[4] = 19.5;
+    CAM[5] = 0; CAM[6] = terrainHeightAt(0, 12) + 1.4; CAM[7] = 12;
+  }
+}
+
+/// The hit shapes, drawn over the creatures (shapes stage only).
+function p2Draw(): void {
+  if (testFrame < 31 || testFrame >= 90) return;
+  for (let k = 0; k < KIND_COUNT; k++) {
+    const sl = KIND_SLOT0[k];
+    if (enAlive[sl] === 0) continue;
+    shapeJoint(sl, HSJ_HEAD, TMP3);
+    drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), KIND_HEAD_R[k], { r: 255, g: 60, b: 60, a: 255 });
+    shapeJoint(sl, HSJ_HIPS, TMP3);
+    drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), KIND_TORSO_R[k], { r: 60, g: 120, b: 255, a: 255 });
+    shapeJoint(sl, HSJ_NECK, TMP3);
+    drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), KIND_TORSO_R[k], { r: 60, g: 200, b: 255, a: 255 });
+    shapeJoint(sl, HSJ_HAND_L, TMP3);
+    drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), 0.08, { r: 255, g: 255, b: 60, a: 255 });
+    shapeJoint(sl, HSJ_HAND_R, TMP3);
+    drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), 0.08, { r: 255, g: 255, b: 60, a: 255 });
+    shapeJoint(sl, HSJ_FOOT_L, TMP3);
+    drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), 0.08, { r: 60, g: 255, b: 60, a: 255 });
+    shapeJoint(sl, HSJ_FOOT_R, TMP3);
+    drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), 0.08, { r: 60, g: 255, b: 60, a: 255 });
+    if (KIND_WEAK_R[k] > 0) {
+      shapeJoint(sl, HSJ_WEAK, TMP3);
+      drawSphere(vec3(TMP3[0], TMP3[1], TMP3[2]), KIND_WEAK_R[k], { r: 255, g: 60, b: 255, a: 255 });
+    }
+  }
+}
 
 // SH-054 — the frame body, extracted from the old blocking
 // `while (!windowShouldClose())` loop so runGame() can drive it. On native
@@ -1634,6 +2012,7 @@ function gameFrame(_hostDt: number): void {
     perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
     perfTTop = nowTop;
   }
+  hitShapesBeginFrame();
   const dtRaw = getDeltaTime();
   // A stalled frame — SDF-clipmap re-bake, window drag, driver hiccup — can hand
   // back 300 ms+ here, and one explicit-Euler step that big teleports the sim:
@@ -2001,6 +2380,7 @@ function gameFrame(_hostDt: number): void {
       writeFile('tools/.testout/locoprobe.txt', locoLog);
     }
   }
+  if (P2TEST) p2Early(input);
   if (PLAYERSHOT) {
     if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
     DIR.waveBreakTimer = 9999;
@@ -2161,7 +2541,8 @@ function gameFrame(_hostDt: number): void {
   // to a useless angle before the player even sees the scene.
   if (cursorLocked && testFrame > 10 && !menuOpen()) {
     // SH-039 pad aim assist + look application — camera.ts.
-    updateCameraLook(input.lookX, input.lookY, input.padActive);
+    updateCameraLook(input.lookX, input.lookY, input.padActive,
+      input.moveX !== 0 || input.moveZ !== 0);
   }
 
   const playing = GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen();
@@ -2183,6 +2564,9 @@ function gameFrame(_hostDt: number): void {
   if (isKeyPressed(Key.FOUR))  WPN.selectWeapon(WPN.W_CANNON);
   if (input.swapWeapon) WPN.nextWeapon();
   if (playing && input.shoulderPressed) swapShoulder();
+  // Plan 2.7 - the kit: a rifle-butt strike and a grenade. Neither through a roll or a vault.
+  if (playing && input.meleePressed && !isDodging() && !isVaulting()) startMelee();
+  if (playing && input.grenadePressed && !isDodging() && !isVaulting()) throwGrenade();
 
   // SH-032 — dodge. Commits the player for 0.25 s, so it is a decision, not a
   // free extra speed. Direction is the movement input, or straight back if the
@@ -2209,6 +2593,7 @@ function gameFrame(_hostDt: number): void {
     // Sprint cancels aiming and is cancelled by firing — you cannot run and
     // shoot accurately, which is what makes sprint a real trade.
     const wantSprint = input.sprintDown && !input.aimDown && !input.fireDown;
+    setCarryMul(WPN.carryMul());
     updatePlayerController(dt, input.moveX, input.moveZ, fwd, rgt, input.jump,
       wantSprint, input.crouchDown);
     if (wantSprint && playerSpeed() > 6.5) FEEL.addFovKick(6 * dt * 4);
@@ -2301,6 +2686,7 @@ function gameFrame(_hostDt: number): void {
   // Smooth orbit camera follow after the physics step: occlusion-aware
   // (probe fan vs. static bodies + analytic canopy cylinders) - camera.ts.
   updateCameraOrbit(dt, physics);
+  if (P2TEST) p2Cam();
   if (PLAYERSHOT) {
     const psI = Math.floor((testFrame - 30) / PSHOT_FRAMES);
     if (psI >= 0 && psI < PSHOT_COUNT) {
@@ -2344,6 +2730,8 @@ function gameFrame(_hostDt: number): void {
   // testFrame is incremented above the input block so the mouse-settle
   // grace period uses the same counter.
   let forceFire = false;
+  if (P2TEST) forceFire = p2Late();
+  if (P2BOT) forceFire = p2Bot();
   if (COMBATSHOT) {
     if (testFrame === 20 && GS.gameState === 0) {
       startRun();
@@ -2366,7 +2754,7 @@ function gameFrame(_hostDt: number): void {
       // The two NEW kinds (adv marauder, adv dragoon) — the ranged ones.
       // Melee kinds, close in, so they die fast and we can watch them fall.
       for (let s = 0; s < 2; s++) {
-        const slot = (1 + s) * BODIES_PER_KIND;    // mantis, marauder
+        const slot = KIND_SLOT0[1 + s];            // stalker, ravager
         const k = enKind[slot];
         enX[slot] = -3 + s * 6;
         enZ[slot] = 15;                            // close, in front of the player
@@ -2379,7 +2767,7 @@ function gameFrame(_hostDt: number): void {
         enRangedCD[slot] = 0.5;
         enHeading[slot] = Math.PI;
         setBodyPosition(enBody[slot],
-          vec3(enX[slot], enY[slot] + KIND_Y_OFF[k], enZ[slot]), true);
+          vec3(enX[slot], enY[slot] + KIND_BOX_Y[k], enZ[slot]), true);
       }
     }
     // Face them and hold the trigger. Keep the reserve topped up so the capture
@@ -2442,7 +2830,7 @@ function gameFrame(_hostDt: number): void {
       // Manually spawn ONE dretch off to the side, stays idle.
       enX[0] = -6; enY[0] = 0; enZ[0] = -6;
       enHP[0] = 3; enAlive[0] = 1; enAttackCD[0] = 999;
-      setBodyPosition(enBody[0], vec3(-6, KIND_Y_OFF[0], -6), true);
+      setBodyPosition(enBody[0], vec3(-6, KIND_BOX_Y[0], -6), true);
     }
     if (testFrame === 30)  { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t0_5s.png'); }
     if (testFrame === 180) { screenshotSeq++; takeScreenshot('shooter_selftest_' + screenshotSeq + '_t3_0s.png'); }
@@ -2457,6 +2845,7 @@ function gameFrame(_hostDt: number): void {
   if (GS.damageFlashT > 0) GS.damageFlashT = GS.damageFlashT - dt;
   if (GS.lastHitT > 0) GS.lastHitT = GS.lastHitT - dtReal;
   if (GS.hitMarkT > 0) GS.hitMarkT = GS.hitMarkT - dtReal;
+  if (GS.healFlashT > 0) GS.healFlashT = GS.healFlashT - dtReal;
   if (GS.levelChangeT > 0) GS.levelChangeT = GS.levelChangeT - dtReal;
   if (GS.waveBonusT > 0) GS.waveBonusT = GS.waveBonusT - dtReal;
   if (GS.unlockBannerT > 0) GS.unlockBannerT = GS.unlockBannerT - dtReal;
@@ -2790,6 +3179,10 @@ function gameFrame(_hostDt: number): void {
     } else if (rolling) {
       wantClip = PLAYER_ANIM_ROLL; loopClip = false; fade = 0.06;
       rate = PLAYER_ROLL_DUR / dodgeDuration();
+    } else if (isVaulting()) {
+      // Plan 2.7 - over an obstacle with the knees tucked. There is no vault clip (nor a jump
+      // clip, still owed from plan 1.1): the crouch is the nearest pose the set has.
+      wantClip = PLAYER_ANIM_CROUCH; fade = 0.07;
     } else if (crouching) {
       wantClip = moving ? PLAYER_ANIM_CROUCH_FWD : PLAYER_ANIM_CROUCH;
       if (moving) rate = Math.max(0.5, Math.min(2.4, spd / ANIM_CROUCH_SPEED));
@@ -2849,6 +3242,11 @@ function gameFrame(_hostDt: number): void {
       animSetJointRotation(animPlayer, 0, plSpine0, 0, 0, 1, lean * 0.30);
       animSetJointRotation(animPlayer, 1, plSpine1, 0, 0, 1, lean * 0.35);
       animSetJointRotation(animPlayer, 2, plSpine2, 0, 0, 1, lean * 0.35);
+      // The rifle-butt strike (plan 2.7) turns the shoulders with the weapon: wound back,
+      // then through. Two more rotation slots, about the model's vertical.
+      const swingP = freeBody ? 0 : meleeSwing();
+      animSetJointRotation(animPlayer, 3, plSpine1, 0, 1, 0, swingP * 0.40);
+      animSetJointRotation(animPlayer, 4, plSpine2, 0, 1, 0, swingP * 0.40);
 
       // A hit jolts the upper body: the flinch clip rides the layer for most of a second.
       if (GS.lastHitT > PLRIG[7] + 0.5 && !deadNow) {
@@ -2873,6 +3271,22 @@ function gameFrame(_hostDt: number): void {
         let tx = sx + aFX * gz + aUX * gy;
         let ty = sy + aFY * gz + aUY * gy;
         let tz = sz + aFZ * gz + aUZ * gy;
+        // Through a strike the handguard swings with the weapon (the same turn about the
+        // vertical that combat.ts gives the drawn model), so the off hand stays on it.
+        const swH = meleeSwing();
+        if (swH !== 0) {
+          const saH = swH * 0.95, csH = Math.cos(saH), snH = Math.sin(saH);
+          const ox1 = tx - sx, oz1 = tz - sz;
+          tx = sx + ox1 * csH + oz1 * snH;
+          tz = sz - ox1 * snH + oz1 * csH;
+        }
+        // Throwing a grenade (plan 2.7) is the off hand's: back past the hip, then out ahead.
+        if (GS.throwT > 0) {
+          const uT = 1 - GS.throwT / 0.4;
+          tx = sx - 0.25 + 0.85 * uT;
+          ty = sy + 0.30 - 0.18 * uT;
+          tz = sz - 0.45;
+        }
         if (WPN.isReloading()) {
           // The reload is this hand's journey, timed to the weapon's own reload: handguard ->
           // magazine well (pull the empty) -> belt at the left hip -> magazine well (seat the
@@ -3026,32 +3440,68 @@ function gameFrame(_hostDt: number): void {
     // hard-facing the player — circling mantises and charging dragoons face
     // where they're actually going. Windup counts as attacking so the dragoon's
     // pounce telegraph reads on the model.
-    const attacking = distA <= KIND_MELEE[k] || enAIState[i] === AI_WINDUP;
-    const flinching = enAIState[i] === AI_FLINCH;
+    // Plan 2.2 - "attacking" is a STATE now, not a distance: the strike's wind-up, active
+    // frames and recovery, the Bruiser's pounce wind-up, a ranged kind's wind-up and volley.
+    const stE = enAIState[i];
+    const striking = stE === AI_STRIKE_WIND || stE === AI_STRIKE_HIT || stE === AI_STRIKE_REC;
+    const rangedAtk = KIND_RANGED[k] === 1 && (stE === AI_WINDUP || stE === 3);
+    const attacking = striking || stE === AI_WINDUP || rangedAtk;
+    const flinching = stE === AI_FLINCH;
+    const spdE = Math.hypot(vxLast[i], vzLast[i]);
 
     // SH-030 / SH-034 — the base track is locomotion; the attack rides on an
     // UPPER-BODY layer over it (EN-028 masks), so an alien bites while still
     // closing instead of stopping dead to bite. Getting shot interrupts with
-    // the pain clip, which is the reward for landing a hit.
+    // the pain clip, which is the reward for landing a hit. Standing still (noticing the
+    // player, rooted in a wind-up) is the idle clip, not the run at a crawl.
     let baseClip = ANIM_WALK_IDX[k];
     if (flinching) baseClip = ANIM_PAIN_IDX[k];
     else if (attacking && KIND_SPINE_JOINT[k] < 0) baseClip = ANIM_ATTACK_IDX[k];
+    else if (spdE < 0.3) baseClip = 5;
 
-    // Attack layer: blended in/out rather than snapped, so the bite doesn't pop.
+    // Attack layer: blended in/out rather than snapped, so the bite doesn't pop. It is
+    // RESTARTED for each strike and played at the speed that puts the clip's blow
+    // (ATTACK_HIT_T, measured per rig) at the end of the wind-up, which is when the hit
+    // shape appears: what the claw does and what hurts are the same moment.
     if (KIND_SPINE_JOINT[k] >= 0) {
       const want = attacking && !flinching ? 1 : 0;
-      const kL = 1 - Math.exp(-12 * dt);
+      const kL = 1 - Math.exp(-(want === 1 ? 22 : 9) * dt);
+      if (enStrikeSeq[i] !== enLayerSeq[i]) {
+        enLayerSeq[i] = enStrikeSeq[i];
+        animSetLayer(enAnim[i], -1, 0, -1, 1, false);       // clip -1 then back: time 0
+        enAttackLayer[i] = 0;
+      }
       enAttackLayer[i] = enAttackLayer[i] + (want - enAttackLayer[i]) * kL;
+      let lSpeed = 1.0;
+      if (striking) lSpeed = ATTACK_HIT_T[k] / STRIKE_WINDUP[k];
+      else if (rangedAtk) lSpeed = ATTACK_HIT_T[k] / RANGED_WINDUP[k];
       animSetLayer(enAnim[i], ANIM_ATTACK_IDX[k], enAttackLayer[i],
-                   KIND_SPINE_JOINT[k], 1.0, true);
+                   KIND_SPINE_JOINT[k], lSpeed, false);
+
+      // Plan 2.4 - the directional jolt: a hit knocks the upper body along the shot. The
+      // axis is (up x shot direction) in the model's own space, so a round from the left
+      // rocks it right and one in the back folds it forward. It decays in a quarter second.
+      if (enHitK[i] > 0.02) {
+        const yawJ = Math.PI / 2 - enHeading[i];
+        const cJ = Math.cos(yawJ), sJ = Math.sin(yawJ);
+        const mxJ = enHitDX[i] * cJ - enHitDZ[i] * sJ;
+        const mzJ = enHitDX[i] * sJ + enHitDZ[i] * cJ;
+        animSetJointRotation(enAnim[i], 0, KIND_SPINE_JOINT[k], mzJ, 0, -mxJ,
+                             enHitK[i] * JOLT_ANGLE);
+        enJoltOn[i] = 1;
+        enHitK[i] = enHitK[i] * Math.exp(-10 * dt);
+      } else if (enJoltOn[i] === 1) {
+        animSetJointRotation(enAnim[i], 0, KIND_SPINE_JOINT[k], 0, 0, 1, 0);
+        enJoltOn[i] = 0;
+        enHitK[i] = 0;
+      }
     }
 
     // Speed-matched playback — the fix that kills foot-sliding. The old code
     // played the walk clip at a fixed rate no matter how fast the thing was
     // actually moving, so a charging dragoon's feet skated.
-    const spdE = Math.hypot(vxLast[i], vzLast[i]);
     const authoredE = KIND_SPEED[k];
-    const rateE = flinching ? 1.0
+    const rateE = (flinching || baseClip === 5) ? 1.0
       : Math.max(0.4, Math.min(2.5, spdE / (authoredE > 0.01 ? authoredE : 1)));
 
     // animPlay is idempotent, so stating the clip we want every frame is the
@@ -3062,6 +3512,29 @@ function gameFrame(_hostDt: number): void {
     // INVERTED, so pass π/2 − yaw or the aliens strafe sideways-on.
     animUpdate(enAnim[i], dt, KIND_SCALE[k],
       enX[i], enY[i], enZ[i], Math.PI / 2 - enHeading[i]);
+    // The transform this pose was built with: the hit shapes lift the joints out of model
+    // space with exactly these numbers (hitshapes.ts).
+    enPoseX[i] = enX[i]; enPoseY[i] = enY[i]; enPoseZ[i] = enZ[i];
+    enPoseYaw[i] = Math.PI / 2 - enHeading[i];
+    enPosed[i] = 1;
+
+    // Plan 2.2 - the tell you can see from across the arena: a hot light at the head that
+    // builds through the wind-up and is gone the instant the blow is thrown.
+    if (stE === AI_STRIKE_WIND || (stE === AI_WINDUP && KIND_RANGED[k] === 0)) {
+      const total = stE === AI_STRIKE_WIND ? STRIKE_WINDUP[k] : 0.65;
+      const u = 1 - Math.max(0, Math.min(1, enStateT[i] / total));
+      shapeJoint(i, HSJ_HEAD, TMP3);
+      addPointLight(TMP3[0], TMP3[1] + 0.1, TMP3[2], 2.5 + KIND_HEIGHT[k],
+                    1.0, 0.32, 0.08, 0.6 + u * 3.0);
+      // ...and a flare over it, because a point light does nothing in full sun: it swells and
+      // brightens until the blow goes. Additive, so it reads against grass and brick alike.
+      if (ENV.matMuzzleFlash > 0) {
+        drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
+          vec3(TMP3[0], TMP3[1] + 0.05, TMP3[2]),
+          (0.22 + u * 0.50) * (0.7 + KIND_HEIGHT[k] * 0.22),
+          { r: 255, g: 110, b: 35, a: Math.floor(110 + u * 145) });
+      }
+    }
 
     // Hit flash lerps the KIND tint toward red, so the adv dragoon stays
     // recognisably violet even while flashing.
@@ -3107,10 +3580,15 @@ function gameFrame(_hostDt: number): void {
 
     if (enRagActive[i] === 0) {
       // --- still animating the blow
-      if (enAnimClip[i] !== ANIM_DIE_IDX[k]) {
-        animPlay(enAnim[i], ANIM_DIE_IDX[k], 0.06, 1.0, false);
-        enAnimClip[i] = ANIM_DIE_IDX[k];
+      if (enAnimClip[i] !== enDeathClip[i]) {
+        // Plan 2.4 - the death the blow chose (director.damageEnemy). "fall" opens with a
+        // second of swaying on its feet, so it is raced through at 12x to where the knees go.
+        animPlay(enAnim[i], enDeathClip[i], 0.06,
+                 enDeathClip[i] === ANIM_FALL_IDX ? 12.0 : 1.0, false);
+        enAnimClip[i] = enDeathClip[i];
         animSetLayer(enAnim[i], -1, 0, -1, 1, false);   // drop the attack layer
+        if (KIND_SPINE_JOINT[k] >= 0) animSetJointRotation(enAnim[i], 0, KIND_SPINE_JOINT[k], 0, 0, 1, 0);
+        enJoltOn[i] = 0;
       }
       const yaw = Math.PI / 2 - enDeathYaw[i];
       animUpdate(enAnim[i], dt, KIND_SCALE[k], enX[i], enY[i], enZ[i], yaw);
@@ -3151,14 +3629,34 @@ function gameFrame(_hostDt: number): void {
         enAnimClip[i] = -1;
       }
     } else {
-      // --- fallback: no skeleton, so the old clamp-and-sink corpse.
-      const dur = ANIM_DIE_DUR[k];
+      // --- the authored death, played out; then the corpse lies, then sinks.
+      const isFall = enDeathClip[i] === ANIM_FALL_IDX;
+      const skipT = ANIM_FALL_SKIP / 12.0;
+      if (isFall) animPlay(enAnim[i], ANIM_FALL_IDX, 0.06, enDeathT[i] < skipT ? 12.0 : 1.0, false);
+      const dur = isFall ? (ANIM_FALL_DUR - ANIM_FALL_SKIP + skipT) : ANIM_DIE_DUR[k];
+      // A body thrown by a blast or a heavy round travels: a low arc, then a short slide.
+      // It stops at a wall and follows the floor it is over.
+      if (enDeathVX[i] !== 0 || enDeathVZ[i] !== 0 || enDeathLift[i] > 0) {
+        const nxD = enX[i] + enDeathVX[i] * dt, nzD = enZ[i] + enDeathVZ[i] * dt;
+        if (flowBlockedAt(nxD, nzD, enY[i])) { enDeathVX[i] = 0; enDeathVZ[i] = 0; }
+        else { enX[i] = nxD; enZ[i] = nzD; }
+        enDeathLift[i] = enDeathLift[i] + enDeathVY[i] * dt;
+        enDeathVY[i] = enDeathVY[i] - 16 * dt;
+        if (enDeathLift[i] <= 0) {
+          enDeathLift[i] = 0; enDeathVY[i] = 0;
+          const fr = Math.exp(-7 * dt);
+          enDeathVX[i] = enDeathVX[i] * fr; enDeathVZ[i] = enDeathVZ[i] * fr;
+          if (Math.abs(enDeathVX[i]) + Math.abs(enDeathVZ[i]) < 0.15) { enDeathVX[i] = 0; enDeathVZ[i] = 0; }
+        }
+        enY[i] = surfaceHeightAt(enX[i], enZ[i], enY[i]);
+      }
+      const liftD = enDeathLift[i];
       // The body lies where it fell for CORPSE_LINGER seconds, then sinks into the ground.
       const CORPSE_LINGER = 5.0;
       const sink = enDeathT[i] > dur + CORPSE_LINGER ? (enDeathT[i] - dur - CORPSE_LINGER) * 0.9 : 0;
       animUpdate(enAnim[i], dt, KIND_SCALE[k],
-        enX[i], enY[i] - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
-      drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
+        enX[i], enY[i] + liftD - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i] + liftD - sink, enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
       if (enDeathT[i] > dur + CORPSE_LINGER + 2.5) {
         enDying[i] = 0;
         enRagActive[i] = 0;
@@ -3168,6 +3666,7 @@ function gameFrame(_hostDt: number): void {
   }
   // Combat layer of the pass — muzzle flare light, pickups, player plasma,
   // enemy bolts (combat.ts).
+  if (P2TEST) p2Draw();
   drawCombatWorld();
 
   // SH-033 — particles + decals. One update + one instanced draw per system,

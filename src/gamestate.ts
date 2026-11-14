@@ -45,6 +45,19 @@ export const GS: any = {
   // SH-043 — hit marker. A white tick + a sound, so a colourblind player
   // gets the same confirmation everyone else does.
   hitMarkT: 0,
+  hitMarkCrit: 0,        // 1 = that hit was a head or a weak point (plan 2.3)
+  // Plan 2.7 - seconds since the player was last hurt (regeneration waits on it), the green
+  // flash of a field dressing, and the grenades carried.
+  sinceHurt: 99,
+  healFlashT: 0,
+  grenades: 2,
+  grenadeMax: 4,
+  // The rifle-butt strike: seconds since it began (-1 = not swinging) - main poses the body
+  // from it and combat.ts swings the weapon.
+  meleeT: -1,
+  throwT: 0,             // seconds left of the grenade throw gesture (the off hand's arc)
+  // Vault in progress 0..1 (0 = none): main picks the pose.
+  vaultK: 0,
   // SH-040 — seconds left on the arena-change notice, and what it says:
   //   1 loading (full-screen cover; the game relaunches into the arena)
   //   2 this platform cannot relaunch itself - ask the player to reopen

@@ -13,23 +13,27 @@
 
 import {
   vec3, getTime,
-  drawCube, drawSphere, drawMeshWithMaterial, drawModelRotated, drawModelTransform,
+  drawSphere, drawMeshWithMaterial, drawModelRotated, drawModelTransform,
   playSound, playSound3D, playMusic, stopMusic,
 } from 'bloom';
 import { gamepadRumble } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
-import { raycast, ALL_LAYERS_MASK } from 'bloom/physics';
+import { raycast, Layer } from 'bloom/physics';
+import { playSoundEx } from 'bloom/audio';
 import { jointWorld } from 'bloom/models';
 import * as W from './world-runtime';
-import { resetInputToggles } from './input';
+import { resetInputToggles, padIsActive } from './input';
 import { GS } from './gamestate';
 import {
   DIR, damageEnemy, despawnAllEnemies, WAVE_BREAK_DELAY,
   MAX_EPROJ, eX, eY, eZ, eLife, eKind,
+  damagePlayer, makeNoise, shoveEnemy, MAX_HEALS, hpX, hpY, hpZ, hpLife,
 } from './director';
 import {
-  MAX_ENEMIES, enAlive, enBody, enX, enY, enZ, KIND_HP, K_ADV_DRAGOON,
+  MAX_ENEMIES, enAlive, enX, enY, enZ, enKind, K_ADV_DRAGOON,
+  KIND_HEIGHT, KIND_TORSO_R, KIND_LIGHT, LOC_BODY, LOC_HEAD, LOC_MUL,
 } from './enemies';
+import { rayEnemies, nearestAimPoint, setRaySkip } from './hitshapes';
 import { playerPosition } from './player';
 import { terrainHeightAt } from './terrain';
 import { ENV } from './environment';
@@ -61,6 +65,13 @@ export function setCombatDeps(deps: any): void { DEPS.o = deps; }
 // ---- Weapon + combat state (M4 / M5 / M6 / M7) ----------------------------
 export const PLAYER_HP_MAX = 100;
 const FIRE_RANGE = 60.0;
+const STATIC_MASK = 1 << Layer.NON_MOVING;
+// Scratch for rayEnemies / nearestAimPoint results.
+const HIT = [0, 0, 0, 0, 0];
+const MAG = [0, 0, 0, 0];
+const REC = [0, 0];
+// How far each weapon's report carries (plan 2.1), metres.
+const W_NOISE = [45, 30, 50, 35];
 
 // SH-028/SH-042 — weapon state now lives in src/weapons.ts as a stat TABLE, so
 // the chaingun and the cannon are rows rather than branches. What stays here is
@@ -97,7 +108,37 @@ const pLife = new Array<number>(MAX_PROJ);
 // know which it is when it lands.
 const pWeapon = new Array<number>(MAX_PROJ);
 const pCharge = new Array<number>(MAX_PROJ);
-for (let i = 0; i < MAX_PROJ; i++) { pLife[i] = 0; pWeapon[i] = 0; pCharge[i] = 0; }
+// Plan 2.8 - the blaster's bolt goes through bodies: how many more it may, and the slot it
+// last went through (so it does not hit the same creature again on the way out).
+const pPierce = new Array<number>(MAX_PROJ);
+const pLast = new Array<number>(MAX_PROJ);
+for (let i = 0; i < MAX_PROJ; i++) { pLife[i] = 0; pWeapon[i] = 0; pCharge[i] = 0; pPierce[i] = 0; pLast[i] = -1; }
+
+// ---- Plan 2.7: grenades ---------------------------------------------------------------------
+// One kind: a two-second fuse, thrown on an arc, bounces off the world. Up to four in the air.
+const MAX_NADE = 4;
+const NADE_FUSE = 2.0;
+const NADE_SPEED = 15.0;
+const NADE_GRAVITY = 18.0;
+const NADE_RADIUS = 6.0;
+const NADE_DAMAGE = 160;
+const gX = new Array<number>(MAX_NADE);
+const gY = new Array<number>(MAX_NADE);
+const gZ = new Array<number>(MAX_NADE);
+const gVX = new Array<number>(MAX_NADE);
+const gVY = new Array<number>(MAX_NADE);
+const gVZ = new Array<number>(MAX_NADE);
+const gFuse = new Array<number>(MAX_NADE);
+for (let i = 0; i < MAX_NADE; i++) { gX[i] = 0; gY[i] = 0; gZ[i] = 0; gVX[i] = 0; gVY[i] = 0; gVZ[i] = 0; gFuse[i] = 0; }
+// ---- Plan 2.7: the rifle-butt strike ---------------------------------------------------------
+const MELEE_TIME = 0.46;      // the whole swing
+const MELEE_HIT_AT = 0.15;    // when it connects
+const MELEE_REACH = 2.2;
+const MELEE_DAMAGE = 45;
+// K: 0 throw cooldown   1 melee cooldown   2 melee already landed this swing (0/1)
+//    3 the swing's current angle factor (-0.4 wound back .. 1 through), read by the draw
+const K = [0, 0, 0, 0];
+export function meleeSwing(): number { return K[3]; }
 let projNext = 0;
 
 
@@ -109,6 +150,8 @@ function spawnProjectile(x: number, y: number, z: number,
   pLife[projNext] = BLASTER_PROJ_LIFE;
   pWeapon[projNext] = weapon;
   pCharge[projNext] = charge;
+  pPierce[projNext] = WPN.W_PIERCE[weapon];
+  pLast[projNext] = -1;
   projNext = (projNext + 1) % MAX_PROJ;
 }
 
@@ -152,6 +195,10 @@ export function resetRun(): void {
   DIR.spawnTimer = 0;
   for (let i = 0; i < MAX_PROJ; i++) pLife[i] = 0;
   for (let i = 0; i < MAX_EPROJ; i++) eLife[i] = 0;
+  for (let i = 0; i < MAX_NADE; i++) gFuse[i] = 0;
+  GS.grenades = 2; GS.sinceHurt = 99; GS.healFlashT = 0; GS.meleeT = -1; GS.hitMarkCrit = 0;
+  K[0] = 0; K[1] = 0; K[2] = 0; K[3] = 0;
+  WPN.clearRecoil();
   for (let i = 0; i < PICKUP_COUNT; i++) { pickupActive[i] = 1; pickupRespawnT[i] = 0; }
   despawnAllEnemies();
   SCORE.resetScore();
@@ -195,16 +242,20 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   gamepadRumble(0.9, 0.6, 0.3);
   playSound3D(DEPS.o.sfxExplosion, x, y, z);
 
+  makeNoise(60);
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enAlive[i] === 0) continue;
     const dx = enX[i] - x;
     const dz = enZ[i] - z;
     const d = Math.sqrt(dx * dx + dz * dz);
     if (d > radius) continue;
+    // A blast on another storey does not reach through the slab.
+    if (Math.abs(enY[i] + KIND_HEIGHT[enKind[i]] * 0.5 - y) > radius * 0.7) continue;
     const falloff = 1 - d / radius;
     const dl = d > 0.001 ? d : 1;
     damageEnemy(i, Math.max(1, Math.floor(dmg * falloff)),
-                enX[i], enY[i] + 0.8, enZ[i], dx / dl, 0.4, dz / dl);
+                enX[i], enY[i] + KIND_HEIGHT[enKind[i]] * 0.5, enZ[i],
+                dx / dl, 0.4, dz / dl, LOC_BODY);
   }
 
   const pp = playerPosition();
@@ -214,31 +265,141 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   // Only while a run is live (RUN[0], set by updateCombat): a shell still in
   // flight when the arena is cleared, the menu opens or the run resets used to
   // be able to kill the player on a screen that was no longer the game. And the
-  // hit is reported like any other: direction arc, pain or death voice, trauma.
-  if (pd < radius && RUN[0] === 1 && !GS.gameOver) {
-    const selfDmg = Math.floor(dmg * 2.5 * (1 - pd / radius));
-    if (selfDmg > 0) {
-      GS.playerHP = GS.playerHP - selfDmg;
-      FEEL.damageFlash(1);
-      GS.damageFlashT = 0.5;
-      MIX.duckMusicOnDamage();
-      let rel = Math.atan2(-pdx, pdz) - DEPS.o.CAM[0];
-      while (rel > Math.PI) rel = rel - Math.PI * 2;
-      while (rel < -Math.PI) rel = rel + Math.PI * 2;
-      GS.lastHitAngle = rel;
-      GS.lastHitT = 1.4;
-      if (GS.playerHP <= 0) {
-        GS.playerHP = 0;
-        GS.gameOver = true;
-        playSound(DEPS.o.sfxPlayerDie[0]);
-        FEEL.addTrauma(1.0);
-        playSound(DEPS.o.stingDeath);   // SH-036
-        SCORE.commitRun(W.ARENA_INDEX);
-        SET.saveSettings();
-      } else {
-        playSound(DEPS.o.sfxPlayerPain[0]);
+  // hit is reported like any other (director.damagePlayer). A quarter of the blast's damage
+  // at the centre: the numbers were rescaled by ten for the creatures (plan 2.3) and the
+  // player's 100 HP was not.
+  if (pd < radius && RUN[0] === 1 && !GS.gameOver && Math.abs(pp.y - y) < radius * 0.7) {
+    const selfDmg = Math.floor(dmg * 0.25 * (1 - pd / radius));
+    if (selfDmg > 0) damagePlayer(selfDmg, x, z, 0);
+  }
+}
+
+/// Plan 2.7 - throw a grenade along the camera's aim. False when there is none to throw.
+export function throwGrenade(): boolean {
+  if (GS.grenades <= 0 || K[0] > 0) return false;
+  let slot = -1;
+  for (let i = 0; i < MAX_NADE; i++) if (gFuse[i] <= 0) { slot = i; break; }
+  if (slot < 0) return false;
+  const CAM = DEPS.o.CAM;
+  const pp = playerPosition();
+  const pitch = -CAM[1];
+  const sy = Math.sin(CAM[0]), cy = Math.cos(CAM[0]);
+  const cp = Math.cos(pitch);
+  const fx = sy * cp, fy = Math.sin(pitch), fz = -cy * cp;
+  // From the off hand's side, a little ahead, so it does not start inside the Trooper.
+  gX[slot] = pp.x + fx * 0.6 - cy * 0.25;
+  gY[slot] = pp.y + 0.55;
+  gZ[slot] = pp.z + fz * 0.6 - sy * 0.25;
+  gVX[slot] = fx * NADE_SPEED;
+  gVY[slot] = fy * NADE_SPEED + 4.5;       // lobbed: it always leaves upward of the aim
+  gVZ[slot] = fz * NADE_SPEED;
+  gFuse[slot] = NADE_FUSE;
+  GS.grenades = GS.grenades - 1;
+  GS.throwT = 0.4;
+  K[0] = 0.8;
+  playSound(DEPS.o.sfxNadeThrow);
+  makeNoise(8);
+  return true;
+}
+
+/// Plan 2.7 - begin a rifle-butt strike. False while one is in progress or cooling down.
+export function startMelee(): boolean {
+  if (GS.meleeT >= 0 || K[1] > 0) return false;
+  GS.meleeT = 0;
+  K[2] = 0;
+  playSoundEx(DEPS.o.sfxSwing, false, 0.9, 1.25, 0);
+  return true;
+}
+
+/// Grenade flight and the melee swing: one call a frame from updateCombat.
+function updateKit(dt: number, playing: boolean): void {
+  if (K[0] > 0) K[0] = K[0] - dt;
+  if (K[1] > 0) K[1] = K[1] - dt;
+  if (GS.throwT > 0) GS.throwT = GS.throwT - dt;
+
+  // ---- grenades
+  for (let i = 0; i < MAX_NADE; i++) {
+    if (gFuse[i] <= 0) continue;
+    gFuse[i] = gFuse[i] - dt;
+    if (gFuse[i] <= 0) {
+      gFuse[i] = 0;
+      explode(gX[i], gY[i] + 0.1, gZ[i], NADE_RADIUS, NADE_DAMAGE);
+      continue;
+    }
+    gVY[i] = gVY[i] - NADE_GRAVITY * dt;
+    const sx = gVX[i] * dt, sy = gVY[i] * dt, sz = gVZ[i] * dt;
+    const seg = Math.sqrt(sx * sx + sy * sy + sz * sz);
+    if (seg < 0.00001) continue;
+    const inv = 1 / seg;
+    const hit = raycast(DEPS.o.physics, vec3(gX[i], gY[i], gZ[i]),
+                        vec3(sx * inv, sy * inv, sz * inv), seg + 0.08, STATIC_MASK);
+    if (hit) {
+      // Bounce: reflect about the surface, keep a third of the speed into it and most of the
+      // speed along it. Slow enough on flat ground and it just lies there until the fuse.
+      const n = hit.normal;
+      const vn = gVX[i] * n.x + gVY[i] * n.y + gVZ[i] * n.z;
+      if (vn < 0) {
+        const rest = 0.35;
+        gVX[i] = (gVX[i] - (1 + rest) * vn * n.x) * 0.72;
+        gVY[i] = (gVY[i] - (1 + rest) * vn * n.y) * 0.72;
+        gVZ[i] = (gVZ[i] - (1 + rest) * vn * n.z) * 0.72;
+        if (vn < -2.5) playSound3D(DEPS.o.sfxNadeBounce, hit.point.x, hit.point.y, hit.point.z);
+        const sp2 = gVX[i] * gVX[i] + gVY[i] * gVY[i] + gVZ[i] * gVZ[i];
+        if (sp2 < 1.2 && n.y > 0.6) { gVX[i] = 0; gVY[i] = 0; gVZ[i] = 0; }
+      }
+      gX[i] = hit.point.x + n.x * 0.09;
+      gY[i] = hit.point.y + n.y * 0.09;
+      gZ[i] = hit.point.z + n.z * 0.09;
+    } else {
+      gX[i] = gX[i] + sx; gY[i] = gY[i] + sy; gZ[i] = gZ[i] + sz;
+    }
+  }
+
+  // ---- the rifle-butt strike
+  if (GS.meleeT >= 0) {
+    GS.meleeT = GS.meleeT + dt;
+    const t = GS.meleeT;
+    // The swing: wound back for a tenth of a second, through in the next, then recovering.
+    let a = 0;
+    if (t < 0.10) a = -0.4 * (t / 0.10);
+    else if (t < 0.19) a = -0.4 + 1.4 * ((t - 0.10) / 0.09);
+    else a = 1 - (t - 0.19) / (MELEE_TIME - 0.19);
+    K[3] = a < -0.4 ? -0.4 : a;
+    if (t >= MELEE_HIT_AT && K[2] === 0 && playing) {
+      K[2] = 1;
+      const CAM = DEPS.o.CAM;
+      const pp = playerPosition();
+      const fx = Math.sin(CAM[0]), fz = -Math.cos(CAM[0]);
+      let landed = 0;
+      for (let i = 0; i < MAX_ENEMIES; i++) {
+        if (enAlive[i] === 0) continue;
+        const k = enKind[i];
+        const ex = enX[i] - pp.x, ez = enZ[i] - pp.z;
+        const el = Math.sqrt(ex * ex + ez * ez);
+        if (el > MELEE_REACH + KIND_TORSO_R[k]) continue;
+        if (Math.abs(enY[i] - (pp.y - 0.95)) > 2.0) continue;
+        // In front: within about 65 degrees of where the camera looks (anything touching counts).
+        if (el > 0.6 && (ex * fx + ez * fz) / el < 0.42) continue;
+        const il = el > 0.001 ? 1 / el : 0;
+        const dxn = el > 0.001 ? ex * il : fx, dzn = el > 0.001 ? ez * il : fz;
+        damageEnemy(i, MELEE_DAMAGE, enX[i] - dxn * KIND_TORSO_R[k],
+                    enY[i] + KIND_HEIGHT[k] * 0.6, enZ[i] - dzn * KIND_TORSO_R[k],
+                    dxn, 0.1, dzn, LOC_BODY);
+        // Whatever survives is knocked back and stunned: lights further and longer.
+        shoveEnemy(i, dxn, dzn, KIND_LIGHT[k] === 1 ? 1.3 : 0.4, KIND_LIGHT[k] === 1 ? 0.7 : 0.45);
+        landed = landed + 1;
+      }
+      if (landed > 0) {
+        playSound(DEPS.o.sfxMeleeHit);
+        FEEL.addTrauma(0.22);
+        FEEL.requestHitstop(0.05);
+        gamepadRumble(0.6, 0.5, 0.12);
+        makeNoise(10);
       }
     }
+    if (t >= MELEE_TIME) { GS.meleeT = -1; K[1] = 0.25; K[3] = 0; }
+  } else {
+    K[3] = 0;
   }
 }
 
@@ -302,6 +463,26 @@ export function updateWeaponTransform(): void {
     let dux = (-syW * fy) + (GS.weaponUpX - (-syW * fy)) * kF;
     let duy = cp + (GS.weaponUpY - cp) * kF;
     let duz = (cyW * fy) + (GS.weaponUpZ - (cyW * fy)) * kF;
+    // The rifle-butt strike (plan 2.7) swings the DRAWN weapon across the body about the
+    // vertical: wound back to the right, then through to the left. The muzzle and the shot ray
+    // keep the true aim (nothing fires during a strike).
+    // Switching weapons (plan 2.8, and the swap that was owed since plan 1.1): the new one
+    // comes up from pointing at the ground over SWAP_TIME.
+    const swp = WPN.swapProgress();
+    if (swp > 0) {
+      const dip = swp * swp * 1.1;
+      dfy = dfy - Math.sin(dip);
+      const dl2 = Math.sqrt(dfx * dfx + dfy * dfy + dfz * dfz);
+      if (dl2 > 0.0001) { dfx = dfx / dl2; dfy = dfy / dl2; dfz = dfz / dl2; }
+    }
+    if (K[3] !== 0) {
+      const sa = K[3] * 0.95;
+      const cs = Math.cos(sa), sn = Math.sin(sa);
+      const rx0 = dfx * cs + dfz * sn, rz0 = -dfx * sn + dfz * cs;
+      dfx = rx0; dfz = rz0;
+      const ux0 = dux * cs + duz * sn, uz0 = -dux * sn + duz * cs;
+      dux = ux0; duz = uz0;
+    }
     WB[0] = dfx; WB[1] = dfy; WB[2] = dfz; WB[3] = dux; WB[4] = duy; WB[5] = duz;
     baseX = baseX - dfx * hz + dux * hy;
     baseY = baseY - dfy * hz + duy * hy;
@@ -344,8 +525,16 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     chargeShot = WPN.releaseCharge();
   }
 
+  updateKit(dt, playing);
+  // Recoil recovery (plan 2.8): between bursts the view comes back by whatever the player has
+  // not already pulled back themselves.
+  WPN.recoverRecoil(dt, combatActive && fireDown, REC);
+  CAM[1] = Math.max(DEPS.o.TP_PITCH_MIN, Math.min(DEPS.o.TP_PITCH_MAX, CAM[1] + REC[0]));
+  CAM[0] = CAM[0] - REC[1];
+
   const autoOk = WPN.W_AUTO[wpn] !== 0 ? fireDown : firePressed;
-  const wantFire = combatActive && autoOk && WPN.canFire(fireDown);
+  // Nothing fires through a rifle-butt strike.
+  const wantFire = combatActive && autoOk && WPN.canFire(fireDown) && GS.meleeT < 0;
   // forceFire (the COMBATSHOT harness) still goes through canFire, so the shot
   // respects the real cooldown, spread and reload — otherwise the capture would
   // be of a weapon that doesn't exist.
@@ -367,6 +556,8 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     CAM[1] = Math.max(DEPS.o.TP_PITCH_MIN, Math.min(DEPS.o.TP_PITCH_MAX,
       CAM[1] - kick[0] * Math.PI / 180));
     CAM[0] = CAM[0] + kick[1] * Math.PI / 180;
+    WPN.noteKick(kick[0] * Math.PI / 180, kick[1] * Math.PI / 180);
+    makeNoise(W_NOISE[wpn]);
     FEEL.addTrauma(0.05 + kick[0] * 0.02);
     gamepadRumble(0.25 + kick[0] * 0.1, 0.15, 0.05);
 
@@ -387,15 +578,29 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     // near shot visibly beside the crosshair. So cast the camera ray (starting just past the
     // player, so nothing between the lens and the Trooper counts) and converge on what it hits.
     const ppA = playerPosition();
-    let aimStart = (ppA.x - camOriginV.x) * camFwd.x + (ppA.y - camOriginV.y) * camFwd.y
-                 + (ppA.z - camOriginV.z) * camFwd.z + 1.6;
+    const aimDepth = (ppA.x - camOriginV.x) * camFwd.x + (ppA.y - camOriginV.y) * camFwd.y
+                   + (ppA.z - camOriginV.z) * camFwd.z;
+    let aimStart = aimDepth + 1.6;
     if (aimStart < 0) aimStart = 0;
     let aimTargetFar = 200;
-    const aimHit = raycast(DEPS.o.physics,
-      vec3(camOriginV.x + camFwd.x * aimStart, camOriginV.y + camFwd.y * aimStart,
-           camOriginV.z + camFwd.z * aimStart),
-      camFwd, FIRE_RANGE, ALL_LAYERS_MASK);
-    if (aimHit) aimTargetFar = aimStart + aimHit.fraction * FIRE_RANGE;
+    const asx = camOriginV.x + camFwd.x * aimStart, asy = camOriginV.y + camFwd.y * aimStart;
+    const asz = camOriginV.z + camFwd.z * aimStart;
+    const aimHit = raycast(DEPS.o.physics, vec3(asx, asy, asz), camFwd, FIRE_RANGE, STATIC_MASK);
+    let aimLen = aimHit ? aimHit.fraction * FIRE_RANGE : FIRE_RANGE;
+    // ...or the creature under the crosshair, by its real shapes (plan 2.3), if that is nearer.
+    // The creature ray starts at the Trooper's own depth, not 1.6 m past it: something clawing
+    // at the player is the first thing they will shoot at, and with real hit shapes (no more
+    // man-sized boxes) a shot aimed past it simply missed.
+    setRaySkip(-1);
+    let aimOnEnemy = false;
+    const esD = aimDepth > 0 ? aimDepth : 0;
+    if (rayEnemies(camOriginV.x + camFwd.x * esD, camOriginV.y + camFwd.y * esD,
+                   camOriginV.z + camFwd.z * esD, camFwd.x, camFwd.y, camFwd.z,
+                   aimLen + (aimStart - esD), 0, HIT) >= 0) {
+      aimLen = HIT[0] - (aimStart - esD);
+      aimOnEnemy = true;
+    }
+    if (aimHit || aimLen < FIRE_RANGE) aimTargetFar = aimStart + aimLen;
     const tgtX = camOriginV.x + camFwd.x * aimTargetFar;
     const tgtY = camOriginV.y + camFwd.y * aimTargetFar;
     const tgtZ = camOriginV.z + camFwd.z * aimTargetFar;
@@ -407,9 +612,24 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     const mlen = Math.sqrt(mdx*mdx + mdy*mdy + mdz*mdz);
     // Closer than 2 m the convergence angle gets silly (a wall at the muzzle would fire
     // sideways): shoot parallel to the camera instead.
-    const aimX = mlen > 2.0 ? mdx / mlen : camFwd.x;
-    const aimY = mlen > 2.0 ? mdy / mlen : camFwd.y;
-    const aimZ = mlen > 2.0 ? mdz / mlen : camFwd.z;
+    // ...unless what the crosshair is on is a creature: then the shot goes AT it however close.
+    const converge = mlen > 2.0 || (aimOnEnemy && mlen > 0.25);
+    let aimX = converge ? mdx / mlen : camFwd.x;
+    let aimY = converge ? mdy / mlen : camFwd.y;
+    let aimZ = converge ? mdz / mlen : camFwd.z;
+    // Plan 2.9 - bullet magnetism, for a pad only: a shot within a degree or two of a
+    // creature's head or chest is bent onto it. Wider while aiming down the sights. It never
+    // reaches further than the cone, so it rewards being nearly right, not pointing roughly.
+    if (padIsActive() && SET.get(SET.SET_AIM_ASSIST) !== 0) {
+      const coneDeg = 1.2 + WPN.aimBlend() * 0.9;
+      const mi = nearestAimPoint(originX, originY, originZ, aimX, aimY, aimZ, FIRE_RANGE,
+                                 Math.cos(coneDeg * Math.PI / 180), MAG);
+      if (mi >= 0) {
+        const gx = MAG[0] - originX, gy = MAG[1] - originY, gz = MAG[2] - originZ;
+        const gl = Math.sqrt(gx * gx + gy * gy + gz * gz);
+        if (gl > 0.5) { aimX = gx / gl; aimY = gy / gl; aimZ = gz / gl; }
+      }
+    }
 
     // SH-028 — spread. The shot leaves inside a cone that grows as you hold the
     // trigger, so full-auto at range is a choice with a cost.
@@ -429,30 +649,28 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
       if ((SCORE.shotsFired() % 3) === 0) {
         VFX.emitTracer(originX, originY, originZ, aim.x, aim.y, aim.z);
       }
+      // Two tests, nearest wins: the static world by physics ray, the creatures by their
+      // shapes (hitshapes.ts). The creatures' physics boxes are no longer what a bullet hits.
       const hit = raycast(DEPS.o.physics, vec3(originX, originY, originZ), aim,
-                          FIRE_RANGE, ALL_LAYERS_MASK);
-      if (hit) {
-        let struckEnemy = false;
-        for (let i = 0; i < MAX_ENEMIES; i++) {
-          if (enAlive[i] > 0 && hit.body === enBody[i]) {
-            struckEnemy = true;
-            // Accuracy counts ENEMIES hit, not rays that landed. Counting a
-            // wall as a hit made the stat meaningless — and it is a stat the
-            // score now pays a bonus on.
-            SCORE.noteHit();
-            damageEnemy(i, WPN.W_DAMAGE[wpn], hit.point.x, hit.point.y, hit.point.z,
-                        aim.x, aim.y, aim.z);
-            break;
-          }
-        }
-        if (!struckEnemy) {
-          // World hit — sparks, dust and a bullet hole that stays.
-          const n = hit.normal;
-          VFX.emitImpactHard(hit.point.x, hit.point.y, hit.point.z,
-                             n.x, n.y, n.z, Math.random() * 6.28);
-          playSound3D(DEPS.o.sfxRicochet[SCORE.shotsFired() & 1],
-                      hit.point.x, hit.point.y, hit.point.z);
-        }
+                          FIRE_RANGE, STATIC_MASK);
+      const wallT = hit ? hit.fraction * FIRE_RANGE : FIRE_RANGE;
+      const ei = rayEnemies(originX, originY, originZ, aim.x, aim.y, aim.z, wallT, 0, HIT);
+      if (ei >= 0) {
+        // Accuracy counts ENEMIES hit, not rays that landed. Counting a
+        // wall as a hit made the stat meaningless — and it is a stat the
+        // score now pays a bonus on.
+        SCORE.noteHit();
+        const loc = HIT[1];
+        let dmg = WPN.W_DAMAGE[wpn] * WPN.falloffAt(wpn, HIT[0]) * LOC_MUL[loc];
+        if (loc === LOC_HEAD) dmg = dmg * WPN.W_HEAD_MUL[wpn];
+        damageEnemy(ei, dmg, HIT[2], HIT[3], HIT[4], aim.x, aim.y, aim.z, loc);
+      } else if (hit) {
+        // World hit — sparks, dust and a bullet hole that stays.
+        const n = hit.normal;
+        VFX.emitImpactHard(hit.point.x, hit.point.y, hit.point.z,
+                           n.x, n.y, n.z, Math.random() * 6.28);
+        playSound3D(DEPS.o.sfxRicochet[SCORE.shotsFired() & 1],
+                    hit.point.x, hit.point.y, hit.point.z);
       }
     } else {
       const speed = WPN.W_PROJ_SPEED[wpn];
@@ -478,10 +696,18 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     const inv = segLen > 0 ? 1 / segLen : 0;
     const hit = raycast(DEPS.o.physics, vec3(ox, oy, oz),
                         vec3(sx * inv, sy * inv, sz * inv),
-                        segLen, ALL_LAYERS_MASK);
-    if (hit) {
-      const pw = pWeapon[i];
-      const aoe = WPN.W_AOE[pw];
+                        segLen, STATIC_MASK);
+    const wallT = hit ? hit.fraction * segLen : segLen;
+    // A bolt is fatter than a bullet: its shapes are widened by 12 cm.
+    setRaySkip(pLast[i]);
+    const ei = rayEnemies(ox, oy, oz, sx * inv, sy * inv, sz * inv, wallT, 0.12, HIT);
+    setRaySkip(-1);
+    const pw = pWeapon[i];
+    const aoe = WPN.W_AOE[pw];
+    if (ei >= 0 || hit) {
+      const ix = ei >= 0 ? HIT[2] : hit.point.x;
+      const iy = ei >= 0 ? HIT[3] : hit.point.y;
+      const iz = ei >= 0 ? HIT[4] : hit.point.z;
       if (aoe > 0) {
         // SH-042 — the lucifer cannon. Charge scales both damage and radius, so
         // a snap shot is a weak poke and a held shot is the room-clearer that
@@ -489,28 +715,30 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
         const chg = pCharge[i];
         const radius = aoe * (0.55 + 0.45 * chg);
         const dmg = WPN.W_DAMAGE[pw] * (0.5 + 0.5 * chg);
-        explode(hit.point.x, hit.point.y, hit.point.z, radius, dmg);
+        explode(ix, iy, iz, radius, dmg);
         SCORE.noteHit();
+        pLife[i] = 0;
+      } else if (ei >= 0) {
+        SCORE.noteHit();
+        const loc = HIT[1];
+        let dmg = WPN.W_DAMAGE[pw] * LOC_MUL[loc];
+        if (loc === LOC_HEAD) dmg = dmg * WPN.W_HEAD_MUL[pw];
+        damageEnemy(ei, dmg, ix, iy, iz, sx * inv, sy * inv, sz * inv, loc);
+        // The blaster's bolt carries on through (plan 2.8), once, and never into the same
+        // creature twice.
+        if (pPierce[i] > 0) {
+          pPierce[i] = pPierce[i] - 1;
+          pLast[i] = ei;
+          pX[i] = nx; pY[i] = ny; pZ[i] = nz;
+          pLife[i] = pLife[i] - dt;
+        } else {
+          pLife[i] = 0;
+        }
       } else {
-        let struck = false;
-        for (let j = 0; j < MAX_ENEMIES; j++) {
-          if (enAlive[j] > 0 && hit.body === enBody[j]) {
-            struck = true;
-            SCORE.noteHit();
-            const dl = segLen > 0 ? 1 / segLen : 0;
-            damageEnemy(j, WPN.W_DAMAGE[pw],
-                        hit.point.x, hit.point.y, hit.point.z,
-                        sx * dl, sy * dl, sz * dl);
-            break;
-          }
-        }
-        if (!struck) {
-          const n = hit.normal;
-          VFX.emitImpactHard(hit.point.x, hit.point.y, hit.point.z,
-                             n.x, n.y, n.z, Math.random() * 6.28);
-        }
+        const n = hit.normal;
+        VFX.emitImpactHard(ix, iy, iz, n.x, n.y, n.z, Math.random() * 6.28);
+        pLife[i] = 0;
       }
-      pLife[i] = 0;
     } else {
       pX[i] = nx; pY[i] = ny; pZ[i] = nz;
       pLife[i] = pLife[i] - dt;
@@ -599,29 +827,72 @@ export function drawCombatWorld(): void {
     const k = GS.muzzleFlashT / MUZZLE_FLASH_DUR;
     addPointLight(GS.muzzleX, GS.muzzleY, GS.muzzleZ, 6, 1.0, 0.85, 0.5, 4.0 * k);
   }
-  // Pickups — bobbing cubes, color-coded per kind. The bob rides the AUTHORED
-  // height: pickups used to draw at an absolute y ≈ 0.8, which parked the
-  // house's upstairs pickup on the ground floor as a floating orb.
+  // Pickups (plan 2.8): an ammo crate on the floor with the weapon it feeds turning slowly
+  // above it. Until 2026-11 these were bobbing coloured cubes. The weapon rides the AUTHORED
+  // height (pickups once drew at an absolute y, which parked the house's upstairs pickup on
+  // the ground floor); the crate sits 0.85 m under it, on the floor it was authored above.
   const tNow = getTime();
   for (let i = 0; i < PICKUP_COUNT; i++) {
     if (pickupActive[i] === 0) continue;
-    const bob = pickupY[i] + Math.sin(tNow * 3.0 + i) * 0.15;
     const isRifleKind = pickupKind[i] === PICKUP_RIFLE;
-    const col = isRifleKind
-      ? { r: 240, g: 200, b: 80,  a: 255 }    // gold = rifle
-      : { r: 120, g: 220, b: 240, a: 255 };   // cyan = blaster
-    drawCube(vec3(pickupX[i], bob, pickupZ[i]), 0.4, 0.4, 0.4, col);
-    // Glow around the cube for visibility — the ADDITIVE muzzle-flash
-    // material, same as the plasma bolts, NOT an alpha-blended drawSphere.
-    // The sphere wrote the G-buffer, and the path tracer takes primary
-    // visibility from the G-buffer: in PT modes every pickup wore an opaque
-    // unlit BLACK ball where its glow should be. The additive bucket
-    // composites after the PT and never touches the G-buffer, so this reads
-    // as the same soft glow in raster and both PT modes.
+    const wM = isRifleKind ? WPN.W_RIFLE : WPN.W_BLASTER;
+    const bob = pickupY[i] + 0.12 + Math.sin(tNow * 2.0 + i) * 0.06;
+    if (DEPS.o.hasCrate === 1) {
+      drawModelRotated(DEPS.o.mdlCrate, vec3(pickupX[i], pickupY[i] - 0.85, pickupZ[i]),
+                       0.55, (i * 37) % 360, WHITE);
+    }
+    // Turning about the vertical, barrel tipped up a little, centred on its own middle
+    // (weapon models have their rear at z = 0 and the muzzle at WEAPON_MUZZLE_Z).
+    const ang = tNow * 1.1 + i * 1.7;
+    const tilt = 0.30;
+    const fwx = Math.sin(ang) * Math.cos(tilt), fwy = Math.sin(tilt), fwz = Math.cos(ang) * Math.cos(tilt);
+    const rx = Math.cos(ang), rz = -Math.sin(ang);
+    const ux = fwy * rz, uy = fwz * rx - fwx * rz, uz = -fwy * rx;
+    const sc = DEPS.o.WEAPON_DRAW_SCALE[wM];
+    const half = DEPS.o.WEAPON_MUZZLE_Z[wM] * 0.5;
+    const m16 = [
+      rx * sc,  0,        rz * sc,  0,
+      ux * sc,  uy * sc,  uz * sc,  0,
+      fwx * sc, fwy * sc, fwz * sc, 0,
+      pickupX[i] - fwx * half, bob - fwy * half, pickupZ[i] - fwz * half, 1,
+    ];
+    drawModelTransform(DEPS.o.mdlWeapons[wM], m16, WHITE);
+    // A soft glow so it reads across the arena - the ADDITIVE card, which composites after
+    // the path tracer and never touches the G-buffer (an alpha sphere there drew as a black
+    // ball in the PT modes).
     if (ENV.matMuzzleFlash > 0) {
       drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
-        vec3(pickupX[i], bob, pickupZ[i]), 0.55,
-        { r: col.r, g: col.g, b: col.b, a: 160 });
+        vec3(pickupX[i], bob, pickupZ[i]), 0.6,
+        isRifleKind ? { r: 240, g: 200, b: 80, a: 130 } : { r: 120, g: 220, b: 240, a: 130 });
+    }
+  }
+  // Field dressings (plan 2.7): a small green-lit case where the creature fell. It blinks
+  // through its last five seconds.
+  for (let i = 0; i < MAX_HEALS; i++) {
+    if (hpLife[i] <= 0) continue;
+    if (hpLife[i] < 5 && Math.floor(hpLife[i] * 5) % 2 === 0) continue;
+    if (DEPS.o.hasCrate === 1) {
+      drawModelRotated(DEPS.o.mdlCrate, vec3(hpX[i], hpY[i], hpZ[i]), 0.34, (i * 53) % 360,
+                       { r: 120, g: 255, b: 150, a: 255 });
+    }
+    if (ENV.matMuzzleFlash > 0) {
+      drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
+        vec3(hpX[i], hpY[i] + 0.5, hpZ[i]), 0.6 + Math.sin(tNow * 4 + i) * 0.08,
+        { r: 90, g: 255, b: 130, a: 235 });
+    }
+    addPointLight(hpX[i], hpY[i] + 0.5, hpZ[i], 3.5, 0.3, 1.0, 0.45, 1.4);
+  }
+  // Grenades in flight: a dark ball with a light that blinks faster as the fuse runs down.
+  for (let i = 0; i < MAX_NADE; i++) {
+    if (gFuse[i] <= 0) continue;
+    drawSphere(vec3(gX[i], gY[i], gZ[i]), 0.07, { r: 40, g: 46, b: 38, a: 255 });
+    const rate = 4 + (NADE_FUSE - gFuse[i]) * 7;
+    if (Math.sin(tNow * rate * 3.14) > 0) {
+      if (ENV.matMuzzleFlash > 0) {
+        drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
+          vec3(gX[i], gY[i] + 0.06, gZ[i]), 0.16, { r: 255, g: 70, b: 50, a: 255 });
+      }
+      addPointLight(gX[i], gY[i] + 0.1, gZ[i], 2.5, 1.0, 0.25, 0.15, 1.2);
     }
   }
   // Blaster projectiles — additive cyan plasma using the muzzle-

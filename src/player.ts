@@ -72,6 +72,15 @@ const DODGE_COOLDOWN = 1.2;
 // Invulnerable for this long from the start of a dodge (plan 1.5): claws whiff and bolts pass
 // through. Shorter than the roll itself: the recovery at the end can be punished.
 const DODGE_IFRAMES = 0.45;
+// Plan 2.7 - vault. Jump while moving into something between knee and chest height and the
+// Trooper goes up and over (or onto) it instead of bumping it: three rays find the obstacle, the
+// clear air above it and the place to land, then the body is carried there on an arc.
+const VAULT_TIME = 0.42;       // seconds
+const VAULT_REACH = 0.85;      // how close the obstacle must be (from the capsule's middle)
+const VAULT_MIN_H = 0.35;      // lower than this is a step, the controller already climbs it
+const VAULT_MAX_H = 1.25;      // higher than this is a wall
+const VAULT_OVER = 1.9;        // an obstacle thinner than this is cleared; a thicker one is mounted
+const FEET = HALF_HEIGHT + RADIUS;
 
 let character: CharacterHandle = 0;
 let shape: ShapeHandle = 0;
@@ -82,7 +91,9 @@ let worldH: WorldHandle = 0;
 //   0 dodge time left   1 dodge cooldown   2 dodge dir x   3 dodge dir z
 //   4 grounded (0/1)    5 horizontal speed  6 sprinting (0/1)  7 crouching (0/1)
 //   8 i-frame time left 9 capsule is the crouch one (0/1)   10 squared to the camera (0/1)
-const P = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//  11 walk-speed multiplier from the held weapon (the spun-up chaingun)
+//  12 vault time left   13-15 vault start   16-18 vault end   19 vault arc height
+const P = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export function createPlayer(world: WorldHandle, spawn: Vec3): void {
   worldH = world;
@@ -114,6 +125,60 @@ export function dodgeDuration(): number { return DODGE_TIME; }
 /// Main says each frame whether the body is squared to the camera (aiming or firing):
 /// movement is then at AIM_MUL.
 export function setSquared(on: boolean): void { P[10] = on ? 1 : 0; }
+/// The held weapon's drag on walking speed (weapons.ts carryMul), set by main each frame.
+export function setCarryMul(m: number): void { P[11] = m; }
+/// 0 when not vaulting, else 0..1 through the vault.
+export function vaultProgress(): number { return P[12] > 0 ? 1 - P[12] / VAULT_TIME : 0; }
+export function isVaulting(): boolean { return P[12] > 0; }
+
+/// Look for something to vault in the direction (dx, dz) (unit, horizontal). Starts the vault
+/// and returns true when there is one.
+/// Why the last vault attempt ended (harness readout): 1 nothing ahead, 2 a wall, 3 no top,
+/// 4 wrong height (VD[1] = the height found), 9 vaulted.
+export const VD = [0, 0];
+function tryVault(dx: number, dz: number): boolean {
+  const cp = getCharacterPosition(character);
+  const feetY = cp.y - FEET;
+  const mask = 1 << Layer.NON_MOVING;
+  // 1. something solid ahead at shin height
+  const low = raycast(worldH, vec3(cp.x, feetY + 0.30, cp.z), vec3(dx, 0, dz), VAULT_REACH, mask);
+  if (low === null) { VD[0] = 1; return false; }
+  const nearD = low.fraction * VAULT_REACH;
+  // 2. and nothing ahead at head height: it is an obstacle, not a wall
+  const high = raycast(worldH, vec3(cp.x, feetY + VAULT_MAX_H + 0.25, cp.z), vec3(dx, 0, dz),
+                       nearD + 1.0, mask);
+  if (high !== null) { VD[0] = 2; return false; }
+  // 3. its top, just past the near face
+  const tx = cp.x + dx * (nearD + 0.25), tz = cp.z + dz * (nearD + 0.25);
+  const top = raycast(worldH, vec3(tx, feetY + VAULT_MAX_H + 0.2, tz), vec3(0, -1, 0),
+                      VAULT_MAX_H + 0.2, mask);
+  if (top === null) { VD[0] = 3; return false; }
+  const topY = top.point.y;
+  const h = topY - feetY;
+  VD[1] = h;
+  if (h < VAULT_MIN_H || h > VAULT_MAX_H) { VD[0] = 4; return false; }
+  // 4. where it ends. Walk a probe along the top: the first place the ground is back down
+  // near our level, within VAULT_OVER, is where we land. If it does not come down in that
+  // distance the thing is a platform and we climb onto it.
+  let endX = cp.x + dx * (nearD + 0.45), endZ = cp.z + dz * (nearD + 0.45);
+  let endY = topY + FEET + 0.03;
+  for (let d = 0.6; d <= VAULT_OVER; d = d + 0.3) {
+    const qx = cp.x + dx * (nearD + d), qz = cp.z + dz * (nearD + d);
+    const g = raycast(worldH, vec3(qx, topY + 0.6, qz), vec3(0, -1, 0), h + 1.6, mask);
+    if (g === null) break;                       // a drop with no floor in reach: stay on top
+    if (g.point.y < topY - h * 0.6) {
+      endX = cp.x + dx * (nearD + d + RADIUS); endZ = cp.z + dz * (nearD + d + RADIUS);
+      endY = g.point.y + FEET + 0.03;
+      break;
+    }
+  }
+  VD[0] = 9;
+  P[12] = VAULT_TIME;
+  P[13] = cp.x; P[14] = cp.y; P[15] = cp.z;
+  P[16] = endX; P[17] = endY; P[18] = endZ;
+  P[19] = topY + FEET + 0.25;                    // the arc clears the top by a hand
+  return true;
+}
 /// True while a dodge's invulnerability window is open. Every source of damage to the player
 /// from an enemy asks this first.
 export function isInvulnerable(): boolean { return P[8] > 0; }
@@ -152,6 +217,30 @@ export function updatePlayerController(
 
   if (P[1] > 0) P[1] = P[1] - dt;
   if (P[8] > 0) P[8] = P[8] - dt;
+
+  // A vault in progress owns the body: it is carried along its arc and nothing steers it.
+  if (P[12] > 0) {
+    P[12] = P[12] - dt;
+    let u = 1 - P[12] / VAULT_TIME;
+    if (u > 1) u = 1;
+    const e = u * u * (3 - 2 * u);
+    // Height: up to the arc's top by the middle, down to the landing by the end.
+    const mid = P[19];
+    const y = u < 0.5
+      ? P[14] + (mid - P[14]) * Math.sin(u * Math.PI)
+      : P[17] + (mid - P[17]) * Math.sin(u * Math.PI);
+    setCharacterPosition(character,
+      vec3(P[13] + (P[16] - P[13]) * e, y, P[15] + (P[18] - P[15]) * e));
+    setCharacterLinearVelocity(character, vec3(0, 0, 0));
+    P[4] = 1;
+    P[5] = Math.sqrt((P[16] - P[13]) * (P[16] - P[13]) + (P[18] - P[15]) * (P[18] - P[15])) / VAULT_TIME;
+    P[6] = 0; P[7] = 0;
+    if (P[12] <= 0) {
+      P[12] = 0;
+      setCharacterPosition(character, vec3(P[16], P[17], P[18]));
+    }
+    return;
+  }
 
   // A dodge overrides steering entirely — that is what makes it a commitment
   // and therefore a real decision, rather than just a speed boost you hold.
@@ -198,7 +287,7 @@ export function updatePlayerController(
   const base = grounded ? MOVE_SPEED : AIR_SPEED;
   const speed = crouching ? base * CROUCH_MUL
               : (sprinting ? base * SPRINT_MUL
-              : ((P[10] !== 0 && grounded) ? base * AIM_MUL : base));
+              : ((P[10] !== 0 && grounded) ? base * AIM_MUL : base * P[11]));
   const targetX = (forwardFlat.x * -moveZ + rightFlat.x * moveX) * speed;
   const targetZ = (forwardFlat.z * -moveZ + rightFlat.z * moveX) * speed;
 
@@ -218,6 +307,11 @@ export function updatePlayerController(
   // gravity component the slide fed on. updateCharacter re-applies gravity this
   // frame to keep ground contact.
   let ny = grounded ? 0 : v.y;
+  // Jump - or, moving into something low enough, vault it (plan 2.7).
+  if (jumpPressed && grounded && !crouching && !noInput) {
+    const ml = Math.sqrt(targetX * targetX + targetZ * targetZ);
+    if (ml > 0.1 && tryVault(targetX / ml, targetZ / ml)) return;
+  }
   if (jumpPressed && grounded) ny = JUMP_IMPULSE;
   // Grounded and pressing into a slope: rise at exactly the rate that keeps the
   // character on the surface. CharacterVirtual otherwise wedges against a hill,
@@ -255,7 +349,7 @@ export function updatePlayerController(
 }
 
 export function resetPlayerMotion(): void {
-  P[0] = 0; P[1] = 0; P[5] = 0; P[6] = 0; P[7] = 0; P[8] = 0;
+  P[0] = 0; P[1] = 0; P[5] = 0; P[6] = 0; P[7] = 0; P[8] = 0; P[12] = 0;
   if (P[9] !== 0) { setCharacterShape(character, shape); P[9] = 0; }
 }
 

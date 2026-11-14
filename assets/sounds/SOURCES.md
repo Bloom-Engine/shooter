@@ -52,6 +52,9 @@ game-ready files are committed, never pack folders.
 | `splash1.wav` | BluezoneCorp — Designed Water, impact_006 (first 1.2 s) |
 | `river_loop.wav` | Bolt — Immersive Creek (Vermont), Babbling Brook XY pair; 32 s seamless loop cut at 49 s by `tools/convert-audio.ts` (SH-052b — window chosen by RMS/brightness variance scan, equal-power tail-over-head loop fade) |
 
+Fourth pass, 2026-11-14 (plan Phase 2): `swing.wav`, `crit_hit.wav`, `melee_hit.wav`,
+`grenade_throw.wav`, `grenade_bounce.wav`, `heal.wav`, same tool, prompts in it.
+
 ## Synthesised by `tools/gen-sfx.ts` — superseded
 
 Every file that tool wrote now comes from `tools/gen/sfx.py` (table above). Do not re-run

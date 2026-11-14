@@ -14,6 +14,7 @@ import {
   vec3, getTime, playSound3D, playSound, getFPS,
 } from 'bloom';
 import { gamepadRumble } from 'bloom/core';
+import { playSoundEx } from 'bloom/audio';
 import { animPlay } from 'bloom/models';
 import { createRagdoll, releaseRagdoll } from 'bloom/models';
 import { setBodyPosition, raycast, Layer } from 'bloom/physics';
@@ -23,9 +24,13 @@ import { terrainHeightAt } from './terrain';
 import {
   surfaceHeightAt, navGoal, navStairBlocked, SAME_FLOOR_EPS, PLAYER_FEET_OFF,
 } from './nav';
-import { routeGoal, flowRecompute, flowBlockedAt } from './flow';
+import {
+  routeGoal, flowRecompute, flowBlockedAt, flowSegBlocked, flowCovers, flowInBuilding,
+} from './flow';
 import { bootStage, BOOT_ALIENS } from './boot';
-import { playerPosition, isInvulnerable } from './player';
+import {
+  playerPosition, isInvulnerable, isCrouching, isSprinting, playerSpeed,
+} from './player';
 import * as VFX from './vfx';
 import * as FEEL from './feel';
 import * as SCORE from './score';
@@ -33,7 +38,7 @@ import * as MIX from './audio-mix';
 import * as SET from './settings';
 import * as WPN from './weapons';
 import {
-  MAX_ENEMIES, BODIES_PER_KIND, KIND_COUNT,
+  MAX_ENEMIES, KIND_POOL, KIND_SLOT0, KIND_COUNT,
   enAlive, enDying, enX, enY, enZ, enHP, enBody, enKind,
   enAttackCD, enFlashT, enPhase, enAIState, enStateT, enOrbitDir,
   enChargeX, enChargeZ, enSpeedMul, enFlinchLock, enDmgWindow,
@@ -50,6 +55,15 @@ import {
   KIND_HX, KIND_LIGHT, RANGED_WINDUP,
   AI_APPROACH, AI_ORBIT, AI_CHARGE, AI_RECOVER, AI_WINDUP, AI_FLINCH,
   initEnemyPool,
+  enAware, enSeenT, enLastX, enLastY, enLastZ, enLos, enLosT, enReactT, enSearchT,
+  enBlockT, enRouteT, enRouted,
+  KIND_SIGHT, SIGHT_COS, SIGHT_CROUCH_MUL, SENSE_NEAR, LOSE_TIME, ALERT_SHARE_R,
+  AI_STRIKE_WIND, AI_STRIKE_HIT, AI_STRIKE_REC,
+  STRIKE_WINDUP, STRIKE_ACTIVE, STRIKE_RECOVER, STRIKE_START, STRIKE_REACH,
+  STRIKE_RADIUS, STRIKE_LUNGE, enHitDone, enStrikeSeq, enHasToken,
+  KIND_HEIGHT, LOC_BODY, LOC_HEAD, LOC_WEAK, LOC_SHELL, LOC_LIMB,
+  enPosed, enHitDX, enHitDZ, enHitK, enDeathClip, enDeathVX, enDeathVZ, enDeathVY,
+  enDeathLift, ANIM_FALL_IDX, ANIM_DIE_IDX, KIND_BOX_Y, KIND_BOX_HX,
 } from './enemies';
 
 /// Mutable director state, const-object slots (the DEPS.o.CAM pattern).
@@ -63,7 +77,111 @@ export const DIR: any = {
   spawnTimer: 0,
   gameWon: false,
   eprojNext: 0,
+  // Plan 2.1 - how far the player can be HEARD right now (metres). Gunfire and explosions set
+  // it (makeNoise) and it rings down over about a second; footsteps are added per frame.
+  noiseR: 0,
+  // How many creatures are alerted, and how many alive: the HUD's "unseen" tag reads both.
+  awareCount: 0,
+  aliveCount: 0,
+  // Plan 2.5 - attack tokens in use this frame, and the limit.
+  tokensOut: 0,
+  // A dodge that made a blow miss: seconds left on the HUD's confirmation.
+  dodgedT: 0,
+  hpNext: 0,
 };
+
+// ---- Plan 2.1 tuning: what the player sounds like ------------------------------------------
+const NOISE_SPRINT = 16.0;     // metres a sprint carries
+const NOISE_RUN = 9.0;         // the normal run
+const NOISE_WALK = 5.0;        // aiming or strafing pace
+const NOISE_DECAY = 60.0;      // m/s the gunfire radius shrinks at
+const TRACK_GRACE = 1.5;       // seconds an alerted creature still knows where you went
+const SEARCH_TIME = 9.0;       // seconds a blind hunt lasts before the pack guesses again
+const SEARCH_SPEED = 0.55;     // fraction of its speed while casting about for the player
+const SEARCH_LOPE = 0.85;      // ...and while still far from where it expects them
+// ---- Plan 2.5 tuning ------------------------------------------------------------------------
+const TOKENS_BASE = 2;         // creatures that may be mid-attack at once (3 from the last wave)
+const RING_EXTRA = 1.6;        // token-less creatures hold this far outside their strike range
+// ---- Plan 2.7: health --------------------------------------------------------------------
+export const REGEN_DELAY = 5.0;    // seconds unhurt before health starts coming back
+export const REGEN_CAP = 40;       // ...and it only comes back this far
+const REGEN_RATE = 9.0;            // HP per second
+export const HEAL_AMOUNT = 30;
+const HEAL_RADIUS = 1.5;
+const HEAL_LIFE = 30.0;
+//                        skitter stalker ravager bruiser colossus spitter bombard
+const KIND_DROP_CHANCE = [0.08,  0.12,   0.18,   0.60,   1.00,    0.18,   0.60];
+export const MAX_HEALS = 6;
+export const hpX = new Array<number>(MAX_HEALS);
+export const hpY = new Array<number>(MAX_HEALS);
+export const hpZ = new Array<number>(MAX_HEALS);
+export const hpLife = new Array<number>(MAX_HEALS);
+for (let i = 0; i < MAX_HEALS; i++) { hpX[i] = 0; hpY[i] = 0; hpZ[i] = 0; hpLife[i] = 0; }
+
+/// The player made a noise that carries `radius` metres (a shot, an explosion).
+export function makeNoise(radius: number): void {
+  if (radius > DIR.noiseR) DIR.noiseR = radius;
+}
+
+/// A creature becomes aware of the player. `react` is its "noticed you" pause; `share` lets it
+/// rouse the others around it (they take a beat longer, so a pack turns its heads in a ripple).
+function alertEnemy(i: number, react: number, share: boolean): void {
+  const pp = playerPosition();
+  enAware[i] = 1;
+  enSeenT[i] = 0;
+  enLastX[i] = pp.x; enLastY[i] = pp.y - PLAYER_FEET_OFF; enLastZ[i] = pp.z;
+  if (enReactT[i] < react) enReactT[i] = react;
+  if (!share) return;
+  playSound3D(DEPS.o.sfxAlienAttack[enKind[i]], enX[i], enY[i] + 1, enZ[i]);
+  for (let j = 0; j < MAX_ENEMIES; j++) {
+    if (j === i || enAlive[j] === 0 || enAware[j] === 1) continue;
+    const dx = enX[j] - enX[i], dz = enZ[j] - enZ[i];
+    if (dx * dx + dz * dz < ALERT_SHARE_R * ALERT_SHARE_R) {
+      alertEnemy(j, 0.45 + Math.random() * 0.45, false);
+    }
+  }
+}
+
+/// Every source of damage to the player from the world goes through here: health, the damage
+/// arc, the camera flinch, the pain or death voice, and the end of the run. (sx, sz) is where
+/// it came from. Returns false when it did nothing (the run is already over).
+export function damagePlayer(dmg: number, sx: number, sz: number, voice: number): boolean {
+  if (GS.gameOver || dmg <= 0) return false;
+  const pp = playerPosition();
+  GS.playerHP = GS.playerHP - dmg;
+  GS.damageFlashT = 0.5;
+  GS.sinceHurt = 0;
+  // Direction TO the source, relative to where the camera looks.
+  const hitYaw = Math.atan2(sx - pp.x, -(sz - pp.z));
+  let rel = hitYaw - DEPS.o.CAM[0];
+  while (rel > Math.PI) rel = rel - Math.PI * 2;
+  while (rel < -Math.PI) rel = rel + Math.PI * 2;
+  GS.lastHitAngle = rel;
+  GS.lastHitT = 1.4;
+  FEEL.addTrauma(0.30 + dmg * 0.006);
+  FEEL.flinch(-Math.sign(rel) * 0.035, -0.02);
+  FEEL.damageFlash(1);
+  MIX.duckMusicOnDamage();
+  gamepadRumble(0.55, 0.35, 0.18);
+  if (GS.playerHP <= 0) {
+    GS.playerHP = 0;
+    playSound(DEPS.o.sfxPlayerDie[voice & 1]);
+    FEEL.addTrauma(1.0);
+    SCORE.commitRun(W.ARENA_INDEX);
+    SET.saveSettings();     // persist the best score immediately
+    playSound(DEPS.o.stingDeath);  // SH-036
+    GS.gameOver = true;
+  } else {
+    playSound(DEPS.o.sfxPlayerPain[voice & 1]);
+  }
+  return true;
+}
+
+function dropHeal(x: number, y: number, z: number): void {
+  const n = DIR.hpNext;
+  hpX[n] = x; hpY[n] = y; hpZ[n] = z; hpLife[n] = HEAL_LIFE;
+  DIR.hpNext = (n + 1) % MAX_HEALS;
+}
 
 /// main.ts-owned dependencies, handed over once by initDirector.
 const DEPS: any = { o: null };
@@ -119,7 +237,8 @@ export const WAVE_BREAK_DELAY = 2.5;
 // no enemies on screen at all. That is a rendering-cost problem and it is not
 // this constant's to solve — see docs/perf-audit-2026-07.md. Raising this does
 // not cause that gap and lowering it would not close it.
-const MAX_CONCURRENT = 8;
+// Plan 2.6 raised it to 12 with the larger pool (30 bodies; see KIND_POOL in enemies.ts).
+const MAX_CONCURRENT = 12;
 
 
 
@@ -142,8 +261,8 @@ export function countAlive(): number {
 }
 
 function findDormantSlot(kind: number): number {
-  for (let j = 0; j < BODIES_PER_KIND; j++) {
-    const i = kind * BODIES_PER_KIND + j;
+  for (let j = 0; j < KIND_POOL[kind]; j++) {
+    const i = KIND_SLOT0[kind] + j;
     // A dying slot still owns the corpse on screen — don't respawn into it
     // or the death anim snaps into a fresh enemy mid-fall.
     if (enAlive[i] === 0 && enDying[i] === 0) return i;
@@ -177,6 +296,30 @@ function spawnEnemy(): void {
   enStepPhase[slot] = 0;
   vxLast[slot] = 0;
   vzLast[slot] = 0;
+  // Plan 2.1 - it arrives hunting, not homing: the pack knows roughly where the player is
+  // (within ten metres), and each creature has to see or hear them to know better.
+  {
+    const pS = playerPosition();
+    const ga = Math.random() * Math.PI * 2;
+    const gr = 4 + Math.random() * 6;
+    enAware[slot] = 0;
+    enSeenT[slot] = 99;
+    enLastX[slot] = pS.x + Math.cos(ga) * gr;
+    enLastY[slot] = pS.y - PLAYER_FEET_OFF;
+    enLastZ[slot] = pS.z + Math.sin(ga) * gr;
+    enLos[slot] = 0;
+    enLosT[slot] = Math.random() * 0.2;
+    enReactT[slot] = 0;
+    enSearchT[slot] = SEARCH_TIME + Math.random() * 4;
+    enBlockT[slot] = 0;
+    enRouteT[slot] = Math.random() * 0.3;
+    enRouted[slot] = 0;
+    enHitDone[slot] = 0;
+    enHasToken[slot] = 0;
+    enPosed[slot] = 0;
+    enHitK[slot] = 0;
+    enRangedCD[slot] = 0.8 + Math.random();
+  }
   // Force the mixer to re-trigger: the slot may still hold the die clip from
   // the previous occupant, and animPlay is (deliberately) a no-op when asked
   // for the clip that is already playing.
@@ -184,7 +327,7 @@ function spawnEnemy(): void {
   // Spawners sit at the arena corners — start facing the middle.
   enHeading[slot] = Math.atan2(-enX[slot], enZ[slot]);
   setBodyPosition(enBody[slot],
-    vec3(enX[slot], enY[slot] + KIND_Y_OFF[kind], enZ[slot]), true);
+    vec3(enX[slot], enY[slot] + KIND_BOX_Y[kind], enZ[slot]), true);
   DIR.waveSpawned = DIR.waveSpawned + 1;
 }
 
@@ -239,24 +382,55 @@ export function despawnAllEnemies(): void {
     enDying[i] = 0;
     enDeathT[i] = 0;
     enDeathYaw[i] = 0;
+    enAware[i] = 0; enReactT[i] = 0; enHasToken[i] = 0; enPosed[i] = 0; enHitK[i] = 0;
+    enAIState[i] = AI_APPROACH;
     enX[i] = 0; enY[i] = -100; enZ[i] = 0;
     setBodyPosition(enBody[i], vec3(0, -100, 0), false);
   }
+  for (let i = 0; i < MAX_HEALS; i++) hpLife[i] = 0;
+  DIR.noiseR = 0; DIR.awareCount = 0; DIR.aliveCount = 0; DIR.tokensOut = 0; DIR.dodgedT = 0;
 }
 
+/// `loc` is where the shot landed (LOC_* in enemies.ts); the caller has already applied the
+/// location's damage multiplier and passes it so the feedback matches: a head or weak-point hit
+/// gets the critical marker and sound, a shell hit sparks instead of bleeding.
 export function damageEnemy(i: number, dmg: number,
                      hx: number, hy: number, hz: number,
-                     dirX: number, dirY: number, dirZ: number): void {
+                     dirX: number, dirY: number, dirZ: number, loc: number): void {
   const k = enKind[i];
   enHP[i] = enHP[i] - dmg;
   enFlashT[i] = DRETCH_HIT_FLASH;
+  const crit = loc === LOC_HEAD || loc === LOC_WEAK;
 
   const groundY = terrainHeightAt(enX[i], enZ[i]);
-  VFX.emitImpactFlesh(hx, hy, hz, dirX, dirY, dirZ,
-                      KIND_BLOOD_R[k], KIND_BLOOD_G[k], KIND_BLOOD_B[k],
-                      groundY + 0.02, Math.random() * 6.28);
-  playSound3D(DEPS.o.sfxImpactFlesh, hx, hy, hz);
-  GS.hitMarkT = 0.18;
+  if (loc === LOC_SHELL) {
+    // Armour: sparks and a ricochet, no ichor. The picture says "wrong side".
+    VFX.emitImpactHard(hx, hy, hz, -dirX, -dirY, -dirZ, Math.random() * 6.28);
+    playSound3D(DEPS.o.sfxRicochet[i & 1], hx, hy, hz);
+  } else {
+    VFX.emitImpactFlesh(hx, hy, hz, dirX, dirY, dirZ,
+                        KIND_BLOOD_R[k], KIND_BLOOD_G[k], KIND_BLOOD_B[k],
+                        groundY + 0.02, Math.random() * 6.28);
+    playSound3D(DEPS.o.sfxImpactFlesh, hx, hy, hz);
+  }
+  GS.hitMarkT = crit ? 0.28 : 0.18;
+  GS.hitMarkCrit = crit ? 1 : 0;
+  if (crit) playSoundEx(DEPS.o.sfxCrit, false, 0.9, 1.0, 0);
+
+  // Being shot tells it where you are, wherever it was looking.
+  if (enAware[i] === 0) alertEnemy(i, 0.12, true);
+  enSeenT[i] = 0;
+
+  // Plan 2.4 - the jolt: the upper body is knocked along the shot for a moment (main turns
+  // this into a spine rotation). Scaled down on the heavies, up on a critical hit.
+  {
+    const hl = Math.sqrt(dirX * dirX + dirZ * dirZ);
+    if (hl > 0.001) { enHitDX[i] = dirX / hl; enHitDZ[i] = dirZ / hl; }
+    const light0 = KIND_LIGHT[k] === 1;
+    let jolt = light0 ? 0.75 : 0.3;
+    if (crit) jolt = jolt * 1.5;
+    if (jolt > enHitK[i]) enHitK[i] = jolt > 1 ? 1 : jolt;
+  }
 
   if (enHP[i] <= 0) {
     // Death: AI/waves see it gone (enAlive 0), the DEPS.o.physics body leaves play,
@@ -264,6 +438,7 @@ export function damageEnemy(i: number, dmg: number,
     enAlive[i] = 0;
     enDying[i] = 1;
     enDeathT[i] = 0;
+    enHasToken[i] = 0;
     // Freeze the AI heading — a dragoon killed mid-charge collapses along its
     // charge line rather than snapping around toward the player.
     enDeathYaw[i] = enHeading[i];
@@ -272,6 +447,28 @@ export function damageEnemy(i: number, dmg: number,
     enDeathDY[i] = dirY;
     enDeathDZ[i] = dirZ;
     enDeathImp[i] = dmg;
+    // Plan 2.4 - the death is chosen by the blow (decision: authored clips, not the ragdoll,
+    // which still cannot hold this skeleton).
+    //   shot from the front      -> "death": thrown onto its back, away from the shooter
+    //   shot from behind / head  -> "fall": it crumples where it stands
+    //   a blast or a heavy round -> "death", and the body is THROWN along the blow
+    {
+      const fwX = Math.sin(enHeading[i]), fwZ = -Math.cos(enHeading[i]);
+      const fromBehind = dirX * fwX + dirZ * fwZ > 0.25;
+      const heavyBlow = dmg >= 45 && KIND_LIGHT[k] === 1;
+      enDeathClip[i] = ANIM_DIE_IDX[k];
+      enDeathVX[i] = 0; enDeathVZ[i] = 0; enDeathVY[i] = 0; enDeathLift[i] = 0;
+      if (heavyBlow) {
+        const thr = 5.5 + Math.min(4, dmg * 0.03);
+        enDeathVX[i] = enHitDX[i] * thr;
+        enDeathVZ[i] = enHitDZ[i] * thr;
+        enDeathVY[i] = 3.2;
+        // Land on the back with the feet toward the blast: face the blow.
+        enDeathYaw[i] = Math.atan2(-enHitDX[i], enHitDZ[i]);
+      } else if (fromBehind || loc === LOC_HEAD) {
+        enDeathClip[i] = ANIM_FALL_IDX;
+      }
+    }
     setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
     playSound3D(DEPS.o.sfxAlienDie[k * 3 + (i % 3)], enX[i], enY[i] + 1, enZ[i]);
 
@@ -285,6 +482,13 @@ export function damageEnemy(i: number, dmg: number,
     FEEL.addTrauma(0.12 + KIND_SCALE[k] * 0.1);
     gamepadRumble(0.5, 0.4, 0.12);
     SCORE.noteKill(k);
+    // Plan 2.7 - a kill can leave a field dressing. The chance doubles when the player is
+    // badly hurt, so the game leans toward keeping a fight alive without guaranteeing it.
+    {
+      let ch = KIND_DROP_CHANCE[k];
+      if (GS.playerHP < 40) ch = ch * 2;
+      if (Math.random() < ch) dropHeal(enX[i], groundY, enZ[i]);
+    }
     return;
   }
 
@@ -292,28 +496,45 @@ export function damageEnemy(i: number, dmg: number,
   // Light kinds flinch on any hit (with a lockout so sustained fire cannot
   // stun-lock them). Heavies need enough damage inside a window, so a tyrant
   // shrugs off a rifle but staggers under a cannon: unflinching by default is
-  // what makes it frightening.
+  // what makes it frightening. A weak-point hit counts triple toward that meter,
+  // which is what makes the weak point worth finding.
   const light = KIND_LIGHT[k] === 1;
   if (light) {
     if (enFlinchLock[i] <= 0) {
       enAIState[i] = AI_FLINCH;
       enStateT[i] = FLINCH_TIME;
       enFlinchLock[i] = FLINCH_LOCKOUT;
+      enHasToken[i] = 0;
     }
   } else {
-    enDmgWindow[i] = enDmgWindow[i] + dmg;
+    enDmgWindow[i] = enDmgWindow[i] + dmg * (loc === LOC_WEAK ? 3 : 1);
     enDmgTimer[i] = STAGGER_WINDOW;
     if (enDmgWindow[i] >= KIND_HP[k] * STAGGER_FRAC && enFlinchLock[i] <= 0) {
       enAIState[i] = AI_FLINCH;
       enStateT[i] = STAGGER_TIME;
       enFlinchLock[i] = FLINCH_LOCKOUT * 2;
       enDmgWindow[i] = 0;
+      enHasToken[i] = 0;
+      enHitK[i] = 1;
       playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
     }
   }
   if ((i & 3) === 0) {
     playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
   }
+}
+
+/// Plan 2.7 - the rifle-butt strike and anything else that shoves a creature: knock it back
+/// `dist` metres along (dx, dz) and stagger it for `stun` seconds, heavies included.
+export function shoveEnemy(i: number, dx: number, dz: number, dist: number, stun: number): void {
+  if (enAlive[i] === 0) return;
+  enX[i] = enX[i] + dx * dist;
+  enZ[i] = enZ[i] + dz * dist;
+  enAIState[i] = AI_FLINCH;
+  enStateT[i] = stun;
+  enFlinchLock[i] = stun + FLINCH_LOCKOUT;
+  enHasToken[i] = 0;
+  enHitDX[i] = dx; enHitDZ[i] = dz; enHitK[i] = 1;
 }
 
 /// The per-kind AI + the wave director — one call per frame. dtReal is
@@ -336,20 +557,57 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
   // following, and a turn-rate-limited heading the draw code renders.
   if (playing) {
     const pp = playerPosition();
-    flowRecompute(pp.x, pp.y - PLAYER_FEET_OFF, pp.z);
+    const pFeetY = pp.y - PLAYER_FEET_OFF;
+    flowRecompute(pp.x, pFeetY, pp.z);
     const tAI = getTime();
+
+    // Plan 2.7 - partial regeneration: a few seconds without being hurt and health comes back,
+    // but only to REGEN_CAP. The rest has to be picked up.
+    GS.sinceHurt = GS.sinceHurt + dt;
+    if (GS.sinceHurt > REGEN_DELAY && GS.playerHP > 0 && GS.playerHP < REGEN_CAP) {
+      GS.playerHP = GS.playerHP + REGEN_RATE * dt;
+      if (GS.playerHP > REGEN_CAP) GS.playerHP = REGEN_CAP;
+    }
+    if (DIR.dodgedT > 0) DIR.dodgedT = DIR.dodgedT - dt;
+
+    // Plan 2.1 - how loud the player is this frame. Crouching is silent; walking, running and
+    // sprinting carry further in that order; a shot carries furthest and rings down.
+    const crouched = isCrouching();
+    const pspd = playerSpeed();
+    let stepNoise = 0;
+    if (!crouched && pspd > 1.0) {
+      stepNoise = isSprinting() ? NOISE_SPRINT : (pspd > 3.0 ? NOISE_RUN : NOISE_WALK);
+    }
+    if (DIR.noiseR > 0) DIR.noiseR = DIR.noiseR - NOISE_DECAY * dt;
+    const noiseR = stepNoise > DIR.noiseR ? stepNoise : DIR.noiseR;
+
+    // Plan 2.5 - attack tokens. Count who is mid-attack; a light creature may only begin a
+    // strike while fewer than `maxTokens` are, and otherwise holds a ring around the player.
+    let tokensOut = 0;
+    for (let i = 0; i < MAX_ENEMIES; i++) {
+      if (enAlive[i] === 0) { enHasToken[i] = 0; continue; }
+      const st = enAIState[i];
+      const attacking = st === AI_STRIKE_WIND || st === AI_STRIKE_HIT
+        || (enKind[i] === 3 && (st === AI_WINDUP || st === AI_CHARGE));
+      enHasToken[i] = attacking ? 1 : 0;
+      if (attacking) tokensOut = tokensOut + 1;
+    }
+    const maxTokens = DIR.waveIdx >= 2 ? TOKENS_BASE + 1 : TOKENS_BASE;
+    let awareCount = 0;
+    let aliveCount = 0;
+
     for (let i = 0; i < MAX_ENEMIES; i++) {
       if (enAlive[i] === 0) continue;
+      aliveCount = aliveCount + 1;
       const k = enKind[i];
-      const dx = pp.x - enX[i];
-      const dz = pp.z - enZ[i];
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      const invD = dist > 0.001 ? 1 / dist : 0;
-      const toPX = dx * invD;                    // unit vector to the player
-      const toPZ = dz * invD;
+      // The REAL offset to the player: perception and the blows themselves use it.
+      const pdx = pp.x - enX[i];
+      const pdz = pp.z - enZ[i];
+      const pdist = Math.sqrt(pdx * pdx + pdz * pdz);
+      const invP = pdist > 0.001 ? 1 / pdist : 0;
 
       // SH-051 — the VERTICAL half of "where is the player", which this AI did
-      // not have. `dist` above is XZ only: it is the right number for steering
+      // not have. `dist` is XZ only: it is the right number for steering
       // (you walk around a building in plan), and it was also being used as the
       // melee range, where it is catastrophically wrong. An enemy on the ground
       // floor directly beneath a player on the first floor has dist ~= 0, so it
@@ -359,7 +617,6 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // Feet-to-feet: playerPosition() is the capsule CENTRE (see
       // PLAYER_FEET_OFF), and an enemy's Y is its feet. Mixing them silently
       // hands out 0.95 m of extra reach.
-      const pFeetY = pp.y - PLAYER_FEET_OFF;
       const dyFeet = pFeetY - enY[i];
       const sameFloor = Math.abs(dyFeet) <= SAME_FLOOR_EPS;
       if (enStateT[i] > 0) enStateT[i] = enStateT[i] - dt;
@@ -369,6 +626,75 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         enDmgTimer[i] = enDmgTimer[i] - dt;
         if (enDmgTimer[i] <= 0) enDmgWindow[i] = 0;
       }
+
+      // ---- Plan 2.1: perception ----------------------------------------------
+      // Until 2026-11 every creature read the player's position every frame, through walls,
+      // from the moment it spawned. Now it has to see them (a cone, a range, a clear line),
+      // hear them (footsteps and gunfire carry different distances) or be touched or shot.
+      // The sight line is one ray against the static world every ~0.2 s per creature,
+      // staggered by slot.
+      enLosT[i] = enLosT[i] - dt;
+      if (enLosT[i] <= 0) {
+        enLosT[i] = 0.18 + (i % 5) * 0.02;
+        enLos[i] = 0;
+        if (pdist < KIND_SIGHT[k] * 1.6) {
+          const eyeY = enY[i] + KIND_HEIGHT[k] * 0.85;
+          const lx = pdx, ly = (pp.y + (crouched ? -0.25 : 0.25)) - eyeY, lz = pdz;
+          const ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
+          enLos[i] = 1;
+          if (ll > 0.6) {
+            const blocked = raycast(DEPS.o.physics, vec3(enX[i], eyeY, enZ[i]),
+                                    vec3(lx / ll, ly / ll, lz / ll),
+                                    ll - 0.4, 1 << Layer.NON_MOVING);
+            if (blocked) enLos[i] = 0;
+          }
+        }
+      }
+      {
+        const hdX0 = Math.sin(enHeading[i]), hdZ0 = -Math.cos(enHeading[i]);
+        const facingDot = (pdx * hdX0 + pdz * hdZ0) * invP;
+        let sightR = KIND_SIGHT[k] * (crouched ? SIGHT_CROUCH_MUL : 1);
+        if (enAware[i] === 1) sightR = sightR * 1.5;      // it is looking for you now
+        const sees = enLos[i] === 1 && pdist < sightR
+          && (enAware[i] === 1 || facingDot > SIGHT_COS);
+        // Sound goes round corners, but a wall takes some of it.
+        const hears = pdist < noiseR * (enLos[i] === 1 ? 1 : 0.6);
+        const touched = pdist < SENSE_NEAR && sameFloor;
+        if (sees || hears || touched) {
+          enSeenT[i] = 0;
+          if (enAware[i] === 0) alertEnemy(i, 0.30 + Math.random() * 0.25, true);
+        } else {
+          enSeenT[i] = enSeenT[i] + dt;
+        }
+        if (enAware[i] === 1) {
+          // It keeps a short memory of where you went (a creature rounding a corner after
+          // you is not instantly lost), then it only has the last place it knew.
+          if (enSeenT[i] < TRACK_GRACE) {
+            enLastX[i] = pp.x; enLastY[i] = pFeetY; enLastZ[i] = pp.z;
+          }
+          const stA = enAIState[i];
+          const midAttack = stA === AI_STRIKE_WIND || stA === AI_STRIKE_HIT
+            || stA === AI_WINDUP || stA === AI_CHARGE;
+          if (enSeenT[i] > LOSE_TIME && !midAttack) {
+            enAware[i] = 0;
+            enAIState[i] = AI_APPROACH;
+            enSearchT[i] = SEARCH_TIME;
+          }
+        }
+        if (enAware[i] === 1) awareCount = awareCount + 1;
+      }
+      const aware = enAware[i] === 1;
+
+      // Everything below steers at the TARGET: the player while it knows where they are, the
+      // last known position otherwise.
+      const dx = enLastX[i] - enX[i];
+      const dz = enLastZ[i] - enZ[i];
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const invD = dist > 0.001 ? 1 / dist : 0;
+      const toPX = dx * invD;                    // unit vector to the target
+      const toPZ = dz * invD;
+      const tFeetY = enLastY[i];
+      const sameFloorT = Math.abs(tFeetY - enY[i]) <= SAME_FLOOR_EPS;
 
       // Steering output: desired velocity (m/s) + what to face.
       let vx = 0;
@@ -383,9 +709,26 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // once we are on the same floor. Evaluated per frame from position alone
       // (no latched waypoint), so an enemy cannot get stuck holding a target it
       // has already walked past.
-      if (!sameFloor) routeGoal(enX[i], enY[i], enZ[i], pFeetY, NAVOUT);
+      //
+      // Plan 2.5 - and on the SAME floor when the house is in the way: the field (its grid now
+      // reaches 10 m past the walls) walks an alerted creature round the corner or through the
+      // door instead of into the brickwork. The wall test is a sampled segment, refreshed a few
+      // times a second per creature.
+      enRouteT[i] = enRouteT[i] - dt;
+      if (enRouteT[i] <= 0) {
+        enRouteT[i] = 0.25 + (i % 4) * 0.03;
+        // ...and anywhere in or against the house while the target is not within a few steps:
+        // a doorway is 1.2 m wide and the wall circles either side of it close it to anyone
+        // who is not following the field (a Ravager stood in the south door for a whole wave).
+        enRouted[i] = (sameFloorT && flowCovers(enX[i], enZ[i])
+          && (flowSegBlocked(enX[i], enZ[i], enLastX[i], enLastZ[i], enY[i])
+              || (dist > 4.0 && flowInBuilding(enX[i], enZ[i], 1.5)))) ? 1 : 0;
+      }
+      if (!sameFloorT || enRouted[i] === 1) routeGoal(enX[i], enY[i], enZ[i], tFeetY, NAVOUT);
       else { NAVOUT[2] = 0; NAVOUT[3] = -1; NAVOUT[4] = 0; NAVOUT[5] = 0; }
       const navving = NAVOUT[2] === 1;
+      const stNow = enAIState[i];
+      const striking = stNow === AI_STRIKE_WIND || stNow === AI_STRIKE_HIT || stNow === AI_STRIKE_REC;
 
       // SH-030 — a flinching enemy is rooted. This is the whole point: it is
       // the reward for landing shots, and the window in which you can push.
@@ -396,6 +739,59 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         }
         // No steering this frame — fall through to the shared tail below with
         // vx = vz = 0.
+      } else if (enReactT[i] > 0) {
+        // It has just noticed the player: a beat of standing and turning before it acts. This
+        // is the moment a quiet approach buys.
+        enReactT[i] = enReactT[i] - dt;
+        faceX = pdx * invP; faceZ = pdz * invP;
+      } else if (stNow === AI_STRIKE_WIND) {
+        // ---- Plan 2.2: the wind-up. Rooted, arm back, turning with the player for the first
+        // part and then COMMITTED to a line: a sidestep in the last third makes it miss.
+        if (enStateT[i] > STRIKE_WINDUP[k] * 0.35) {
+          enHeading[i] = turnToward(enHeading[i], Math.atan2(pdx * invP, -pdz * invP), 5.0 * dt);
+        }
+        if (enStateT[i] <= 0) {
+          enAIState[i] = AI_STRIKE_HIT;
+          enStateT[i] = STRIKE_ACTIVE[k];
+          enHitDone[i] = 0;
+          playSound3D(DEPS.o.sfxSwing, enX[i], enY[i] + KIND_HEIGHT[k] * 0.6, enZ[i]);
+        }
+      } else if (stNow === AI_STRIKE_HIT) {
+        // ---- the active frames. The blow is a disc in front of the body, and it exists only
+        // now. One hit per strike; a dodging Trooper inside it is a whiff.
+        const hdX = Math.sin(enHeading[i]), hdZ = -Math.cos(enHeading[i]);
+        // The lunge closes the gap; it does not plough through the Trooper once it is on them.
+        if (pdist > KIND_BOX_HX[k] + 0.75) {
+          vx = hdX * STRIKE_LUNGE[k];
+          vz = hdZ * STRIKE_LUNGE[k];
+        }
+        if (enHitDone[i] === 0 && sameFloor) {
+          const cxS = enX[i] + hdX * STRIKE_REACH[k], czS = enZ[i] + hdZ * STRIKE_REACH[k];
+          const ex = pp.x - cxS, ez = pp.z - czS;
+          const rr = STRIKE_RADIUS[k] + 0.32;
+          if (ex * ex + ez * ez < rr * rr) {
+            enHitDone[i] = 1;
+            if (isInvulnerable()) {
+              DIR.dodgedT = 0.8;
+            } else {
+              damagePlayer(KIND_DMG[k], enX[i], enZ[i], i);
+              playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
+            }
+          }
+        }
+        if (enStateT[i] <= 0) {
+          enAIState[i] = AI_STRIKE_REC;
+          enStateT[i] = STRIKE_RECOVER[k];
+          enAttackCD[i] = KIND_CD[k];
+        }
+      } else if (stNow === AI_STRIKE_REC) {
+        // ---- recovery: it stands in its follow-through. This is the opening.
+        if (enStateT[i] <= 0) {
+          if (k === 1) { enAIState[i] = AI_RECOVER; enStateT[i] = 1.0; }
+          else if (k === 3) { enAIState[i] = AI_APPROACH; enStateT[i] = 1.5 + Math.random(); }
+          else { enAIState[i] = AI_APPROACH; enStateT[i] = 0; }
+          if (k === 4) enSpeedMul[i] = 0.7;
+        }
       } else if (navving) {
         // SH-051 — TRAVELLING. A plain seek to the stair waypoint, deliberately
         // bypassing the per-kind state machine: orbiting, darting and pounce
@@ -411,13 +807,36 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         faceX = gx * gi;
         faceZ = gz * gi;
         navGoalDist = gl;
+      } else if (!aware) {
+        // ---- Plan 2.1: hunting blind. It walks (not runs) to the last place the pack
+        // believes the player is, and casts about when it gets there. When the hunt runs out
+        // the pack closes in: a fresh guess within nine metres of the player. So hiding buys
+        // time and the first shot, not safety, and a wave can never stall.
+        enSearchT[i] = enSearchT[i] - dt;
+        if (enSearchT[i] <= 0) {
+          const ga = Math.random() * Math.PI * 2;
+          const gr = 3 + Math.random() * 6;
+          enLastX[i] = pp.x + Math.cos(ga) * gr;
+          enLastZ[i] = pp.z + Math.sin(ga) * gr;
+          enLastY[i] = pFeetY;
+          enSearchT[i] = SEARCH_TIME + Math.random() * 4;
+        } else if (dist < 1.5) {
+          const ga = Math.random() * Math.PI * 2;
+          const gr = 3 + Math.random() * 4;
+          enLastX[i] = enX[i] + Math.cos(ga) * gr;
+          enLastZ[i] = enZ[i] + Math.sin(ga) * gr;
+        }
+        // Loping in from the edge of the arena, slowing to cast about near where it expects them.
+        const huntSpd = KIND_SPEED[k] * (dist > 14 ? SEARCH_LOPE : SEARCH_SPEED);
+        vx = toPX * huntSpd;
+        vz = toPZ * huntSpd;
       } else if (k === 0) {
         // DRETCH — weave amplitude fades out inside 6 m so the final
         // lunge still connects; i*2.399 desyncs pack members.
         const weave = Math.sin(tAI * 3.0 + i * 2.399) * 0.85
                     * Math.min(1, Math.max(0, (dist - 2.5) / 4));
         const cw = Math.cos(weave), sw = Math.sin(weave);
-        if (dist > KIND_MELEE[k] * 0.85) {
+        if (dist > STRIKE_START[k] * 0.8) {
           vx = (toPX * cw - toPZ * sw) * KIND_SPEED[k] * 1.15;
           vz = (toPX * sw + toPZ * cw) * KIND_SPEED[k] * 1.15;
         }
@@ -464,23 +883,24 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         // MARAUDER — flank: aim beside the player, the offset shrinking
         // as it closes, so it comes in on a curve toward your side.
         const m = Math.min(6, Math.max(0, dist - 3) * 0.5);
-        const aimX = pp.x - toPZ * enOrbitDir[i] * m - enX[i];
-        const aimZ = pp.z + toPX * enOrbitDir[i] * m - enZ[i];
+        const aimX = enLastX[i] - toPZ * enOrbitDir[i] * m - enX[i];
+        const aimZ = enLastZ[i] + toPX * enOrbitDir[i] * m - enZ[i];
         const al = Math.sqrt(aimX * aimX + aimZ * aimZ);
-        if (dist > KIND_MELEE[k] * 0.85 && al > 0.001) {
+        if (dist > STRIKE_START[k] * 0.8 && al > 0.001) {
           vx = (aimX / al) * KIND_SPEED[k];
           vz = (aimZ / al) * KIND_SPEED[k];
         }
       } else if (k === 3) {
         // DRAGOON — pounce with a rooted, audible telegraph.
         if (enAIState[i] === AI_APPROACH) {
-          if (dist > KIND_MELEE[k] * 0.9) {
+          if (dist > STRIKE_START[k] * 0.8) {
             vx = toPX * KIND_SPEED[k];
             vz = toPZ * KIND_SPEED[k];
           }
           if (dist < 12 && dist > 4.5 && enStateT[i] <= 0) {
             enAIState[i] = AI_WINDUP;
             enStateT[i] = 0.65;
+            enStrikeSeq[i] = enStrikeSeq[i] + 1;
             playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);  // roar
           }
         } else if (enAIState[i] === AI_WINDUP) {
@@ -490,18 +910,27 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             enStateT[i] = 1.2;
             enChargeX[i] = toPX;
             enChargeZ[i] = toPZ;
+            enHitDone[i] = 0;
           }
         } else if (enAIState[i] === AI_CHARGE) {
           vx = enChargeX[i] * KIND_SPEED[k] * 3.4;   // fully locked — dodgeable
           vz = enChargeZ[i] * KIND_SPEED[k] * 3.4;
           faceX = enChargeX[i]; faceZ = enChargeZ[i];
-          if (dist <= KIND_MELEE[k] || enStateT[i] <= 0) {
+          // The charge IS the blow: its active frames last as long as it runs, and the hit
+          // shape is the body itself.
+          if (enHitDone[i] === 0 && sameFloor && pdist <= 1.7) {
+            enHitDone[i] = 1;
+            if (isInvulnerable()) DIR.dodgedT = 0.8;
+            else damagePlayer(KIND_DMG[k], enX[i], enZ[i], i);
+          }
+          if (enHitDone[i] === 1 || enStateT[i] <= 0) {
             enAIState[i] = AI_RECOVER;
             enStateT[i] = 1.4;
+            enAttackCD[i] = KIND_CD[k];
           }
         } else {
           // AI_RECOVER — winded: creep, then re-arm the pounce.
-          if (dist > KIND_MELEE[k] * 0.9) {
+          if (dist > STRIKE_START[k] * 0.8) {
             vx = toPX * KIND_SPEED[k] * 0.6;
             vz = toPZ * KIND_SPEED[k] * 0.6;
           }
@@ -524,23 +953,10 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         enSpeedMul[i] = Math.max(0.7, Math.min(2.6, enSpeedMul[i] + accel * dt));
         const hdX = Math.sin(enHeading[i]);
         const hdZ = -Math.cos(enHeading[i]);
-        // The SLAM. In reach and off cooldown it roots and rears up for
-        // SLAM_WINDUP seconds (AI_WINDUP: the attack clip plays, the HUD caption
-        // fires), and the blow lands when that expires, on whoever is still in
-        // reach. Stepping or dashing out during the wind-up makes it miss. Until
-        // 2026-11 the damage landed the instant the player came into range, so
-        // the telegraph caption described an attack that had no telegraph.
-        if (enAIState[i] === AI_WINDUP) {
-          if (enStateT[i] <= 0) enAIState[i] = AI_CHARGE;     // lands this frame (melee block)
-        } else if (enAIState[i] === AI_CHARGE) {
-          enAIState[i] = AI_APPROACH;                         // hit or miss, it is spent
-          enAttackCD[i] = KIND_CD[k];
-          enSpeedMul[i] = 0.7;
-        } else if (sameFloor && dist <= KIND_MELEE[k] && enAttackCD[i] <= 0) {
-          enAIState[i] = AI_WINDUP;
-          enStateT[i] = SLAM_WINDUP;
-          playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1.5, enZ[i]);   // the roar
-        } else if (dist > KIND_MELEE[k] * 0.8 || aligned < 0.5) {
+        // Its blow is the generic strike below (plan 2.2), with the longest wind-up of the
+        // cast. Here it only walks: stop pushing once the player is at arm's length and in
+        // front, so it does not shove through them.
+        if (dist > STRIKE_START[k] * 0.75 || aligned < 0.5) {
           vx = hdX * KIND_SPEED[k] * enSpeedMul[i];
           vz = hdZ * KIND_SPEED[k] * enSpeedMul[i];
         }
@@ -579,7 +995,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
 
             const muzY = enY[i] + KIND_Y_OFF[k] * 0.8;
             const tx = pp.x - enX[i];
-            const ty = (pp.y + 0.9) - muzY;
+            const ty = (pp.y + 0.35) - muzY;      // chest, not the top of the helmet
             const tz = pp.z - enZ[i];
             const tl = Math.sqrt(tx * tx + ty * ty + tz * tz);
             const sp = RANGED_SPREAD[k];
@@ -604,6 +1020,14 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           let radial = 0;
           if (dist > hi) radial = 1;          // too far — close
           else if (dist < lo) radial = -1;    // too close — back off
+          // Plan 2.5 - no shot from here for over a second: stop holding the band and go and
+          // find one. It closes in (down to half its near limit) while it circles, and swaps
+          // direction every two seconds it stays blind, so a Spitter comes round the corner of
+          // the house instead of pacing behind it.
+          if (enBlockT[i] > 1.0) {
+            radial = dist > lo * 0.5 ? 1 : 0;
+            if (enBlockT[i] > 3.0) { enOrbitDir[i] = -enOrbitDir[i]; enBlockT[i] = 1.0; }
+          }
           const tangX = -toPZ * enOrbitDir[i];
           const tangZ =  toPX * enOrbitDir[i];
           vx = (toPX * radial + tangX * 0.85) * spd;
@@ -635,11 +1059,47 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             if (clear) {
               enAIState[i] = AI_WINDUP;
               enStateT[i] = RANGED_WINDUP[k];
+              enBlockT[i] = 0;
+              enStrikeSeq[i] = enStrikeSeq[i] + 1;
               playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);   // hiss/tell
             } else {
               enRangedCD[i] = 0.25;
+              enBlockT[i] = enBlockT[i] + 0.25;
             }
           }
+        }
+      }
+
+      // ---- Plan 2.2 / 2.5: begin a strike, or hold the ring -----------------------
+      // A melee creature that is alerted, in reach, off cooldown and free to act starts a
+      // strike - if there is an attack token for it. The Bruiser and the Colossus never
+      // wait for one (a heavy that politely queues is not a threat), and neither does a
+      // Stalker already committed to its dart. Everyone else without a token circles just
+      // outside reach, which is what turns a pile into a surround.
+      if (KIND_RANGED[k] === 0 && aware && !navving && enReactT[i] <= 0
+          && (stNow === AI_APPROACH || stNow === AI_ORBIT
+              || (stNow === AI_CHARGE && k === 1) || (stNow === AI_RECOVER && k === 3))) {
+        const inReach = sameFloor && pdist <= STRIKE_START[k];
+        const priority = k >= 3 || stNow === AI_CHARGE;
+        if (inReach && enAttackCD[i] <= 0 && (priority || tokensOut < maxTokens)) {
+          enAIState[i] = AI_STRIKE_WIND;
+          enStateT[i] = STRIKE_WINDUP[k];
+          enStrikeSeq[i] = enStrikeSeq[i] + 1;
+          enHasToken[i] = 1;
+          tokensOut = tokensOut + 1;
+          vx = 0; vz = 0;
+          // The tell you can hear: every kind has its own attack voice.
+          playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + KIND_HEIGHT[k] * 0.7, enZ[i]);
+        } else if (k < 3 && stNow !== AI_CHARGE && sameFloor
+                   && (tokensOut >= maxTokens || enAttackCD[i] > 0)
+                   && pdist < STRIKE_START[k] + RING_EXTRA + 1.0) {
+          // Hold the ring: circle at reach + RING_EXTRA, sprung toward that radius.
+          const ringR = STRIKE_START[k] + RING_EXTRA;
+          const inward = Math.max(-1, Math.min(1, (pdist - ringR) * 1.2));
+          const rpx = pdx * invP, rpz = pdz * invP;
+          vx = (-rpz * enOrbitDir[i] * 0.75 + rpx * inward) * KIND_SPEED[k] * 0.8;
+          vz = ( rpx * enOrbitDir[i] * 0.75 + rpz * inward) * KIND_SPEED[k] * 0.8;
+          faceX = rpx; faceZ = rpz;
         }
       }
 
@@ -653,7 +1113,8 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         const sx = enX[i] - enX[j];
         const sz = enZ[i] - enZ[j];
         const sd2 = sx * sx + sz * sz;
-        const minS = (KIND_HX[k] + KIND_HX[enKind[j]]) * 0.7;
+        // Body widths plus a hand of air (the physics boxes are body-sized since plan 2.3).
+        const minS = (KIND_BOX_HX[k] + KIND_BOX_HX[enKind[j]]) * 1.3 + 0.25;
         if (sd2 < minS * minS && sd2 > 0.0001) {
           const sd = Math.sqrt(sd2);
           const push = ((minS - sd) / minS) * 3.0;
@@ -752,73 +1213,20 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // what makes a 0.31 m tread climbable and a 3.7 m slab solid ceiling.
       enY[i] = surfaceHeightAt(nx, nz, enY[i]);
       setBodyPosition(enBody[i],
-        vec3(nx, enY[i] + KIND_Y_OFF[k], nz), true);
+        vec3(nx, enY[i] + KIND_BOX_Y[k], nz), true);
 
       // Turn-rate-limited facing (tyrant already steered its own).
-      if (k !== 4) {
+      // A striking creature set its own heading above (committed), and so did the Colossus -
+      // except while it is noticing the player, when it turns like anything else.
+      if (!striking && (k !== 4 || enReactT[i] > 0 || !aware || navving)) {
         const wantYaw = Math.atan2(faceX, -faceZ);
-        enHeading[i] = turnToward(enHeading[i], wantYaw, 7.0 * dt);
+        enHeading[i] = turnToward(enHeading[i], wantYaw, (k === 4 ? 2.5 : 7.0) * dt);
       }
 
-      // Melee — hit-and-run kinds break off after connecting. Ranged kinds do
-      // NOT melee: if they did, the right answer to them would be to walk up and
-      // hug them, which is exactly the play they exist to punish.
-      // SH-051 — `sameFloor` is the fix for the through-the-ceiling kill. Melee
-      // needs the player within arm's reach in ALL THREE axes; `dist` only ever
-      // knew about two. A claw that lands on someone standing on the floor above
-      // is not a difficulty setting, it is a bug.
-      // The Colossus (k 4) only connects on the frame its slam wind-up expires
-      // (AI_CHARGE, set in its steering branch above), with a little extra reach
-      // so backing straight up does not beat it but a sidestep or a dash does.
-      const slamKind = k === 4;
-      const meleeNow = slamKind
-        ? (enAIState[i] === AI_CHARGE && dist <= KIND_MELEE[k] * 1.1)
-        : (dist <= KIND_MELEE[k] && enAIState[i] !== AI_WINDUP);
-      if (KIND_RANGED[k] === 0 && sameFloor && meleeNow && enAttackCD[i] <= 0 &&
-          enAIState[i] !== AI_FLINCH && isInvulnerable()) {
-        // Dodged: the swing is spent on air. It still costs the enemy its cooldown, which is
-        // the opening the dodge buys.
-        enAttackCD[i] = KIND_CD[k];
-        if (slamKind) enAIState[i] = AI_APPROACH;
-      } else if (KIND_RANGED[k] === 0 && sameFloor && meleeNow && enAttackCD[i] <= 0 &&
-          enAIState[i] !== AI_FLINCH) {
-        GS.playerHP = GS.playerHP - KIND_DMG[k];
-        GS.damageFlashT = 0.5;
-        enAttackCD[i] = KIND_CD[k];
-        // SH-029 — being hit is now unmistakable with your eyes on the
-        // crosshair: the camera flinches AWAY from the attacker, the screen
-        // flashes, and the music ducks so you hear the hit land.
-        // Direction TO the attacker (toP points from it to the player, hence the minus signs).
-        // Until 2026-11 this was atan2(toPX, -toPZ), which drew the arc on the far side.
-        const hitYaw = Math.atan2(-toPX, toPZ);
-        let rel = hitYaw - DEPS.o.CAM[0];
-        while (rel > Math.PI) rel = rel - Math.PI * 2;
-        while (rel < -Math.PI) rel = rel + Math.PI * 2;
-        GS.lastHitAngle = rel;
-        GS.lastHitT = 1.4;
-        FEEL.addTrauma(0.30 + KIND_DMG[k] * 0.006);
-        FEEL.flinch(-Math.sign(rel) * 0.035, -0.02);
-        FEEL.damageFlash(1);
-        MIX.duckMusicOnDamage();
-        gamepadRumble(0.55, 0.35, 0.18);
-        // Per-kind bite/claw at the attacker's position.
-        playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
-        if (k === 1) { enAIState[i] = AI_RECOVER; enStateT[i] = 1.3; }
-        if (k === 3) { enAIState[i] = AI_RECOVER; enStateT[i] = 1.4; }
-        if (GS.playerHP <= 0) {
-          GS.playerHP = 0;
-          if (!GS.gameOver) {
-            playSound(DEPS.o.sfxPlayerDie[i & 1]);
-            FEEL.addTrauma(1.0);
-            SCORE.commitRun(W.ARENA_INDEX);
-            SET.saveSettings();     // persist the best score immediately
-            playSound(DEPS.o.stingDeath);  // SH-036
-          }
-          GS.gameOver = true;
-        } else {
-          playSound(DEPS.o.sfxPlayerPain[i & 1]);
-        }
-      }
+      // (Melee damage is no longer applied here: until 2026-11 it landed the instant range and
+      // cooldown allowed. It is the AI_STRIKE_HIT branch above now, and the Bruiser's charge.
+      // Ranged kinds still do not melee at all: if they did, the answer to them would be to
+      // walk up and hug them, which is exactly the play they exist to punish.)
       if (enAttackCD[i] > 0) enAttackCD[i] = enAttackCD[i] - dt;
       if (enFlashT[i]   > 0) enFlashT[i]   = enFlashT[i]   - dt;
       enPhase[i] = enPhase[i] + dt;   // seconds into current animation
@@ -844,6 +1252,27 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       }
     }
 
+    DIR.awareCount = awareCount;
+    DIR.aliveCount = aliveCount;
+    DIR.tokensOut = tokensOut;
+
+    // Plan 2.7 - field dressings dropped by kills: walk over one to heal. They wait for a
+    // player who needs them (full health leaves them lying) and fade after HEAL_LIFE.
+    for (let i = 0; i < MAX_HEALS; i++) {
+      if (hpLife[i] <= 0) continue;
+      hpLife[i] = hpLife[i] - dt;
+      const hdx = pp.x - hpX[i], hdz = pp.z - hpZ[i];
+      const hdy = pFeetY - hpY[i];
+      if (hdx * hdx + hdz * hdz < HEAL_RADIUS * HEAL_RADIUS && hdy > -2.0 && hdy < 2.0
+          && GS.playerHP < DEPS.o.PLAYER_HP_MAX) {
+        GS.playerHP = GS.playerHP + HEAL_AMOUNT;
+        if (GS.playerHP > DEPS.o.PLAYER_HP_MAX) GS.playerHP = DEPS.o.PLAYER_HP_MAX;
+        GS.healFlashT = 0.6;
+        hpLife[i] = 0;
+        playSound(DEPS.o.sfxHeal);
+      }
+    }
+
     // Pickups — proximity collect, respawn after delay. The crate refills the
     // weapon it is for; the amount is a column of the weapon table now.
     for (let i = 0; i < DEPS.o.PICKUP_COUNT; i++) {
@@ -865,6 +1294,8 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         for (let q = 2; q < WPN.WEAPON_COUNT; q++) {
           if (WPN.isUnlocked(q)) WPN.addAmmo(q, Math.floor(WPN.W_PICKUP_AMT[q] * 0.5));
         }
+        // ...and every crate carries one grenade (plan 2.7).
+        if (GS.grenades < GS.grenadeMax) GS.grenades = GS.grenades + 1;
         DEPS.o.pickupActive[i] = 0;
         DEPS.o.pickupRespawnT[i] = DEPS.o.PICKUP_RESPAWN;
         playSound(DEPS.o.sfxPickup);
@@ -946,43 +1377,23 @@ export function updateEnemyProjectiles(dt: number, playing: boolean): void {
 
     // Does it reach the player this step? Point-segment distance against the
     // capsule, which is cheaper and fairer than raycasting at a moving target.
-    const rx = ppE.x - ox, ry = (ppE.y + 0.2) - oy, rz = ppE.z - oz;
+    // The capsule's middle: lower while crouched (plan 1.6), so a bolt at standing chest
+    // height passes over a ducking Trooper.
+    const pcY = ppE.y + (isCrouching() ? -0.35 : 0.2);
+    const pcR = isCrouching() ? 0.45 : 0.55;
+    const rx = ppE.x - ox, ry = pcY - oy, rz = ppE.z - oz;
     const t = Math.max(0, Math.min(seg, rx * sx2 * inv2 + ry * sy2 * inv2 + rz * sz2 * inv2));
     const cxp = ox + sx2 * inv2 * t, cyp = oy + sy2 * inv2 * t, czp = oz + sz2 * inv2 * t;
-    const dxp = ppE.x - cxp, dyp = (ppE.y + 0.2) - cyp, dzp = ppE.z - czp;
+    const dxp = ppE.x - cxp, dyp = pcY - cyp, dzp = ppE.z - czp;
     // A bolt passes through a dodging player (i-frames) and flies on.
-    const hitPlayer = (dxp * dxp + dyp * dyp + dzp * dzp) < 0.55 * 0.55 && !isInvulnerable();
+    const hitPlayer = (dxp * dxp + dyp * dyp + dzp * dzp) < pcR * pcR && !isInvulnerable();
 
     if (hitPlayer && playing) {
-      GS.playerHP = GS.playerHP - eDmg[i];
-      GS.damageFlashT = 0.5;
-      FEEL.addTrauma(0.25);
-      FEEL.damageFlash(1);
-      MIX.duckMusicOnDamage();
-      gamepadRumble(0.45, 0.3, 0.15);
       playSound3D(DEPS.o.sfxImpactFlesh, cxp, cyp, czp);
       VFX.emitImpactHard(cxp, cyp, czp, -sx2 * inv2, -sy2 * inv2, -sz2 * inv2,
                          Math.random() * 6.28);
-      // Where did it come from? Same arc the melee hits drive.
-      const ang = Math.atan2(-sx2 * inv2, sz2 * inv2);
-      let rel2 = ang - DEPS.o.CAM[0];
-      while (rel2 > Math.PI) rel2 = rel2 - Math.PI * 2;
-      while (rel2 < -Math.PI) rel2 = rel2 + Math.PI * 2;
-      GS.lastHitAngle = rel2;
-      GS.lastHitT = 1.4;
-      if (GS.playerHP <= 0) {
-        GS.playerHP = 0;
-        if (!GS.gameOver) {
-          playSound(DEPS.o.sfxPlayerDie[0]);
-          FEEL.addTrauma(1.0);
-          SCORE.commitRun(W.ARENA_INDEX);
-          SET.saveSettings();
-          playSound(DEPS.o.stingDeath);    // SH-036
-        }
-        GS.gameOver = true;
-      } else {
-        playSound(DEPS.o.sfxPlayerPain[i & 1]);
-      }
+      // Where it came from: back along its flight.
+      damagePlayer(eDmg[i], ppE.x - sx2 * inv2 * 4, ppE.z - sz2 * inv2 * 4, i);
       eLife[i] = 0;
       continue;
     }
