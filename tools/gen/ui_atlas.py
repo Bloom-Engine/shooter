@@ -367,6 +367,8 @@ SPRITES = [
     ('WPN_BLASTER', lambda: weapon('blaster')),
     ('WPN_CHAIN', lambda: weapon('chaingun')),
     ('WPN_CANNON', lambda: weapon('cannon')),
+    ('WPN_SCATTER', lambda: weapon('scattergun')),
+    ('WPN_LANCE', lambda: weapon('lance')),
 ]
 
 

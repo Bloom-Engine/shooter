@@ -2053,3 +2053,32 @@ Found on the way.
 Cost: nothing bought. The nest is built by a script; no new sounds (a nest uses the flesh-impact
 and explosion sounds).
 
+---
+
+## SH-061 — AAA plan, Phase 6 slice D: two arenas, two weapons, a boss 🟡 *(the free part landed 2026-11-14 with stand-in models; the three Tripo models are open)*
+
+What is in, all of it without spending:
+
+| Part | What changed | Checked how |
+|---|---|---|
+| Arena 5, Quarry | `tools/gen/gen_arena_open.py arena_05`: a pit with three benches and two ramps, a drainage stream to the east, trees on the rim only. Painted as cut rock and packed dirt by `dress_arena.py` (the grass thins on both, which is what makes it a pit). Overcast noon. Nests on wave 4, a hold on wave 7. | SCENESHOT (8 views). P2BOT cleared ten waves: 480 s, 206 kills. |
+| Arena 6, Brood Hollow | A sunk clearing forty metres across with a broken rim, forest outside, a creek. Night: a new graded sky (`grade_sky.py night`, `sky_variant=4`), a weak cold moon, six work lights. A hold on wave 4, nests on wave 7, the boss on wave 10. | SCENESHOT. P2BOT cleared ten waves before the boss existed: 686 s, 175 kills. The night grade was darkened after those pictures and not looked at again. |
+| Scattergun | Weapon 5: ten pellets in a 5.5 degree cone (tighter aimed), 11 damage each, almost nothing past 20 m, six in the magazine. Perk CHOKE: a 35% tighter cone. Unlocked by clearing arena 3. | The bot fought two waves with it (`--weapon 5`): it kills, slowly at its range. Model and hand positions are the blaster's. |
+| Lance | Weapon 6: one round of 150 that passes through up to four bodies, no falloff, a 1.25 s cycle, five in the magazine. Perk CAPACITOR: cycles a third faster. Unlocked by clearing arena 4. | `--weapon 6`: 16 kills in 55 s. Model and hand positions are the rifle's. Piercing through several bodies was not observed, only that it fires and kills. |
+| Six weapons | `binds.ts` (two actions added at the end, keys 5 and 6, no pad button), the HUD's slots, the armoury's strip, the profile's upgrade table, the unlock rule (one weapon per arena cleared, in order). Silhouettes for the two are keyed from the concept images. | UISHOT (armoury, HUD), MENUTEST 22 of 22. |
+| The Matriarch | Kind 7, one body, 2400 health (`K_BOSS` in `enemies.ts`, `bossSpecial` in `director.ts`). Walks and strikes like a faster Colossus. Phase 1: a fan of five slow bolts, twice. Phase 2 (two thirds health): seven bolts three times, and she calls up three skitters. Phase 3 (one third): a third faster, an elite stalker among the summons, and a slam when the player is within nine metres that a roll goes through. Each special has a rooted wind-up; a phase change staggers her for 1.6 s. A health bar with the two thresholds marked. | The bot, started at the boss wave (`--wave 10`), killed her twice (59 s and 63 s, with its health held full and every round aimed at the neck); the log shows all three phases, a volley, and the summons arriving. Nobody has SEEN her: the one picture taken has her out of frame. The slam was not observed. |
+
+Found on the way.
+
+- **Three glass panes hung in the air in every arena but the first.** They were drawn at the
+  first arena's house coordinates whatever was loaded. Now only there.
+- **A seven-entry table indexed by kind crashes the game the moment an eighth kind is alive**
+  (`TypeError: Expected number for native f64 parameter`, from the creature-loop pitch table in
+  `audio-mix.ts`). Every per-kind table outside `enemies.ts` has been widened; a new one must
+  be too.
+
+Open, in order: the three Tripo models (cost above; each needs Ralph); then
+`KIND_SCALE`/hit shapes for the Matriarch and `WEAPON_*` hand tables for the two weapons from
+the real models, silhouettes re-rendered from them, PLAYERSHOT for the two weapons; a look at
+the boss fight by a person; sounds for all of it (Phase 5).
+

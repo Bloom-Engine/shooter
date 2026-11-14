@@ -16,6 +16,16 @@
       "id": "arena_04",
       "name": "CHECKPOINT",
       "path": "assets/worlds/arena_04.world.json"
+    },
+    {
+      "id": "arena_05",
+      "name": "QUARRY",
+      "path": "assets/worlds/arena_05.world.json"
+    },
+    {
+      "id": "arena_06",
+      "name": "BROOD HOLLOW",
+      "path": "assets/worlds/arena_06.world.json"
     }
   ]
 }

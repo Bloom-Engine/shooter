@@ -19,7 +19,7 @@ import {
   kbDown, kbPressed, padDown, padPressed,
   ACT_FWD, ACT_BACK, ACT_LEFT, ACT_RIGHT, ACT_JUMP, ACT_FIRE, ACT_AIM, ACT_SPRINT, ACT_CROUCH,
   ACT_DODGE, ACT_RELOAD, ACT_SWAP, ACT_MELEE, ACT_GRENADE, ACT_SHOULDER,
-  ACT_WPN1, ACT_WPN2, ACT_WPN3, ACT_WPN4,
+  ACT_WPN1, ACT_WPN2, ACT_WPN3, ACT_WPN4, ACT_WPN5, ACT_WPN6,
 } from './binds';
 
 export interface InputState {
@@ -510,6 +510,8 @@ export function readInput(dt: number): InputState {
   if (kbPressed(ACT_WPN2)) weaponSlot = 2;
   if (kbPressed(ACT_WPN3)) weaponSlot = 3;
   if (kbPressed(ACT_WPN4)) weaponSlot = 4;
+  if (kbPressed(ACT_WPN5)) weaponSlot = 5;
+  if (kbPressed(ACT_WPN6)) weaponSlot = 6;
 
   // --- gamepad, folded into the same verbs ---------------------------------
   // Anything the pad reports is OR'd in rather than replacing the keyboard, so
@@ -554,6 +556,8 @@ export function readInput(dt: number): InputState {
     if (padPressed(ACT_WPN2)) { weaponSlot = 2; padUsed = true; }
     if (padPressed(ACT_WPN3)) { weaponSlot = 3; padUsed = true; }
     if (padPressed(ACT_WPN4)) { weaponSlot = 4; padUsed = true; }
+    if (padPressed(ACT_WPN5)) { weaponSlot = 5; padUsed = true; }
+    if (padPressed(ACT_WPN6)) { weaponSlot = 6; padUsed = true; }
     // Crouch on the pad is a latch whatever the hold/toggle setting says: the default button
     // is a stick click, which nobody can hold while steering. Sprinting or jumping stands up.
     if (padPressed(ACT_CROUCH)) { padCrouchOn = !padCrouchOn; padUsed = true; }

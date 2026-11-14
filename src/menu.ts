@@ -964,6 +964,8 @@ function arenaSub(i: number): string {
   if (i === 0) return T(STR.S_ARENA_SUB_0);
   if (i === 1) return T(STR.S_ARENA_SUB_1);
   if (i === 2) return T(STR.S_ARENA_SUB_2);
+  if (i === 3) return T(STR.S_ARENA_SUB_3);
+  if (i === 4) return T(STR.S_ARENA_SUB_4);
   return '';
 }
 
@@ -1239,12 +1241,16 @@ function drawLevels(sw: number, sh: number): void {
     drawThumb(i, x + 8 * k, y + 8 * k, w - 16 * k, ph - 8 * k, sel ? a : a * 0.72);
     UI.nine(A_PANEL_LINE, x, y, w, h, 14 * k, sel ? UI.C_ACCENT : UI.C_LINE, sel ? a : a * 0.6);
     if (sel) UI.nine(A_PANEL_LINE, x - 3, y - 3, w + 6, h + 6, 15 * k, UI.C_ACCENT, a * 0.45);
-    UI.text(ARENAS[i].name, x + 16 * k, y + ph + 10 * k, 26 * k, sel ? UI.C_BRIGHT : UI.C_TEXT, a);
+    // The name has the card's width to itself (five cards are narrow); the stars sit below it.
+    let nfs = 26 * k;
+    const nmw = UI.textW(ARENAS[i].name, nfs);
+    if (nmw > w - 32 * k) nfs = nfs * (w - 32 * k) / nmw;
+    UI.text(ARENAS[i].name, x + 16 * k, y + ph + 10 * k, nfs, sel ? UI.C_BRIGHT : UI.C_TEXT, a);
     UI.text(arenaSub(i), x + 16 * k, y + ph + 44 * k, 15 * k, UI.C_DIM, a);
     const best = SET.bestScore(i);
     UI.text(best > 0 ? T(STR.S_BEST) + '  ' + best : T(STR.S_NO_SCORE),
             x + 16 * k, y + ph + 66 * k, 15 * k, best > 0 ? UI.C_ACCENT : UI.C_DIM, a);
-    drawStars(PROFILE.arenaStars(i), x + w - 16 * k - 3 * 26 * k, y + ph + 14 * k, 22 * k, a);
+    drawStars(PROFILE.arenaStars(i), x + w - 16 * k - 3 * 24 * k, y + ph + 62 * k, 20 * k, a);
     if (!PROFILE.arenaUnlocked(i)) {
       // Locked: the picture goes dark under a padlock, and the card says what opens it.
       drawRect(x + 8 * k, y + 8 * k, w - 16 * k, ph - 8 * k, UI.col(UI.C_BLACK, 170 * t));
@@ -1307,7 +1313,12 @@ function drawArmory(sw: number, sh: number): void {
     UI.spr(A_WPN_RIFLE + w, G[0] + (G[2] - iw) / 2, G[1] + 10 * k, iw, ih,
            wo ? (sel ? UI.C_BRIGHT : UI.C_TEXT) : UI.C_LINE, wo ? a : a * 0.7);
     if (!wo) UI.spr(A_LOCK, G[0] + G[2] / 2 - 15 * k, G[1] + 10 * k + ih / 2 - 15 * k, 30 * k, 30 * k, UI.C_BRIGHT, a);
-    UI.textC(T(STR.S_WPN_0 + w), G[0] + G[2] / 2, G[1] + G[3] - 34 * k, 20 * k,
+    // The name is shrunk to its card (SCATTERGUN is the long one; six cards are narrow).
+    const wn = T(STR.S_WPN_0 + w);
+    let wfs = 20 * k;
+    const wnw = UI.textW(wn, wfs);
+    if (wnw > G[2] - 14 * k) wfs = wfs * (G[2] - 14 * k) / wnw;
+    UI.textC(wn, G[0] + G[2] / 2, G[1] + G[3] - 34 * k + (20 * k - wfs) / 2, wfs,
              sel ? UI.C_BRIGHT : UI.C_TEXT, wo ? a : a * 0.6);
   }
   // what the weapon does now, with everything bought so far
@@ -1391,7 +1402,7 @@ function drawRecord(sw: number, sh: number): void {
   cy = cy + step * 6 + 34 * k + 14 * k;
   // kills by kind, one line
   let line = '';
-  for (let kd = 0; kd < 7; kd++) {
+  for (let kd = 0; kd < 8; kd++) {
     const c = PROFILE.statKind(kd);
     if (c <= 0) continue;
     if (line.length > 0) line = line + '    ';
@@ -1525,7 +1536,7 @@ function drawResults(sw: number, sh: number): void {
   ry = ry + step + 4 * k;
   // kills by kind, one line
   let line = '';
-  for (let kd = 0; kd < 7; kd++) {
+  for (let kd = 0; kd < 8; kd++) {
     const c = SCORE.killsOfKind(kd);
     if (c <= 0) continue;
     if (line.length > 0) line = line + '    ';

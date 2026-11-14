@@ -67,7 +67,7 @@ import {
   KIND_HEIGHT, LOC_BODY, LOC_HEAD, LOC_WEAK, LOC_SHELL, LOC_LIMB,
   enPosed, enHitDX, enHitDZ, enHitK, enDeathClip, enDeathVX, enDeathVZ, enDeathVY,
   enDeathLift, ANIM_FALL_IDX, ANIM_DIE_IDX, KIND_BOX_Y, KIND_BOX_HX,
-  enElite, ELITE_HP, ELITE_DMG, ELITE_SCORE,
+  enElite, ELITE_HP, ELITE_DMG, ELITE_SCORE, K_BOSS,
 } from './enemies';
 
 /// Mutable director state, const-object slots (the DEPS.o.CAM pattern).
@@ -130,7 +130,7 @@ export const HEAL_AMOUNT = 30;
 const HEAL_RADIUS = 1.5;
 const HEAL_LIFE = 30.0;
 //                        skitter stalker ravager bruiser colossus spitter bombard
-const KIND_DROP_CHANCE = [0.08,  0.12,   0.18,   0.60,   1.00,    0.18,   0.60];
+const KIND_DROP_CHANCE = [0.08,  0.12,   0.18,   0.60,   1.00,    0.18,   0.60, 1.00];
 export const MAX_HEALS = 6;
 export const hpX = new Array<number>(MAX_HEALS);
 export const hpY = new Array<number>(MAX_HEALS);
@@ -210,7 +210,7 @@ function bankRun(won: boolean): void {
                     SCORE.accuracy(), SCORE.damageTaken(),
                     SCORE.killsOfKind(0), SCORE.killsOfKind(1), SCORE.killsOfKind(2),
                     SCORE.killsOfKind(3), SCORE.killsOfKind(4), SCORE.killsOfKind(5),
-                    SCORE.killsOfKind(6));
+                    SCORE.killsOfKind(6), SCORE.killsOfKind(7));
 }
 
 function dropHeal(x: number, y: number, z: number): void {
@@ -363,14 +363,19 @@ function startGroup(pat: number): void {
 
 /// Put down wave entry `entry`. False when no body of its kind is free (try again next tick).
 function spawnEnemy(entry: number): boolean {
-  const kind = WAVE_KINDS[entry];
+  // SUMMON[0] === 1: this is not a wave entry but a creature the boss calls up (kind, x, z,
+  // elite in SUMMON[1..4]); it does not count toward the wave's list.
+  const summoned = SUMMON[0] === 1;
+  const kind = summoned ? SUMMON[1] : WAVE_KINDS[entry];
   const slot = findDormantSlot(kind);
   if (slot < 0) return false;   // all bodies of this kind busy; retry next tick
-  const pat = W.WAVE_PAT[entry];
+  const pat = summoned ? W.PAT_ROUND : W.WAVE_PAT[entry];
   const nSp = W.SPAWNER_COUNT;
   let sxw = 0, szw = 0;
-  const nest = OBJ.type === OBJECTIVE.OBJ_NESTS ? OBJECTIVE.pickNest(DIR.waveSpawned) : -1;
-  if (nest >= 0) {
+  const nest = (!summoned && OBJ.type === OBJECTIVE.OBJ_NESTS) ? OBJECTIVE.pickNest(DIR.waveSpawned) : -1;
+  if (summoned) {
+    sxw = SUMMON[2]; szw = SUMMON[3];
+  } else if (nest >= 0) {
     // Out of a nest: a step to one side of it, so it does not stand inside the shell.
     const na = Math.random() * Math.PI * 2;
     sxw = OBJECTIVE.nestX[nest] + Math.cos(na) * 1.9;
@@ -389,7 +394,8 @@ function spawnEnemy(entry: number): boolean {
   enZ[slot] = szw;
   enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
   UN_T[slot] = 0; UN_X[slot] = sxw; UN_Z[slot] = szw; UN_K[slot] = 0; UN_N[slot] = 0; UN_Q[slot] = 0;
-  enElite[slot] = W.WAVE_ELITE[entry];
+  enElite[slot] = summoned ? SUMMON[4] : W.WAVE_ELITE[entry];
+  if (kind === K_BOSS) { enElite[slot] = 0; BOSS[0] = 0; BOSS[1] = 3; BOSS[2] = 0; BOSS[5] = 6; BOSS[6] = 0; BOSS[7] = slot; }
   enHP[slot] = KIND_HP[kind] * SCORE.diffHealthMul() * (enElite[slot] === 1 ? ELITE_HP : 1);
   if (enElite[slot] === 1) TUTOR.hint(TUTOR.HINT_ELITE);
   enAlive[slot] = 1;
@@ -444,8 +450,133 @@ function spawnEnemy(entry: number): boolean {
   }
   setBodyPosition(enBody[slot],
     vec3(enX[slot], enY[slot] + KIND_BOX_Y[kind], enZ[slot]), true);
+  if (summoned) return true;
   DIR.waveSpawned = DIR.waveSpawned + 1;
   DIR.groupN = DIR.groupN + 1;
+  return true;
+}
+
+// ---- Slice D: the boss (the Matriarch, kind K_BOSS) ------------------------------------------
+// One creature with three phases by health. It walks and strikes like a faster Colossus, and
+// between strikes it does one of three things, each with a rooted wind-up that is the tell:
+//   VOLLEY  a fan of slow bolts, twice (three times from phase 2). Sidestep between them.
+//   SUMMON  (phase 2 on) calls up skitters round itself; in phase 3 an elite stalker with them.
+//   SLAM    (phase 3, when the player is close) a shock ring: roll through it or be out of it.
+// A phase change staggers it for a moment: that is the opening it gives.
+//   0 phase 1..3 (0 = none alive)   1 seconds to the next special   2 special in progress
+//   (0 none, 1 volley, 2 summon, 3 slam)   3 seconds left of its wind-up   4 volleys left
+//   5 seconds until it may summon again   6 seconds left of the HUD's phase flash   7 its slot
+export const BOSS = [0, 0, 0, 0, 0, 0, 0, -1];
+const SUMMON = [0, 0, 0, 0, 0];
+const BOSS_SLAM_R = 7.5;
+const BOSS_SLAM_DMG = 34;
+const BOSS_BOLT_DMG = 12;
+const BOSS_BOLT_SPEED = 19.0;
+
+/// The boss's health, 0..1 (0 when there is none).
+export function bossHealth(): number {
+  const i = BOSS[7];
+  if (BOSS[0] === 0 || i < 0 || enAlive[i] === 0) return 0;
+  return Math.max(0, enHP[i] / (KIND_HP[K_BOSS] * SCORE.diffHealthMul()));
+}
+
+function bossSummon(i: number, kind: number, elite: number, ang: number): void {
+  if (countAlive() >= MAX_CONCURRENT) return;
+  SUMMON[0] = 1; SUMMON[1] = kind; SUMMON[4] = elite;
+  SUMMON[2] = enX[i] + Math.sin(ang) * 3.2;
+  SUMMON[3] = enZ[i] - Math.cos(ang) * 3.2;
+  spawnEnemy(0);
+  SUMMON[0] = 0;
+}
+
+/// One frame of the boss's specials. True while it is rooted in one (the caller then leaves
+/// its walking and striking alone).
+function bossSpecial(i: number, dt: number, striking: boolean, pdist: number,
+                     pdx: number, pdz: number, aware: boolean, sameFloor: boolean): boolean {
+  // (Not bossHealth(): that answers 0 until a phase is set, which is what this decides.)
+  const hpF = enHP[i] / (KIND_HP[K_BOSS] * SCORE.diffHealthMul());
+  const want = hpF > 0.66 ? 1 : (hpF > 0.33 ? 2 : 3);
+  if (BOSS[5] > 0) BOSS[5] = BOSS[5] - dt;
+  if (BOSS[6] > 0) BOSS[6] = BOSS[6] - dt;
+  if (want > BOSS[0]) {
+    if (BOSS[0] > 0) {
+      // A new phase: it reels (the opening), roars, and the next special comes sooner.
+      enAIState[i] = AI_FLINCH;
+      enStateT[i] = 1.6;
+      enHitK[i] = 1;
+      BOSS[2] = 0; BOSS[6] = 3.0; BOSS[5] = 0;
+      playSound3D(DEPS.o.sfxAlienPain[K_BOSS], enX[i], enY[i] + 2, enZ[i]);
+      FEEL.addTrauma(0.5);
+      FEEL.rumble(0.8, 0.6, 0.4);
+    }
+    BOSS[0] = want;
+    BOSS[1] = 2.2;
+    return false;
+  }
+  if (BOSS[2] === 0) {
+    if (!aware || striking) return false;
+    BOSS[1] = BOSS[1] - dt;
+    if (BOSS[1] > 0) return false;
+    let sp = 1;
+    if (BOSS[0] >= 3 && pdist < BOSS_SLAM_R + 1.5 && sameFloor) sp = 3;
+    else if (BOSS[0] >= 2 && BOSS[5] <= 0) sp = 2;
+    BOSS[2] = sp;
+    BOSS[3] = sp === 3 ? 1.1 : (sp === 2 ? 1.2 : 0.9);
+    BOSS[4] = sp === 1 ? (BOSS[0] >= 2 ? 3 : 2) : 1;
+    // AI_WINDUP is what the HUD's threat marks and the wind-up subtitle read.
+    enAIState[i] = AI_WINDUP;
+    enStateT[i] = BOSS[3];
+    playSound3D(DEPS.o.sfxAlienAttack[K_BOSS], enX[i], enY[i] + 2, enZ[i]);
+    return true;
+  }
+  BOSS[3] = BOSS[3] - dt;
+  if (BOSS[3] > 0) return true;
+  let over = true;
+  if (BOSS[2] === 1) {
+    // a fan of bolts at the player: five, seven from phase 2, eight degrees apart
+    const n = BOSS[0] >= 2 ? 7 : 5;
+    const pp = playerPosition();
+    const my = enY[i] + KIND_HEIGHT[K_BOSS] * 0.72;
+    const base = Math.atan2(pdx, -pdz);
+    const dyv = (pp.y - my) / Math.max(4, pdist);
+    for (let b = 0; b < n; b++) {
+      const a = base + (b - (n - 1) / 2) * 0.14;
+      spawnEnemyProjectile(enX[i] + Math.sin(a) * 1.2, my, enZ[i] - Math.cos(a) * 1.2,
+                           Math.sin(a) * BOSS_BOLT_SPEED, dyv * BOSS_BOLT_SPEED, -Math.cos(a) * BOSS_BOLT_SPEED,
+                           BOSS_BOLT_DMG, K_ADV_DRAGOON);
+    }
+    playSound3D(DEPS.o.sfxAlienAttack[K_ADV_DRAGOON], enX[i], my, enZ[i]);
+    BOSS[4] = BOSS[4] - 1;
+    if (BOSS[4] > 0) { BOSS[3] = 0.6; enStateT[i] = 0.6; over = false; }
+  } else if (BOSS[2] === 2) {
+    const a0 = Math.random() * 6.28;
+    bossSummon(i, 0, 0, a0);
+    bossSummon(i, 0, 0, a0 + 2.1);
+    if (BOSS[0] >= 3) bossSummon(i, 1, 1, a0 + 4.2);
+    else bossSummon(i, 0, 0, a0 + 4.2);
+    BOSS[5] = BOSS[0] >= 3 ? 11 : 14;
+  } else {
+    // the slam: a ring of dust, and everything inside it is hit unless it is mid-roll
+    const gy = terrainHeightAt(enX[i], enZ[i]);
+    for (let q = 0; q < 10; q++) {
+      const a = q / 10 * 6.28;
+      VFX.emitFootDust(enX[i] + Math.sin(a) * BOSS_SLAM_R * 0.7, gy + 0.1, enZ[i] - Math.cos(a) * BOSS_SLAM_R * 0.7, 3.0);
+    }
+    FEEL.addTrauma(0.7);
+    FEEL.requestHitstop(0.05);
+    playSound3D(DEPS.o.sfxSwing, enX[i], gy + 1, enZ[i]);
+    GS.capEvent = 5;
+    if (pdist < BOSS_SLAM_R && sameFloor) {
+      if (isInvulnerable()) DIR.dodgedT = 0.8;
+      else damagePlayer(BOSS_SLAM_DMG, enX[i], enZ[i], i);
+    }
+  }
+  if (over) {
+    BOSS[2] = 0;
+    BOSS[1] = BOSS[0] >= 3 ? 3.6 : (BOSS[0] === 2 ? 5.0 : 6.0);
+    enAIState[i] = AI_APPROACH;
+    enStateT[i] = 0;
+  }
   return true;
 }
 
@@ -509,6 +640,7 @@ export function despawnAllEnemies(): void {
   for (let i = 0; i < MAX_HEALS; i++) hpLife[i] = 0;
   DIR.noiseR = 0; DIR.awareCount = 0; DIR.aliveCount = 0; DIR.tokensOut = 0; DIR.dodgedT = 0;
   DIR.groupT = 0; DIR.groupEntry = -1; DIR.groupN = 0; DIR.cycle = 0; DIR.eliteCount = 0;
+  BOSS[0] = 0; BOSS[2] = 0; BOSS[6] = 0; BOSS[7] = -1; SUMMON[0] = 0;
   OBJECTIVE.clearObjective();
 }
 
@@ -560,6 +692,7 @@ export function damageEnemy(i: number, dmg: number,
     enDying[i] = 1;
     enDeathT[i] = 0;
     enHasToken[i] = 0;
+    if (k === K_BOSS) { BOSS[0] = 0; BOSS[2] = 0; FEEL.addTrauma(1.0); FEEL.requestHitstop(0.16); }
     // Freeze the AI heading — a dragoon killed mid-charge collapses along its
     // charge line rather than snapping around toward the player.
     enDeathYaw[i] = enHeading[i];
@@ -651,7 +784,7 @@ export function damageEnemy(i: number, dmg: number,
 /// Plan 2.7 - the rifle-butt strike and anything else that shoves a creature: knock it back
 /// `dist` metres along (dx, dz) and stagger it for `stun` seconds, heavies included.
 export function shoveEnemy(i: number, dx: number, dz: number, dist: number, stun: number): void {
-  if (enAlive[i] === 0) return;
+  if (enAlive[i] === 0 || enKind[i] === K_BOSS) return;      // a rifle butt does not move the boss
   enX[i] = enX[i] + dx * dist;
   enZ[i] = enZ[i] + dz * dist;
   enAIState[i] = AI_FLINCH;
@@ -870,6 +1003,9 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         // is the moment a quiet approach buys.
         enReactT[i] = enReactT[i] - dt;
         faceX = pdx * invP; faceZ = pdz * invP;
+      } else if (k === K_BOSS && bossSpecial(i, dt, striking, pdist, pdx, pdz, aware, sameFloor)) {
+        // Rooted in a volley, a summons or a slam: it stands and turns with the player.
+        faceX = pdx * invP; faceZ = pdz * invP;
       } else if (stNow === AI_STRIKE_WIND) {
         // ---- Plan 2.2: the wind-up. Rooted, arm back, turning with the player for the first
         // part and then COMMITTED to a line: a sidestep in the last third makes it miss.
@@ -1065,12 +1201,13 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             enStateT[i] = 1.5 + Math.random();       // pounce cooldown
           }
         }
-      } else if (k === 4) {
-        // TYRANT — heading-locked momentum. Speed builds only while the
+      } else if (k === 4 || k === K_BOSS) {
+        // TYRANT — heading-locked momentum. (The boss walks the same way, turns faster, and
+        // in its last phase is a third quicker.) Speed builds only while the
         // player sits near its nose; hard turns bleed it off, so a
         // sidestep leaves 3+ tons wheeling around for another pass.
         const tgtYaw = Math.atan2(toPX, -toPZ);
-        enHeading[i] = turnToward(enHeading[i], tgtYaw, 1.5 * dt);
+        enHeading[i] = turnToward(enHeading[i], tgtYaw, (k === K_BOSS ? 2.3 : 1.5) * dt);
         let err = tgtYaw - enHeading[i];
         while (err > Math.PI)  err = err - Math.PI * 2;
         while (err < -Math.PI) err = err + Math.PI * 2;
@@ -1083,8 +1220,9 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         // cast. Here it only walks: stop pushing once the player is at arm's length and in
         // front, so it does not shove through them.
         if (dist > STRIKE_START[k] * 0.75 || aligned < 0.5) {
-          vx = hdX * KIND_SPEED[k] * enSpeedMul[i];
-          vz = hdZ * KIND_SPEED[k] * enSpeedMul[i];
+          const rage = (k === K_BOSS && BOSS[0] >= 3) ? 1.35 : 1;
+          vx = hdX * KIND_SPEED[k] * enSpeedMul[i] * rage;
+          vz = hdZ * KIND_SPEED[k] * enSpeedMul[i] * rage;
         }
         faceX = hdX; faceZ = hdZ;
       } else {
@@ -1580,8 +1718,10 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             // Each arena has its own prize: the first in the manifest gives the
             // chaingun, any later one the cannon. (Until 2026-11 this line was a
             // constant W_CHAIN, so the cannon could never be unlocked at all.)
-            const nextUnlock = W.ARENA_INDEX === 0 ? WPN.W_CHAIN : WPN.W_CANNON;
-            if (!WPN.isUnlocked(nextUnlock)) {
+            // Slice D: one weapon per arena, in order (chaingun, cannon, scattergun, lance); the
+            // last arena has the boss and no prize of this kind.
+            const nextUnlock = W.ARENA_INDEX + 2;
+            if (nextUnlock < WPN.WEAPON_COUNT && !WPN.isUnlocked(nextUnlock)) {
               WPN.unlock(nextUnlock);
               SET.setUnlockMask(SET.unlockMask() | (1 << nextUnlock));
               GS.unlockBannerT = 5.0;

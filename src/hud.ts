@@ -23,7 +23,7 @@
 import { drawRect, drawLine, getTime } from 'bloom';
 import { GS } from './gamestate';
 import { ARENA_INDEX, ARENAS } from './world-runtime';
-import { DIR, wavePlan, countAlive, REGEN_CAP } from './director';
+import { DIR, wavePlan, countAlive, REGEN_CAP, BOSS, bossHealth } from './director';
 import { PLAYER_HP_MAX } from './combat';
 import { dodgeCooldownFrac, playerPosition } from './player';
 import { MOBILE } from './input';
@@ -553,10 +553,11 @@ function drawWeapon(sw: number, sh: number, dt: number, k: number): void {
   }
 
   // The four weapon slots above the block: which you hold, which you own, which are locked.
-  const slW = 62 * k, slH = 30 * k, slG = 6 * k;
+  const NS = WPN.WEAPON_COUNT;
+  const slW = 50 * k, slH = 28 * k, slG = 5 * k;
   const sy = y - slH - 8 * k;
-  for (let i = 0; i < 4; i++) {
-    const sx = x + pw - (4 - i) * slW - (3 - i) * slG;
+  for (let i = 0; i < NS; i++) {
+    const sx = x + pw - (NS - i) * slW - (NS - 1 - i) * slG;
     const own = WPN.isUnlocked(i);
     const on = i === w;
     UI.nine(A_PANEL, sx, sy, slW, slH, 9 * k, on ? UI.C_ACCENT : UI.C_PANEL, UI.panelA(on ? 235 : 160));
@@ -567,7 +568,7 @@ function drawWeapon(sw: number, sh: number, dt: number, k: number): void {
   // Grenades and the two prompts, to the left of the slots: icons and glyphs, no sentence.
   const gy = sy + 2 * k;
   const gh = 26 * k;
-  let gx = x + pw - 4 * slW - 3 * slG - 18 * k;
+  let gx = x + pw - NS * slW - (NS - 1) * slG - 18 * k;
   if (!MOBILE) {
     // strike
     gx = gx - UI.glyphW(B.ACT_MELEE, gh);
@@ -595,6 +596,26 @@ function drawWeapon(sw: number, sh: number, dt: number, k: number): void {
   }
 }
 
+/// The boss's name, health and phase, along the bottom, while one is alive.
+function drawBoss(sw: number, sh: number, k: number): void {
+  if (BOSS[0] === 0) return;
+  const f = bossHealth();
+  if (f <= 0) return;
+  const w = 620 * k < sw * 0.5 ? 620 * k : sw * 0.5;
+  const x = (sw - w) / 2;
+  const y = sh - 108 * k;
+  const h = 14 * k;
+  UI.textCS(KIND_NAME[7], sw / 2, y - 30 * k, 22 * k, UI.C_BRIGHT, 245);
+  drawRect(x - 2, y - 2, w + 4, h + 4, UI.col(UI.C_BLACK, 190));
+  drawRect(x, y, w * f, h, UI.col(BOSS[0] >= 3 ? UI.C_DANGER : UI.C_ACCENT, 245));
+  // the two thresholds where it changes: marks ON the bar, so the next one can be seen coming
+  drawRect(x + w * 0.33 - 1, y - 3, 2, h + 6, UI.col(UI.C_BRIGHT, 220));
+  drawRect(x + w * 0.66 - 1, y - 3, 2, h + 6, UI.col(UI.C_BRIGHT, 220));
+  if (BOSS[6] > 0) {
+    UI.textCS(fmt(STR.S_BOSS_PHASE, '' + BOSS[0]), sw / 2, y - 62 * k, 26 * k, UI.C_DANGER, 255 * UI.clamp01(BOSS[6] / 0.6));
+  }
+}
+
 /// Wave start, wave cleared, weapon unlocked: the three things announced mid-screen.
 function drawBanners(sw: number, sh: number, dt: number, k: number): void {
   const cx = sw / 2;
@@ -613,8 +634,9 @@ function drawBanners(sw: number, sh: number, dt: number, k: number): void {
     const txt = fmt(STR.S_WAVE_N, '' + H[5]);
     UI.textCS(txt, cx + (1 - tin) * 60 * k, y, 58 * k, UI.C_BRIGHT, a);
     const wty = H[5] >= 1 && H[5] <= wavePlan.length ? W.WAVE_TYPE[H[5] - 1] : 0;
-    const what = wty === W.WAVE_HOLD && W.HOLD_SITE[4] === 1 ? STR.S_OBJ_HOLD_LONG
-      : (wty === W.WAVE_NESTS && NEST_N > 0 ? STR.S_OBJ_NESTS_LONG : STR.S_OBJECTIVE);
+    const bossWave = W.ARENA_INDEX === 4 && H[5] === wavePlan.length;
+    const what = bossWave ? STR.S_OBJ_BOSS : (wty === W.WAVE_HOLD && W.HOLD_SITE[4] === 1 ? STR.S_OBJ_HOLD_LONG
+      : (wty === W.WAVE_NESTS && NEST_N > 0 ? STR.S_OBJ_NESTS_LONG : STR.S_OBJECTIVE));
     UI.textCS(T(what), cx - (1 - tin) * 60 * k, y + 58 * k, 17 * k, UI.C_ACCENT, a);
   }
 
@@ -677,6 +699,7 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
     drawWeapon(sw, sh, dt, k);
   }
   drawBanners(sw, sh, dt, k);
+  if (!ended) drawBoss(sw, sh, k);
   if (!ended && currentMenu() === MENU_NONE) TUTOR.drawTutor(sw, sh, k);
 
   // Render-pass debug status line (F1): no function keys on a phone, so not there.

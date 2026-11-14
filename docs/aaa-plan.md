@@ -313,7 +313,7 @@ projectile trails with a mesh or ribbon, spawn effects, water splashes that are 
 
 ---
 
-## Phase 6 - A game around the fight - SLICES A-C LANDED 2026-11-14 (ticket SH-060); slice D open
+## Phase 6 - A game around the fight - SLICES A-C LANDED 2026-11-14 (SH-060); slice D IN PROGRESS (SH-061)
 
 **Decisions (Ralph, 2026-11-14).** Escalating survival with a meta layer, not a campaign.
 Upgrades are bought with credits earned in runs. Built in four slices; A to C landed without
@@ -339,8 +339,15 @@ hold seconds, nest health, the arena star gates) is a first guess.
 - **Length and difficulty are untuned.** The stand-in needed 6, 9 and 12 minutes for the three
   arenas with its health held full, and took several hundred hits in the later two. A nest wave
   ran over two minutes and, in arena_04, 74 kills. A person will be slower.
-- **Slice D: volume.** One boss with phases, two weapons, arenas 5 and 6 (the plan's target of
-  two bosses was cut to one for now). Needs Tripo: say the cost first.
+- **Slice D: volume (SH-061, in progress).** Everything that costs nothing is in: arenas 5
+  (Quarry, overcast noon) and 6 (Brood Hollow, night), built from terrain and the Phase 3
+  props; the scattergun and the lance, with stand-in models (blaster, rifle) and silhouettes
+  keyed from their concept images; the boss, the Matriarch, as an eighth creature kind with
+  three phases, drawn as a Colossus a quarter larger. **Still to do, and it needs Tripo
+  (about 310 credits: about 200 for the boss with five motion clips, 55 for each weapon):**
+  the three models, then the Matriarch's hit shapes and the two weapons' hand positions
+  measured from them. Concepts: `art/style/photoreal/enemy_matriarch`, `weapon_scattergun`,
+  `weapon_lance`. The plan's second boss was cut.
 - **Escort objectives.** Left out on purpose: they need a companion that paths, and a weak
   escort is worse than none.
 - **The nest is procedural** (`tools/blender/build_nest.py`): a fused mound with a baked

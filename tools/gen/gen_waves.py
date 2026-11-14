@@ -42,12 +42,14 @@ opt = lambda k, d: type(d)(sys.argv[sys.argv.index(k) + 1]) if k in sys.argv els
 rng = random.Random(opt("--seed", 11) * 1000 + sum(map(ord, arena)))
 
 # How much harder each arena is than the first: extra bodies and elites.
-TIER = {"arena_02": 0, "arena_03": 1, "arena_04": 2}.get(arena, 1)
+TIER = {"arena_02": 0, "arena_03": 1, "arena_04": 2, "arena_05": 2, "arena_06": 2}.get(arena, 1)
 # Which waves (0-based) are objective waves, per arena.
 OBJECTIVES = {
     "arena_02": {3: "hold"},
     "arena_03": {3: "nests"},
     "arena_04": {3: "hold", 7: "nests"},
+    "arena_05": {3: "nests", 6: "hold"},
+    "arena_06": {3: "hold", 6: "nests"},
 }.get(arena, {3: "hold"})
 
 SK, ST, RV, BR, CO, SP, BO = "skitter", "stalker", "ravager", "bruiser", "colossus", "spitter", "bombard"
@@ -110,6 +112,9 @@ def tiered(groups, wave_i):
     return out
 
 
+# The last wave of the last arena is the boss, with a thin escort: she summons her own.
+BOSS_WAVE = [g("front", 0, "matriarch"), g("surround", 8, (SK, 5)), g("far", 14, SP, SP), g("flank", 24, RV, RV)]
+
 plan = []
 for i, groups in enumerate(WAVES):
     typ = OBJECTIVES.get(i, "kill")
@@ -117,7 +122,10 @@ for i, groups in enumerate(WAVES):
         groups = HOLD_LIST
     elif typ == "nests":
         groups = NEST_LIST_LATE if i >= 6 else NEST_LIST
-    groups = tiered(groups, i)
+    if arena == "arena_06" and i == len(WAVES) - 1:
+        groups = BOSS_WAVE
+    else:
+        groups = tiered(groups, i)
     names = [n for _, _, ks in groups for n in ks]
     wave = {"count": len(names), "enemy": ",".join(names),
             "groups": ",".join(f"{len(ks)}:{p}:{gp}" for p, gp, ks in groups), "type": typ}

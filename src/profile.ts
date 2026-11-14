@@ -17,7 +17,7 @@ import { bestScore } from './settings';
 const PATH = 'profile.json';
 const FILE_VERSION = 1;
 
-export const WEAPONS = 4;
+export const WEAPONS = 6;
 // Upgrade tracks, per weapon.
 export const T_DAMAGE = 0;
 export const T_MAG = 1;
@@ -30,7 +30,7 @@ const COST = [400, 900, 1600];
 const PERK_COST = 2500;
 const DAMAGE_STEP = 0.10;                 // +10% per level
 const RELOAD_STEP = 0.10;                 // -10% per level
-const MAG_STEP = [5, 3, 20, 1];           // rounds per level: rifle, blaster, chaingun, cannon
+const MAG_STEP = [5, 3, 20, 1, 1, 1];     // rounds per level: rifle, blaster, chaingun, cannon, scattergun, lance
 
 // Stars an arena needs before it opens (the sum over every arena), by arena order.
 const ARENA_NEED = [0, 1, 3, 5, 7, 9, 11, 13];
@@ -41,7 +41,7 @@ const MAX_ARENAS = 8;
 //   11 1 = the tutorial has been played or skipped   12 elites killed
 //   13 credits earned in all   14 objectives completed
 const P = [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0];
-const KK = [0, 0, 0, 0, 0, 0, 0];
+const KK = [0, 0, 0, 0, 0, 0, 0, 0];
 const stars = new Array<number>(MAX_ARENAS);
 const upg = new Array<number>(WEAPONS * TRACKS);
 // What the last committed run earned, for the results screen: 0 credits, 1 stars, 2 1 = one or
@@ -51,7 +51,7 @@ const LAST = [0, 0, 0];
 function defaults(): void {
   for (let i = 0; i < 15; i++) P[i] = 0;
   P[8] = 1;
-  for (let i = 0; i < 7; i++) KK[i] = 0;
+  for (let i = 0; i < 8; i++) KK[i] = 0;
   for (let i = 0; i < MAX_ARENAS; i++) stars[i] = 0;
   for (let i = 0; i < WEAPONS * TRACKS; i++) upg[i] = 0;
   LAST[0] = 0; LAST[1] = 0; LAST[2] = 0;
@@ -109,7 +109,7 @@ export function loadProfile(): void {
   P[12] = num(st, 'elites', 0);
   P[13] = num(st, 'earned', 0);
   P[14] = num(st, 'objectives', 0);
-  for (let i = 0; i < 7; i++) KK[i] = num(st, 'kind' + i, 0);
+  for (let i = 0; i < 8; i++) KK[i] = num(st, 'kind' + i, 0);
   P[10] = num(o, 'hints', 0);
   P[11] = num(o, 'tutorial', 0);
   const sr: any = o['stars'];
@@ -138,7 +138,7 @@ export function saveProfile(): void {
         + ', "seconds": ' + Math.floor(P[4]) + ', "shots": ' + P[5] + ', "hits": ' + P[6]
         + ', "crits": ' + P[7] + ', "bestCombo": ' + P[8] + ', "deaths": ' + P[9]
         + ', "elites": ' + P[12] + ', "earned": ' + Math.floor(P[13]) + ', "objectives": ' + P[14];
-  for (let i = 0; i < 7; i++) s = s + ', "kind' + i + '": ' + KK[i];
+  for (let i = 0; i < 8; i++) s = s + ', "kind' + i + '": ' + KK[i];
   s = s + ' },\n  "stars": { ';
   for (let i = 0; i < MAX_ARENAS; i++) s = s + (i > 0 ? ', ' : '') + '"a' + i + '": ' + stars[i];
   s = s + ' },\n  "upgrades": { ';
@@ -208,7 +208,7 @@ export function statDeaths(): number { return P[9]; }
 export function statElites(): number { return P[12]; }
 export function statEarned(): number { return Math.floor(P[13]); }
 export function statObjectives(): number { return P[14]; }
-export function statKind(k: number): number { return k >= 0 && k < 7 ? KK[k] : 0; }
+export function statKind(k: number): number { return k >= 0 && k < 8 ? KK[k] : 0; }
 export function noteElite(): void { P[12] = P[12] + 1; }
 export function noteObjective(): void { P[14] = P[14] + 1; }
 
@@ -230,7 +230,7 @@ export function commitRun(arena: number, won: boolean, score: number, kills: num
                           seconds: number, shots: number, hits: number, crits: number,
                           comboPeak: number, accuracy: number, damageTaken: number,
                           k0: number, k1: number, k2: number, k3: number, k4: number,
-                          k5: number, k6: number): void {
+                          k5: number, k6: number, k7: number): void {
   P[1] = P[1] + 1;
   if (won) P[2] = P[2] + 1; else P[9] = P[9] + 1;
   P[3] = P[3] + kills;
@@ -240,7 +240,7 @@ export function commitRun(arena: number, won: boolean, score: number, kills: num
   P[7] = P[7] + crits;
   if (comboPeak > P[8]) P[8] = comboPeak;
   KK[0] = KK[0] + k0; KK[1] = KK[1] + k1; KK[2] = KK[2] + k2; KK[3] = KK[3] + k3;
-  KK[4] = KK[4] + k4; KK[5] = KK[5] + k5; KK[6] = KK[6] + k6;
+  KK[4] = KK[4] + k4; KK[5] = KK[5] + k5; KK[6] = KK[6] + k6; KK[7] = KK[7] + k7;
   const st = starsFor(won, accuracy, damageTaken);
   let fresh = 0;
   if (arena >= 0 && arena < MAX_ARENAS && st > stars[arena]) {

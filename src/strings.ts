@@ -30,226 +30,238 @@ export const S_TAGLINE = 24;
 export const S_ARENA_SUB_0 = 25;
 export const S_ARENA_SUB_1 = 26;
 export const S_ARENA_SUB_2 = 27;
-export const S_TAB_GAME = 28;
-export const S_TAB_CONTROLS = 29;
-export const S_TAB_BINDS = 30;
-export const S_TAB_VIDEO = 31;
-export const S_TAB_AUDIO = 32;
-export const S_TAB_ACCESS = 33;
-export const S_DIFFICULTY = 34;
-export const S_DIFF_0 = 35;
-export const S_DIFF_1 = 36;
-export const S_DIFF_2 = 37;
-export const S_LANGUAGE = 38;
-export const S_HUD_SCALE = 39;
-export const S_COMPASS = 40;
-export const S_FOV = 41;
-export const S_SHAKE = 42;
-export const S_SENS = 43;
-export const S_PAD_SENS = 44;
-export const S_ADS_SENS = 45;
-export const S_INVERT_Y = 46;
-export const S_AIM_ASSIST = 47;
-export const S_DEADZONE = 48;
-export const S_CURVE = 49;
-export const S_CURVE_0 = 50;
-export const S_CURVE_1 = 51;
-export const S_CURVE_2 = 52;
-export const S_VIBRATION = 53;
-export const S_PRESET = 54;
-export const S_PRESET_0 = 55;
-export const S_PRESET_1 = 56;
-export const S_PRESET_2 = 57;
-export const S_PRESET_3 = 58;
-export const S_PRESET_4 = 59;
-export const S_WINDOW_MODE = 60;
-export const S_WINDOW_0 = 61;
-export const S_WINDOW_1 = 62;
-export const S_VSYNC = 63;
-export const S_FPS_CAP = 64;
-export const S_FPS_0 = 65;
-export const S_FPS_1 = 66;
-export const S_FPS_2 = 67;
-export const S_FPS_3 = 68;
-export const S_FPS_4 = 69;
-export const S_FPS_VSYNC = 70;
-export const S_OUT_SCALE = 71;
-export const S_RENDER_SCALE = 72;
-export const S_SHADOWS = 73;
-export const S_SSAO = 74;
-export const S_SSR = 75;
-export const S_SSGI = 76;
-export const S_BLOOM = 77;
-export const S_DOF = 78;
-export const S_MOTION_BLUR = 79;
-export const S_AUTO_RES = 80;
-export const S_PT = 81;
-export const S_PT_0 = 82;
-export const S_PT_1 = 83;
-export const S_PT_2 = 84;
-export const S_PT_NA = 85;
-export const S_MASTER_VOL = 86;
-export const S_MUSIC_VOL = 87;
-export const S_SFX_VOL = 88;
-export const S_CAPTIONS = 89;
-export const S_CAPTION_SIZE = 90;
-export const S_SIZE_0 = 91;
-export const S_SIZE_1 = 92;
-export const S_SIZE_2 = 93;
-export const S_CAPTION_BG = 94;
-export const S_PALETTE = 95;
-export const S_PALETTE_0 = 96;
-export const S_PALETTE_1 = 97;
-export const S_PALETTE_2 = 98;
-export const S_PALETTE_3 = 99;
-export const S_AIM_MODE = 100;
-export const S_SPRINT_MODE = 101;
-export const S_CROUCH_MODE = 102;
-export const S_MODE_0 = 103;
-export const S_MODE_1 = 104;
-export const S_ON = 105;
-export const S_OFF = 106;
-export const S_RESET_BINDS = 107;
-export const S_PRESS_KEY = 108;
-export const S_PRESS_BUTTON = 109;
-export const S_KEYBOARD = 110;
-export const S_GAMEPAD = 111;
-export const S_UNBOUND = 112;
-export const S_ACT_0 = 113;
-export const S_ACT_1 = 114;
-export const S_ACT_2 = 115;
-export const S_ACT_3 = 116;
-export const S_ACT_4 = 117;
-export const S_ACT_5 = 118;
-export const S_ACT_6 = 119;
-export const S_ACT_7 = 120;
-export const S_ACT_8 = 121;
-export const S_ACT_9 = 122;
-export const S_ACT_10 = 123;
-export const S_ACT_11 = 124;
-export const S_ACT_12 = 125;
-export const S_ACT_13 = 126;
-export const S_ACT_14 = 127;
-export const S_ACT_15 = 128;
-export const S_ACT_16 = 129;
-export const S_ACT_17 = 130;
-export const S_ACT_18 = 131;
-export const S_ACT_19 = 132;
-export const S_WPN_0 = 133;
-export const S_WPN_1 = 134;
-export const S_WPN_2 = 135;
-export const S_WPN_3 = 136;
-export const S_RELOADING = 137;
-export const S_RELOAD = 138;
-export const S_SWAP = 139;
-export const S_STRIKE = 140;
-export const S_NO_AMMO = 141;
-export const S_DODGED = 142;
-export const S_WAVE_N = 143;
-export const S_WAVE_IN = 144;
-export const S_WAVE_CLEAR = 145;
-export const S_OBJECTIVE = 146;
-export const S_REMAINING = 147;
-export const S_UNSEEN = 148;
-export const S_HUNTED = 149;
-export const S_KILLS = 150;
-export const S_ACCURACY = 151;
-export const S_BONUS = 152;
-export const S_SCORE = 153;
-export const S_NEW_BEST = 154;
-export const S_BEST_COMBO = 155;
-export const S_HEADSHOTS = 156;
-export const S_DAMAGE_TAKEN = 157;
-export const S_TIME = 158;
-export const S_UNLOCKED = 159;
-export const S_YOU_DIED = 160;
-export const S_ARENA_CLEARED = 161;
-export const S_REACHED_WAVE = 162;
-export const S_LOADING = 163;
-export const S_ALREADY_LOADED = 164;
-export const S_REOPEN = 165;
-export const S_LOW_HEALTH = 166;
-export const S_VAULT = 167;
-export const S_CAP_WINDUP = 168;
-export const S_CAP_ROAR = 169;
-export const S_CAP_WAVE = 170;
-export const S_CAP_HEART = 171;
-export const S_CAP_EXPLOSION = 172;
-export const S_CAP_EMPTY = 173;
-export const S_CAP_HEAL = 174;
-export const S_CAP_SILENCE = 175;
-export const S_ARMORY = 176;
-export const S_RECORD = 177;
-export const S_HINTS = 178;
-export const S_HINT_WEAPON = 179;
-export const S_NEED_STARS = 180;
-export const S_STARS_TOTAL = 181;
-export const S_CREDITS_BAL = 182;
-export const S_CREDITS_EARNED = 183;
-export const S_UPG_0 = 184;
-export const S_UPG_1 = 185;
-export const S_UPG_2 = 186;
-export const S_UPG_3 = 187;
-export const S_UPG_D0 = 188;
-export const S_UPG_D1 = 189;
-export const S_UPG_D2 = 190;
-export const S_UPG_D3 = 191;
-export const S_PERK_0 = 192;
-export const S_PERK_1 = 193;
-export const S_PERK_2 = 194;
-export const S_PERK_3 = 195;
-export const S_PERK_D0 = 196;
-export const S_PERK_D1 = 197;
-export const S_PERK_D2 = 198;
-export const S_PERK_D3 = 199;
-export const S_ARM_LOCKED = 200;
-export const S_MAXED = 201;
-export const S_ST_RUNS = 202;
-export const S_ST_WINS = 203;
-export const S_ST_ELITES = 204;
-export const S_ST_OBJECTIVES = 205;
-export const S_ST_TIME = 206;
-export const S_ST_DEATHS = 207;
-export const S_ST_EARNED = 208;
-export const S_RESET_PROGRESS = 209;
-export const S_RESET_SURE = 210;
-export const S_OBJ_HOLD = 211;
-export const S_OBJ_HOLDING = 212;
-export const S_OBJ_NESTS = 213;
-export const S_OBJ_MOPUP = 214;
-export const S_OBJ_HOLD_LONG = 215;
-export const S_OBJ_NESTS_LONG = 216;
-export const S_ELITE_N = 217;
-export const S_TUT_TITLE = 218;
-export const S_TUT_0 = 219;
-export const S_TUT_1 = 220;
-export const S_TUT_2 = 221;
-export const S_TUT_3 = 222;
-export const S_TUT_4 = 223;
-export const S_TUT_SKIP = 224;
-export const S_TUT_DONE = 225;
-export const S_TIP_HEAD = 226;
-export const S_TIP_0 = 227;
-export const S_TIP_1 = 228;
-export const S_TIP_2 = 229;
-export const S_TIP_3 = 230;
-export const S_TIP_4 = 231;
-export const S_TIP_5 = 232;
-export const S_CR_GAME = 233;
-export const S_CR_ENGINE = 234;
-export const S_CR_ENGINE_V = 235;
-export const S_CR_MODELS = 236;
-export const S_CR_MODELS_V = 237;
-export const S_CR_SURFACES = 238;
-export const S_CR_SURFACES_V = 239;
-export const S_CR_SOUND = 240;
-export const S_CR_SOUND_V = 241;
-export const S_CR_MUSIC = 242;
-export const S_CR_MUSIC_V = 243;
-export const S_CR_FONT = 244;
-export const S_CR_FONT_V = 245;
-export const S_CR_LICENSE = 246;
-export const S_COUNT = 247;
+export const S_ARENA_SUB_3 = 28;
+export const S_ARENA_SUB_4 = 29;
+export const S_TAB_GAME = 30;
+export const S_TAB_CONTROLS = 31;
+export const S_TAB_BINDS = 32;
+export const S_TAB_VIDEO = 33;
+export const S_TAB_AUDIO = 34;
+export const S_TAB_ACCESS = 35;
+export const S_DIFFICULTY = 36;
+export const S_DIFF_0 = 37;
+export const S_DIFF_1 = 38;
+export const S_DIFF_2 = 39;
+export const S_LANGUAGE = 40;
+export const S_HUD_SCALE = 41;
+export const S_COMPASS = 42;
+export const S_FOV = 43;
+export const S_SHAKE = 44;
+export const S_SENS = 45;
+export const S_PAD_SENS = 46;
+export const S_ADS_SENS = 47;
+export const S_INVERT_Y = 48;
+export const S_AIM_ASSIST = 49;
+export const S_DEADZONE = 50;
+export const S_CURVE = 51;
+export const S_CURVE_0 = 52;
+export const S_CURVE_1 = 53;
+export const S_CURVE_2 = 54;
+export const S_VIBRATION = 55;
+export const S_PRESET = 56;
+export const S_PRESET_0 = 57;
+export const S_PRESET_1 = 58;
+export const S_PRESET_2 = 59;
+export const S_PRESET_3 = 60;
+export const S_PRESET_4 = 61;
+export const S_WINDOW_MODE = 62;
+export const S_WINDOW_0 = 63;
+export const S_WINDOW_1 = 64;
+export const S_VSYNC = 65;
+export const S_FPS_CAP = 66;
+export const S_FPS_0 = 67;
+export const S_FPS_1 = 68;
+export const S_FPS_2 = 69;
+export const S_FPS_3 = 70;
+export const S_FPS_4 = 71;
+export const S_FPS_VSYNC = 72;
+export const S_OUT_SCALE = 73;
+export const S_RENDER_SCALE = 74;
+export const S_SHADOWS = 75;
+export const S_SSAO = 76;
+export const S_SSR = 77;
+export const S_SSGI = 78;
+export const S_BLOOM = 79;
+export const S_DOF = 80;
+export const S_MOTION_BLUR = 81;
+export const S_AUTO_RES = 82;
+export const S_PT = 83;
+export const S_PT_0 = 84;
+export const S_PT_1 = 85;
+export const S_PT_2 = 86;
+export const S_PT_NA = 87;
+export const S_MASTER_VOL = 88;
+export const S_MUSIC_VOL = 89;
+export const S_SFX_VOL = 90;
+export const S_CAPTIONS = 91;
+export const S_CAPTION_SIZE = 92;
+export const S_SIZE_0 = 93;
+export const S_SIZE_1 = 94;
+export const S_SIZE_2 = 95;
+export const S_CAPTION_BG = 96;
+export const S_PALETTE = 97;
+export const S_PALETTE_0 = 98;
+export const S_PALETTE_1 = 99;
+export const S_PALETTE_2 = 100;
+export const S_PALETTE_3 = 101;
+export const S_AIM_MODE = 102;
+export const S_SPRINT_MODE = 103;
+export const S_CROUCH_MODE = 104;
+export const S_MODE_0 = 105;
+export const S_MODE_1 = 106;
+export const S_ON = 107;
+export const S_OFF = 108;
+export const S_RESET_BINDS = 109;
+export const S_PRESS_KEY = 110;
+export const S_PRESS_BUTTON = 111;
+export const S_KEYBOARD = 112;
+export const S_GAMEPAD = 113;
+export const S_UNBOUND = 114;
+export const S_ACT_0 = 115;
+export const S_ACT_1 = 116;
+export const S_ACT_2 = 117;
+export const S_ACT_3 = 118;
+export const S_ACT_4 = 119;
+export const S_ACT_5 = 120;
+export const S_ACT_6 = 121;
+export const S_ACT_7 = 122;
+export const S_ACT_8 = 123;
+export const S_ACT_9 = 124;
+export const S_ACT_10 = 125;
+export const S_ACT_11 = 126;
+export const S_ACT_12 = 127;
+export const S_ACT_13 = 128;
+export const S_ACT_14 = 129;
+export const S_ACT_15 = 130;
+export const S_ACT_16 = 131;
+export const S_ACT_17 = 132;
+export const S_ACT_18 = 133;
+export const S_ACT_19 = 134;
+export const S_ACT_20 = 135;
+export const S_ACT_21 = 136;
+export const S_WPN_0 = 137;
+export const S_WPN_1 = 138;
+export const S_WPN_2 = 139;
+export const S_WPN_3 = 140;
+export const S_WPN_4 = 141;
+export const S_WPN_5 = 142;
+export const S_RELOADING = 143;
+export const S_RELOAD = 144;
+export const S_SWAP = 145;
+export const S_STRIKE = 146;
+export const S_NO_AMMO = 147;
+export const S_DODGED = 148;
+export const S_WAVE_N = 149;
+export const S_WAVE_IN = 150;
+export const S_WAVE_CLEAR = 151;
+export const S_OBJECTIVE = 152;
+export const S_REMAINING = 153;
+export const S_UNSEEN = 154;
+export const S_HUNTED = 155;
+export const S_KILLS = 156;
+export const S_ACCURACY = 157;
+export const S_BONUS = 158;
+export const S_SCORE = 159;
+export const S_NEW_BEST = 160;
+export const S_BEST_COMBO = 161;
+export const S_HEADSHOTS = 162;
+export const S_DAMAGE_TAKEN = 163;
+export const S_TIME = 164;
+export const S_UNLOCKED = 165;
+export const S_YOU_DIED = 166;
+export const S_ARENA_CLEARED = 167;
+export const S_REACHED_WAVE = 168;
+export const S_LOADING = 169;
+export const S_ALREADY_LOADED = 170;
+export const S_REOPEN = 171;
+export const S_LOW_HEALTH = 172;
+export const S_VAULT = 173;
+export const S_CAP_WINDUP = 174;
+export const S_CAP_ROAR = 175;
+export const S_CAP_WAVE = 176;
+export const S_CAP_HEART = 177;
+export const S_CAP_EXPLOSION = 178;
+export const S_CAP_EMPTY = 179;
+export const S_CAP_HEAL = 180;
+export const S_CAP_SILENCE = 181;
+export const S_ARMORY = 182;
+export const S_RECORD = 183;
+export const S_HINTS = 184;
+export const S_HINT_WEAPON = 185;
+export const S_NEED_STARS = 186;
+export const S_STARS_TOTAL = 187;
+export const S_CREDITS_BAL = 188;
+export const S_CREDITS_EARNED = 189;
+export const S_UPG_0 = 190;
+export const S_UPG_1 = 191;
+export const S_UPG_2 = 192;
+export const S_UPG_3 = 193;
+export const S_UPG_D0 = 194;
+export const S_UPG_D1 = 195;
+export const S_UPG_D2 = 196;
+export const S_UPG_D3 = 197;
+export const S_PERK_0 = 198;
+export const S_PERK_1 = 199;
+export const S_PERK_2 = 200;
+export const S_PERK_3 = 201;
+export const S_PERK_4 = 202;
+export const S_PERK_5 = 203;
+export const S_PERK_D0 = 204;
+export const S_PERK_D1 = 205;
+export const S_PERK_D2 = 206;
+export const S_PERK_D3 = 207;
+export const S_PERK_D4 = 208;
+export const S_PERK_D5 = 209;
+export const S_ARM_LOCKED = 210;
+export const S_MAXED = 211;
+export const S_ST_RUNS = 212;
+export const S_ST_WINS = 213;
+export const S_ST_ELITES = 214;
+export const S_ST_OBJECTIVES = 215;
+export const S_ST_TIME = 216;
+export const S_ST_DEATHS = 217;
+export const S_ST_EARNED = 218;
+export const S_RESET_PROGRESS = 219;
+export const S_RESET_SURE = 220;
+export const S_OBJ_HOLD = 221;
+export const S_OBJ_HOLDING = 222;
+export const S_OBJ_NESTS = 223;
+export const S_OBJ_MOPUP = 224;
+export const S_OBJ_HOLD_LONG = 225;
+export const S_OBJ_NESTS_LONG = 226;
+export const S_ELITE_N = 227;
+export const S_BOSS_PHASE = 228;
+export const S_OBJ_BOSS = 229;
+export const S_TUT_TITLE = 230;
+export const S_TUT_0 = 231;
+export const S_TUT_1 = 232;
+export const S_TUT_2 = 233;
+export const S_TUT_3 = 234;
+export const S_TUT_4 = 235;
+export const S_TUT_SKIP = 236;
+export const S_TUT_DONE = 237;
+export const S_TIP_HEAD = 238;
+export const S_TIP_0 = 239;
+export const S_TIP_1 = 240;
+export const S_TIP_2 = 241;
+export const S_TIP_3 = 242;
+export const S_TIP_4 = 243;
+export const S_TIP_5 = 244;
+export const S_CR_GAME = 245;
+export const S_CR_ENGINE = 246;
+export const S_CR_ENGINE_V = 247;
+export const S_CR_MODELS = 248;
+export const S_CR_MODELS_V = 249;
+export const S_CR_SURFACES = 250;
+export const S_CR_SURFACES_V = 251;
+export const S_CR_SOUND = 252;
+export const S_CR_SOUND_V = 253;
+export const S_CR_MUSIC = 254;
+export const S_CR_MUSIC_V = 255;
+export const S_CR_FONT = 256;
+export const S_CR_FONT_V = 257;
+export const S_CR_LICENSE = 258;
+export const S_COUNT = 259;
 
 export const LANG_COUNT = 4;
 export const LANG_NAMES: string[] = ['ENGLISH', 'DEUTSCH', 'FRANÇAIS', 'ESPAÑOL'];
@@ -283,6 +295,8 @@ const T_EN: string[] = [
   'LATE AFTERNOON  ·  10 WAVES',
   'MISTY MORNING  ·  10 WAVES',
   'DUSK  ·  10 WAVES',
+  'OVERCAST NOON  ·  10 WAVES',
+  'NIGHT  ·  10 WAVES',
   'GAME',
   'CONTROLS',
   'BINDINGS',
@@ -388,10 +402,14 @@ const T_EN: string[] = [
   'CHAINGUN',
   'CANNON',
   'PAUSE',
+  'SCATTERGUN',
+  'LANCE',
   'RIFLE',
   'BLASTER',
   'CHAINGUN',
   'CANNON',
+  'SCATTERGUN',
+  'LANCE',
   'RELOADING',
   'RELOAD',
   'SWAP',
@@ -451,10 +469,14 @@ const T_EN: string[] = [
   'OVERCHARGE',
   'STABILISER',
   'SHAPED CHARGE',
+  'CHOKE',
+  'CAPACITOR',
   'HEAD AND WEAK-POINT HITS DEAL 35% MORE',
   'BOLTS FLY FASTER AND PASS THROUGH ONE MORE BODY',
   'SPINS UP TWICE AS FAST, NO SLOWER WALK',
   'WIDER BLAST, HALF THE DAMAGE TO YOURSELF',
+  'A TIGHTER CONE: THE PELLETS REACH FURTHER',
+  'RECHARGES A THIRD FASTER BETWEEN SHOTS',
   'CLEAR AN ARENA TO UNLOCK THIS WEAPON',
   'COMPLETE',
   'RUNS',
@@ -473,6 +495,8 @@ const T_EN: string[] = [
   'HOLD THE RING AT THE RELAY',
   'DESTROY THE NESTS',
   'ELITES: {0}',
+  'PHASE {0}',
+  'KILL THE MATRIARCH',
   'BASIC TRAINING',
   'MOVE',
   'AIM AND FIRE',
@@ -533,6 +557,8 @@ const T_DE: string[] = [
   'SPÄTER NACHMITTAG  ·  10 WELLEN',
   'NEBLIGER MORGEN  ·  10 WELLEN',
   'DÄMMERUNG  ·  10 WELLEN',
+  'BEDECKTER MITTAG  ·  10 WELLEN',
+  'NACHT  ·  10 WELLEN',
   'SPIEL',
   'STEUERUNG',
   'TASTEN',
@@ -638,10 +664,14 @@ const T_DE: string[] = [
   'KETTENKANONE',
   'KANONE',
   'PAUSE',
+  'STREUGEWEHR',
+  'LANZE',
   'GEWEHR',
   'BLASTER',
   'KETTENKANONE',
   'KANONE',
+  'STREUGEWEHR',
+  'LANZE',
   'LADE NACH',
   'NACHLADEN',
   'WECHSELN',
@@ -701,10 +731,14 @@ const T_DE: string[] = [
   'ÜBERLADUNG',
   'STABILISATOR',
   'HOHLLADUNG',
+  'CHOKE',
+  'KONDENSATOR',
   'KOPF- UND SCHWACHSTELLENTREFFER: 35 % MEHR SCHADEN',
   'GESCHOSSE FLIEGEN SCHNELLER UND DURCHSCHLAGEN EINEN KÖRPER MEHR',
   'DOPPELT SO SCHNELL AUF TOUREN, KEIN LANGSAMERES GEHEN',
   'GRÖSSERE EXPLOSION, HALBER SELBSTSCHADEN',
+  'ENGERER KEGEL: DIE SCHROTE REICHEN WEITER',
+  'LÄDT ZWISCHEN SCHÜSSEN EIN DRITTEL SCHNELLER',
   'SCHLIESSE EINE ARENA AB, UM DIESE WAFFE FREIZUSCHALTEN',
   'VOLLSTÄNDIG',
   'LÄUFE',
@@ -723,6 +757,8 @@ const T_DE: string[] = [
   'HALTE DEN RING AM RELAIS',
   'ZERSTÖRE DIE NESTER',
   'ELITEN: {0}',
+  'PHASE {0}',
+  'TÖTE DIE MATRIARCHIN',
   'GRUNDAUSBILDUNG',
   'BEWEGEN',
   'ZIELEN UND FEUERN',
@@ -783,6 +819,8 @@ const T_FR: string[] = [
   'FIN D\'APRÈS-MIDI  ·  10 VAGUES',
   'MATIN BRUMEUX  ·  10 VAGUES',
   'CRÉPUSCULE  ·  10 VAGUES',
+  'MIDI COUVERT  ·  10 VAGUES',
+  'NUIT  ·  10 VAGUES',
   'JEU',
   'COMMANDES',
   'TOUCHES',
@@ -888,10 +926,14 @@ const T_FR: string[] = [
   'MITRAILLEUSE',
   'CANON',
   'PAUSE',
+  'FUSIL À DISPERSION',
+  'LANCE',
   'FUSIL',
   'BLASTER',
   'MITRAILLEUSE',
   'CANON',
+  'FUSIL À DISPERSION',
+  'LANCE',
   'RECHARGEMENT',
   'RECHARGER',
   'CHANGER',
@@ -951,10 +993,14 @@ const T_FR: string[] = [
   'SURCHARGE',
   'STABILISATEUR',
   'CHARGE CREUSE',
+  'CHOKE',
+  'CONDENSATEUR',
   'TÊTE ET POINTS FAIBLES : 35 % DE DÉGÂTS EN PLUS',
   'TIRS PLUS RAPIDES, TRAVERSENT UN CORPS DE PLUS',
   'MONTE EN RÉGIME DEUX FOIS PLUS VITE, MARCHE NON RALENTIE',
   'EXPLOSION PLUS LARGE, DÉGÂTS SUBIS RÉDUITS DE MOITIÉ',
+  'CÔNE RESSERRÉ : LES PLOMBS PORTENT PLUS LOIN',
+  'RECHARGE UN TIERS PLUS VITE ENTRE LES TIRS',
   'TERMINEZ UNE ARÈNE POUR DÉBLOQUER CETTE ARME',
   'COMPLET',
   'PARTIES',
@@ -973,6 +1019,8 @@ const T_FR: string[] = [
   'TENEZ L\'ANNEAU AU RELAIS',
   'DÉTRUISEZ LES NIDS',
   'ÉLITES : {0}',
+  'PHASE {0}',
+  'TUEZ LA MATRIARCHE',
   'INSTRUCTION',
   'DÉPLACEZ-VOUS',
   'VISEZ ET TIREZ',
@@ -1033,6 +1081,8 @@ const T_ES: string[] = [
   'ATARDECER  ·  10 OLEADAS',
   'MAÑANA DE NIEBLA  ·  10 OLEADAS',
   'ANOCHECER  ·  10 OLEADAS',
+  'MEDIODÍA NUBLADO  ·  10 OLEADAS',
+  'NOCHE  ·  10 OLEADAS',
   'JUEGO',
   'CONTROLES',
   'TECLAS',
@@ -1138,10 +1188,14 @@ const T_ES: string[] = [
   'AMETRALLADORA',
   'CAÑÓN',
   'PAUSA',
+  'ESCOPETA',
+  'LANZA',
   'RIFLE',
   'BLÁSTER',
   'AMETRALLADORA',
   'CAÑÓN',
+  'ESCOPETA',
+  'LANZA',
   'RECARGANDO',
   'RECARGAR',
   'CAMBIAR',
@@ -1201,10 +1255,14 @@ const T_ES: string[] = [
   'SOBRECARGA',
   'ESTABILIZADOR',
   'CARGA HUECA',
+  'ESTRANGULADOR',
+  'CONDENSADOR',
   'CABEZA Y PUNTOS DÉBILES: 35 % MÁS DE DAÑO',
   'PROYECTILES MÁS RÁPIDOS QUE ATRAVIESAN UN CUERPO MÁS',
   'ACELERA EL DOBLE DE RÁPIDO Y NO FRENA EL PASO',
   'EXPLOSIÓN MAYOR, LA MITAD DE DAÑO PROPIO',
+  'CONO MÁS CERRADO: LOS PERDIGONES LLEGAN MÁS LEJOS',
+  'RECARGA UN TERCIO MÁS RÁPIDO ENTRE DISPAROS',
   'SUPERA UNA ARENA PARA DESBLOQUEAR ESTA ARMA',
   'COMPLETO',
   'PARTIDAS',
@@ -1223,6 +1281,8 @@ const T_ES: string[] = [
   'DEFIENDE EL ANILLO DEL REPETIDOR',
   'DESTRUYE LOS NIDOS',
   'ÉLITES: {0}',
+  'FASE {0}',
+  'MATA A LA MATRIARCA',
   'INSTRUCCIÓN',
   'MUÉVETE',
   'APUNTA Y DISPARA',

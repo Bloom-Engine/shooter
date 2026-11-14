@@ -40,7 +40,10 @@ export const ACT_WPN2 = 16;
 export const ACT_WPN3 = 17;
 export const ACT_WPN4 = 18;
 export const ACT_PAUSE = 19;
-export const ACT_COUNT = 20;
+// Slice D: the fifth and sixth weapon. Added at the END so the saved k<n>/p<n> keep their meaning.
+export const ACT_WPN5 = 20;
+export const ACT_WPN6 = 21;
+export const ACT_COUNT = 22;
 
 export const MOUSE_BASE = 1000;
 export const PAD_AXIS_BASE = 100;
@@ -51,10 +54,10 @@ export const PAD_RSTICK = 201;
 const TRIGGER_THRESHOLD = 0.4;
 
 //                    fwd back left right jump fire  aim   sprint crouch dodge reload swap melee nade shoulder 1   2   3   4  pause
-const KB_DEFAULT = [87,  83,  65,  68,   32,  1000, 1001, 280,   67,    282,  82,    81,  70,   71,  86,      49, 50, 51, 52, 27];
+const KB_DEFAULT = [87,  83,  65,  68,   32,  1000, 1001, 280,   67,    282,  82,    81,  70,   71,  86,      49, 50, 51, 52, 27, 53, 54];
 // Pad: A jump, RT fire, LT aim, LS sprint, RS crouch, B dodge, X reload, Y swap, LB melee,
 // Back grenade, RB shoulder, D-pad up/right/down/left the four weapons, Start pause.
-const PAD_DEFAULT = [200, 200, 200, 200, 0,   105,  104,  8,     9,     1,    2,     3,   4,    6,   5,       10, 13, 11, 12, 7];
+const PAD_DEFAULT = [200, 200, 200, 200, 0,   105,  104,  8,     9,     1,    2,     3,   4,    6,   5,       10, 13, 11, 12, 7, -1, -1];
 
 const KB = new Array<number>(ACT_COUNT);
 const PD = new Array<number>(ACT_COUNT);

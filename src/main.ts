@@ -69,7 +69,7 @@ import * as TUTOR from './tutor';
 import { OBJ, nestStanding } from './objective';
 import {
   DIR, initDirector, setDirectorDeps, updateDirector, updateEnemyProjectiles,
-  countAlive, WAVE_BREAK_DELAY, despawnAllEnemies, hpX, hpY, hpZ, hpLife, wavePlan,
+  countAlive, WAVE_BREAK_DELAY, despawnAllEnemies, hpX, hpY, hpZ, hpLife, wavePlan, BOSS, bossHealth,
 } from './director';
 import {
   setCombatDeps, updateWeaponTransform, updateCombat, drawWeapon,
@@ -246,7 +246,8 @@ setSoundVolume(sfxFireBlaster, 0.45);
 if (sfxFireChain !== sfxFireRifle) setSoundVolume(sfxFireChain, 0.38);
 if (sfxFireCannon !== sfxFireRifle) setSoundVolume(sfxFireCannon, 0.60);
 if (sfxExplosion !== sfxFireBlaster) setSoundVolume(sfxExplosion, 0.85);
-const sfxFireByWeapon = [sfxFireRifle, sfxFireBlaster, sfxFireChain, sfxFireCannon];
+// The scattergun and the lance borrow the cannon's and the blaster's report (Phase 5 is open).
+const sfxFireByWeapon = [sfxFireRifle, sfxFireBlaster, sfxFireChain, sfxFireCannon, sfxFireCannon, sfxFireBlaster];
 // Phase 2 (SH-057): the claw swing, the critical-hit confirm and the player's kit. Optional
 // files with stand-ins, like the three above.
 const sfxSwing = fileExists('assets/sounds/swing.wav')
@@ -290,11 +291,12 @@ setSoundVolume(sfxPlayerDie[1], 0.8);
 // classes of the mantis (level1) and marauder (level2), and in Unvanquished an
 // upgrade class shares its base class's voice. So their vocals map onto the base
 // class's files rather than needing two new sets of art.
-const SFX_KIND_VOICE = [0, 1, 2, 3, 4, 2, 3];
-const sfxAlienDie: any[] = new Array(21);     // 7 kinds x 3 variants
-const sfxAlienAttack: any[] = new Array(7);
-const sfxAlienPain: any[] = new Array(7);
-for (let k = 0; k < 7; k++) {
+// (The boss, kind 7, uses the Colossus's voice until it has one: Phase 5 is open.)
+const SFX_KIND_VOICE = [0, 1, 2, 3, 4, 2, 3, 4];
+const sfxAlienDie: any[] = new Array(24);     // 8 kinds x 3 variants
+const sfxAlienAttack: any[] = new Array(8);
+const sfxAlienPain: any[] = new Array(8);
+for (let k = 0; k < 8; k++) {
   const voice = SFX_KIND_VOICE[k];
   for (let v = 0; v < 3; v++) {
     const s = loadSound('assets/sounds/alien' + voice + '_die' + (v + 1) + '.wav');
@@ -403,10 +405,11 @@ setDirectionalLight(
 // pick it up via sample_env(). With nothing loaded the env binds
 // are 1×1 black and PBR specular is dead.
 // Plan 3.5: the panorama graded to the arena's time of day (tools/gen/grade_sky.py; the order is
-// its PRESETS). Look key `sky_variant`: 0 noon as shot, 1 afternoon, 2 mist, 3 dusk.
+// its PRESETS). Look key `sky_variant`: 0 noon as shot, 1 afternoon, 2 mist, 3 dusk, 4 night.
 const SKY_FILES = ['assets/env/outdoor.hdr', 'assets/env/outdoor_afternoon.hdr',
-                   'assets/env/outdoor_mist.hdr', 'assets/env/outdoor_dusk.hdr'];
-const SKY_VARIANT = Math.max(0, Math.min(3, Math.floor(W.lookNum('sky_variant', 0))));
+                   'assets/env/outdoor_mist.hdr', 'assets/env/outdoor_dusk.hdr',
+                   'assets/env/outdoor_night.hdr'];
+const SKY_VARIANT = Math.max(0, Math.min(4, Math.floor(W.lookNum('sky_variant', 0))));
 setEnvClearFromHdr(SKY_FILES[SKY_VARIANT]);
 // Phase 3.5: each arena has its own time of day. The world file's `look` entity carries what the
 // engine's environment block has no field for; the fallbacks are the old noon values.
@@ -1229,14 +1232,21 @@ const mdlWeapons = [
   loadModel('assets/models/weapon_blaster.glb'),
   loadModel('assets/models/weapon_chaingun.glb'),
   loadModel('assets/models/weapon_cannon.glb'),
+  // Slice D. Until the generated models are in, each borrows the nearest shape it has.
+  loadModel(fileExists('assets/models/weapon_scattergun.glb') ? 'assets/models/weapon_scattergun.glb' : 'assets/models/weapon_blaster.glb'),
+  loadModel(fileExists('assets/models/weapon_lance.glb') ? 'assets/models/weapon_lance.glb' : 'assets/models/weapon_rifle.glb'),
 ];
+const HAS_SCATTER_MDL = fileExists('assets/models/weapon_scattergun.glb');
+const HAS_LANCE_MDL = fileExists('assets/models/weapon_lance.glb');
 // Muzzle distance down the barrel, metres. These pair with the `length` column
 // in tools/convert-weapons.ts, which normalises each model to that length
 // precisely so these constants survive an art change.
 // New photoreal weapons (tools/blender/process_static.py): lengths 0.92 / 0.45 / 1.05 / 1.00 m,
 // rear of the gun at z = 0, so the muzzle is just short of the full length.
-const WEAPON_MUZZLE_Z = [0.90, 0.44, 1.03, 0.98];
-const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
+// (The last two columns are the stand-ins' numbers, blaster and rifle, until the scattergun
+// and lance models exist; then 0.73 and 1.33 with their own hand positions.)
+const WEAPON_MUZZLE_Z = [0.90, 0.44, 1.03, 0.98, HAS_SCATTER_MDL ? 0.73 : 0.44, HAS_LANCE_MDL ? 1.33 : 0.90];
+const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
 
 // EN-033 — the hand joint, so the weapon rides the animation instead of
 // floating at a fixed offset. -1 means the skeleton has no such joint and the
@@ -1263,16 +1273,16 @@ const AIM_SPINE_SHARE = 0.85;
 const AIM_SPINE_MAX = 0.9;
 // Where the off hand holds each weapon, in the weapon's own frame (m): along the barrel,
 // below the bore line. Rifle, blaster (a support hand under the grip), chaingun, cannon.
-const WEAPON_GRIP_Z = [0.68, 0.14, 0.72, 0.54];
-const WEAPON_GRIP_Y = [-0.06, -0.09, -0.10, -0.14];
+const WEAPON_GRIP_Z = [0.68, 0.14, 0.72, 0.54, 0.14, 0.68];
+const WEAPON_GRIP_Y = [-0.06, -0.09, -0.10, -0.14, -0.09, -0.06];
 // Where the trigger hand holds it: the pistol grip, measured from the model's rear along the
 // barrel, and how far the bore line sits above the hand. The weapon is drawn so that this point
 // is on the weapon socket (before 2026-11 the socket held the very end of the stock).
 // The magazine well, same frame: where the off hand goes during a reload.
-const WEAPON_MAG_Z = [0.47, 0.07, 0.52, 0.46];
-const WEAPON_MAG_Y = [-0.17, -0.13, -0.18, -0.16];
-const WEAPON_HAND_Z = [0.32, 0.07, 0.38, 0.36];
-const WEAPON_HAND_Y = [0.07, 0.08, 0.10, 0.09];
+const WEAPON_MAG_Z = [0.47, 0.07, 0.52, 0.46, 0.07, 0.47];
+const WEAPON_MAG_Y = [-0.17, -0.13, -0.18, -0.16, -0.13, -0.17];
+const WEAPON_HAND_Z = [0.32, 0.07, 0.38, 0.36, 0.07, 0.32];
+const WEAPON_HAND_Y = [0.07, 0.08, 0.10, 0.09, 0.08, 0.07];
 // Eased 0..1: how firmly the off hand is held on the weapon (let go for a reload or a dodge).
 //   0 off-hand hold          1 upper-body layer weight   2 squared-to-camera timer
 //   3 death clip (-1 alive)  4 strafe-left weight        5 strafe-right weight
@@ -1547,8 +1557,9 @@ const P2 = [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const P2BOT = false;
 //   0 last wave index logged  1 most alive at once  2 most mid-attack at once  3 hits taken
 //   4 HP last frame
-//   5 nest to be put beside this frame (-1 none)
-const PB = [-1, 0, 0, 0, 100, -1];
+//   5 nest to be put beside this frame (-1 none)   6 last boss picture taken (phase * 10 + special)
+//   7 the weapon `--weapon` asked for (-1 = whatever it holds)
+const PB = [-1, 0, 0, 0, 100, -1, 0, -1];
 const P2OUT = [0, 0, 0, 0, 0];
 
 function p2Place(slot: number, x: number, z: number, heading: number): void {
@@ -1640,8 +1651,30 @@ const SCENE_VIEWS_04 = [
   4, 12, 1.57, 0.02, -1,
   -6, -2, -1.57, 0.10, -1,
 ];
+const SCENE_VIEWS_05 = [
+  0, 31, 0.0, 0.14, -1,         // spawn, on the rim, into the pit
+  -4, 18, 0.0, 0.10, -1,        // head of the south ramp
+  -6, 4, 3.14, 0.02, -1,        // pit floor, back up at the benches
+  -4, -6, 1.0, 0.04, -1,        // floor, toward the generator
+  -22, -8, 1.57, 0.12, -1,      // west bench, across the pit
+  8, -22, 2.6, 0.14, -1,        // north bench, down and south
+  20, 10, -1.57, 0.10, -1,      // east rim by the channel
+  -30, 2, 1.57, 0.10, -1,       // head of the west ramp
+];
+const SCENE_VIEWS_06 = [
+  0, 30, 0.0, 0.10, -1,         // spawn, into the hollow
+  0, 14, 0.0, 0.06, -1,         // south edge of the clearing
+  0, -2, 0.0, 0.02, -1,         // the middle
+  14, 4, -1.9, 0.05, -1,        // east edge, the generator
+  -14, 6, 1.6, 0.05, -1,        // west edge, the wreck
+  0, -18, 3.14, 0.06, -1,       // north edge, back across
+  22, -22, -2.4, 0.08, -1,      // outside the rim, north-east gap
+  -24, 0, 1.57, 0.04, -1,       // the creek side
+];
 const SCENE_VIEWS = W.WORLD_ID === 'arena_03' ? SCENE_VIEWS_03
-  : (W.WORLD_ID === 'arena_04' ? SCENE_VIEWS_04 : SCENE_VIEWS_02);
+  : (W.WORLD_ID === 'arena_04' ? SCENE_VIEWS_04
+  : (W.WORLD_ID === 'arena_05' ? SCENE_VIEWS_05
+  : (W.WORLD_ID === 'arena_06' ? SCENE_VIEWS_06 : SCENE_VIEWS_02)));
 
 // ---- STAIRTEST harness (temporary diagnostic) -------------------------------
 // SH-051's acceptance test, and the only honest one: it asks whether enemies
@@ -2084,8 +2117,25 @@ function movePlayerTo(x: number, y: number, z: number): void {
 
 function p2Bot(): boolean {
   const f = testFrame;
-  if (f === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+  if (f === 20 && GS.gameState === 0) {
+    startRun(); cursorLocked = true;
+    // `--wave N` (2..10) starts the stand-in at that wave: the boss is wave 10 of arena_06.
+    for (let n = 2; n <= 10; n++) if (cliArg('--wave') === '' + n) DIR.waveIdx = n - 1;
+  }
+  // `--weapon N` (1..6): the stand-in fights with that weapon, unlocked for the run.
+  if (f === 22) {
+    for (let n = 1; n <= WPN.WEAPON_COUNT; n++) {
+      if (cliArg('--weapon') === '' + n) { WPN.unlock(n - 1); WPN.selectWeapon(n - 1); PB[7] = n - 1; }
+    }
+  }
+  if (PB[7] >= 0 && WPN.currentWeapon() !== PB[7]) WPN.selectWeapon(PB[7]);
   if (GS.gameState !== 1) return false;
+  // The boss: a picture the first time each phase and each special is seen.
+  if (BOSS[0] > 0) {
+    const tag = BOSS[0] * 10 + BOSS[2];
+    if (BOSS[2] > 0 && BOSS[3] < 0.25 && PB[6] !== tag) { PB[6] = tag; takeScreenshot('shooter_boss_p' + BOSS[0] + '_s' + BOSS[2] + '.png'); }
+    if ((f % 300) === 0) console.log('P2BOT   boss phase=' + BOSS[0] + ' hp=' + Math.round(bossHealth() * 100) + '% special=' + BOSS[2] + ' alive=' + countAlive());
+  }
   if (GS.playerHP < PB[4] - 0.5) PB[3] = PB[3] + 1;
   GS.playerHP = PLAYER_HP_MAX; PB[4] = PLAYER_HP_MAX;
   GS.gameOver = false;
@@ -3380,7 +3430,9 @@ function gameFrame(_hostDt: number): void {
   // (-21, 0, -10) — nowhere near an opening. Positions pair with the h_s_f1
   // window openings the house generator emits; the pane sits a hair outside
   // the outer wall face (z = -5.32) so it cannot z-fight the masonry.
-  if (ENV.matGlass > 0) {
+  // Only in the arena that HAS that house: until slice D these three panes hung in the air at
+  // the same coordinates in every other arena.
+  if (ENV.matGlass > 0 && W.WORLD_ID === 'arena_02') {
     drawMeshWithMaterial(ENV.matGlass, ENV.matGlassMesh,
       vec3(-28, 4.6, -5.32), 1.0, { r: 255, g: 255, b: 255, a: 255 });
     drawMeshWithMaterial(ENV.matGlass, ENV.matGlassMesh,

@@ -479,12 +479,12 @@ for (let i = 0; i < PICKUP_COUNT; i++) {
 // SH-042 — order IS the kind index (the KIND_* tables in enemies.ts index by
 // it). The last two are the game's only RANGED enemies.
 const ENEMY_KIND_NAMES = ['skitter', 'stalker', 'ravager', 'bruiser', 'colossus',
-                          'spitter', 'bombard'];
+                          'spitter', 'bombard', 'matriarch'];
 // The names world files used before the 2026-11 cast (the Unvanquished class
 // each slot started as). Still accepted, so an older or hand-edited world
 // loads the same waves; the shipped arenas were migrated on 2026-11-14.
 const ENEMY_KIND_LEGACY = ['dretch', 'mantis', 'marauder', 'dragoon', 'tyrant',
-                           'adv_marauder', 'adv_dragoon'];
+                           'adv_marauder', 'adv_dragoon', 'boss'];
 
 const waveEnts = bucket('wave_config');
 let planCount = 0;

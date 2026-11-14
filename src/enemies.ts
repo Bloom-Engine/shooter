@@ -18,6 +18,7 @@ import {
   boxShape, createBody, MotionType, Layer, BodyHandle,
 } from 'bloom/physics';
 import { findJoint, createRagdoll } from 'bloom/models';
+import { fileExists } from 'bloom/core';
 
 // ---- Unvanquished aliens (5 kinds, M3 model + M5 AI + M6 pool) ------------
 // Each kind has its own GLB model and stat line. Kinds and models line up
@@ -32,12 +33,19 @@ import { findJoint, createRagdoll } from 'bloom/models';
 // RANGED, which is the point: every previous kind could be handled by backing
 // up, and these two cannot, so cover and repositioning start to matter and the
 // whole encounter re-weights around them.
-export const KIND_COUNT = 7;
+export const KIND_COUNT = 8;
+/// Slice D: the eighth kind is the boss, the Matriarch. One body. Until its own model exists
+/// (assets/models/enemy_matriarch.glb) it is drawn as a Colossus a quarter larger, and every
+/// table below gives it the Colossus's measurements; with the model in, BOSS_SCALE is 1 and the
+/// hit-shape columns want measuring again.
+export const K_BOSS = 7;
+export const HAS_BOSS_MODEL = fileExists('assets/models/enemy_matriarch.glb');
+const BOSS_SCALE = HAS_BOSS_MODEL ? 1.0 : 1.28;
 // Display names of the original creature cast (art/style/photoreal/enemy_*).
 // The kind ORDER and the internal ids in the world files (dretch, mantis, ...)
 // are unchanged: they are gameplay roles, and the levels reference them.
 export const KIND_NAME  = ['SKITTER', 'STALKER', 'RAVAGER', 'BRUISER', 'COLOSSUS',
-                    'SPITTER', 'BOMBARD'];
+                    'SPITTER', 'BOMBARD', 'MATRIARCH'];
 // Filled by initEnemyPool(), NOT here. An imported module's body runs BEFORE the
 // importer's, so a loadModel() at module scope would fire before main.ts has
 // called initWindow() — and the engine panics with "Engine not initialized".
@@ -62,15 +70,16 @@ export const ALIEN_GLB = [
   'assets/models/enemy_colossus.glb',
   'assets/models/enemy_spitter.glb',
   'assets/models/enemy_bombard.glb',
+  HAS_BOSS_MODEL ? 'assets/models/enemy_matriarch.glb' : 'assets/models/enemy_colossus.glb',
 ];
 
 // Per-kind base tint (an albedo multiplier; shading and normal maps are
 // untouched). All white since the 2026-11 cast: every kind has its own model
 // now, so nothing needs a recolour to be told apart. The table stays because
 // the draw path multiplies by it and a tint is the cheapest elite/variant hook.
-export const KIND_TINT_R = [255, 255, 255, 255, 255, 255, 255];
-export const KIND_TINT_G = [255, 255, 255, 255, 255, 255, 255];
-export const KIND_TINT_B = [255, 255, 255, 255, 255, 255, 255];
+export const KIND_TINT_R = [255, 255, 255, 255, 255, 255, 255, 255];
+export const KIND_TINT_G = [255, 255, 255, 255, 255, 255, 255, 255];
+export const KIND_TINT_B = [255, 255, 255, 255, 255, 255, 255, 255];
 export const KIND_TINTO = new Array<any>(KIND_COUNT);
 for (let k = 0; k < KIND_COUNT; k++) {
   KIND_TINTO[k] = { r: KIND_TINT_R[k], g: KIND_TINT_G[k], b: KIND_TINT_B[k], a: 255 };
@@ -97,26 +106,26 @@ export const animAliens = new Array<number>(KIND_COUNT);
 // The upgrade classes share their BASE class's rig and clip layout — that is
 // what makes them upgrades rather than new models — so adv marauder reuses the
 // marauder's indices (col 2) and adv dragoon the dragoon's (col 3).
-export const ANIM_WALK_IDX   = [ 1,  1,  1,  1,  1,  1,  1];   // 'run'
+export const ANIM_WALK_IDX   = [ 1,  1,  1,  1,  1,  1,  1, 1];   // 'run'
 // Every creature attacks with its own clip. (Skitter and Bruiser needed a second, more forceful
 // take; their first came out as a near-static guard pose. Review any new take on a
 // tools/blender/clip_sheet.py sheet before trusting it.)
-export const ANIM_ATTACK_IDX = [ 0,  0,  0,  0,  0,  0,  0];   // 'attack'
-export const ANIM_DIE_IDX    = [ 2,  2,  2,  2,  2,  2,  2];   // 'die'
+export const ANIM_ATTACK_IDX = [ 0,  0,  0,  0,  0,  0,  0, 0];   // 'attack'
+export const ANIM_DIE_IDX    = [ 2,  2,  2,  2,  2,  2,  2, 2];   // 'die'
 // SH-030 — pain clips, for the flinch state. The IQE sources carry them and the
 // converter extracts every clip; indices verified per GLB with
 // tools/inspect-glb.ts. Falls back to the attack clip's neighbour if a kind
 // turns out not to have one, which is harmless (a short twitch).
-export const ANIM_PAIN_IDX   = [ 4,  4,  4,  4,  4,  4,  4];
+export const ANIM_PAIN_IDX   = [ 4,  4,  4,  4,  4,  4,  4, 4];
 // EN-028 upper-body mask root, so an alien can bite WHILE closing instead of
 // stopping to bite. -1 = no such joint, and the attack stays full-body (i.e.
 // exactly today's behaviour) rather than breaking.
 export const KIND_SPINE_JOINT = new Array<number>(KIND_COUNT);
-export const KIND_IDLE_IDX    = [ 5,  5,  5,  5,  5,  5,  5];
+export const KIND_IDLE_IDX    = [ 5,  5,  5,  5,  5,  5,  5, 5];
 // Die-anim durations (max keyframe time per GLB). The engine WRAPS anim
 // time (t % duration), so death playback clamps just short of these to
 // freeze on the final collapsed pose instead of re-looping the fall.
-export const ANIM_DIE_DUR    = [2.35, 2.35, 2.35, 2.35, 2.35, 2.35, 2.35];
+export const ANIM_DIE_DUR    = [2.35, 2.35, 2.35, 2.35, 2.35, 2.35, 2.35, 2.35];
 // Per-kind tuning. Collider half-extents are generous (taller than the visual
 // model) so horizontal aim at any range connects.
 // Round-6 rescale — the GLBs have wildly different native sizes (engine
@@ -126,34 +135,34 @@ export const ANIM_DIE_DUR    = [2.35, 2.35, 2.35, 2.35, 2.35, 2.35, 2.35];
 // world heights ≈ 0.65 / 1.4 / 1.8 / 2.1 / 3.0 m. Colliders unchanged
 // (they were deliberately generous).
 //                 dretch mantis maraud dragoon tyrant  ADV.MAR  ADV.DRAGOON
-export const KIND_SCALE = [1.00, 1.00, 1.00, 1.00, 1.00,  1.00,    1.00];
-export const KIND_HX    = [1.0,  0.9,  1.2,  1.4,  1.8,   1.2,     1.4];
-export const KIND_HY    = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5];
-export const KIND_HZ    = [1.1,  1.0,  1.3,  1.6,  2.0,   1.3,     1.6];
-export const KIND_Y_OFF = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5];
+export const KIND_SCALE = [1.00, 1.00, 1.00, 1.00, 1.00,  1.00,    1.00, BOSS_SCALE];
+export const KIND_HX    = [1.0,  0.9,  1.2,  1.4,  1.8,   1.2,     1.4, 1.8];
+export const KIND_HY    = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5, 2.0];
+export const KIND_HZ    = [1.1,  1.0,  1.3,  1.6,  2.0,   1.3,     1.6, 2.0];
+export const KIND_Y_OFF = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5, 2.0];
 // The PHYSICS box (what the player's capsule bumps into) is the body's real size since plan 2.3:
 // shots are tested against the hit shapes now, so the box no longer has to be "generous", and
 // the old one (2 m tall and 2 m wide for an 0.8 m Skitter) shoved the player from a metre away.
 // Half extents; the box is centred KIND_BOX_Y above the feet.
-export const KIND_BOX_HX = [0.28, 0.32, 0.42, 0.58, 0.95, 0.36, 0.62];
-export const KIND_BOX_HY = [0.38, 0.82, 0.92, 1.15, 1.70, 0.92, 1.15];
-export const KIND_BOX_Y  = [0.40, 0.85, 0.95, 1.20, 1.75, 0.95, 1.20];
-export const KIND_SPEED = [3.0,  4.5,  3.5,  2.5,  2.2,   4.0,     2.4];
+export const KIND_BOX_HX = [0.28, 0.32, 0.42, 0.58, 0.95, 0.36, 0.62, 1.15];
+export const KIND_BOX_HY = [0.38, 0.82, 0.92, 1.15, 1.70, 0.92, 1.15, 2.10];
+export const KIND_BOX_Y  = [0.40, 0.85, 0.95, 1.20, 1.75, 0.95, 1.20, 2.15];
+export const KIND_SPEED = [3.0,  4.5,  3.5,  2.5,  2.2,   4.0,     2.4, 2.6];
 // Plan 2.3 rescaled HP and weapon damage by ten (rifle 1 -> 10 against Skitter 3 -> 30), so a
 // headshot, a limb hit and range falloff can all be fractions of a body shot.
-export const KIND_HP    = [30,   40,   60,   100,  200,   80,      140];
-export const KIND_DMG   = [12,   10,   16,   22,   35,    14,      20];
-export const KIND_CD    = [0.9,  0.7,  0.9,  1.1,  1.3,   0.9,     1.1];
-export const KIND_MELEE = [2.0,  2.0,  2.3,  2.6,  3.0,   2.3,     2.6];
+export const KIND_HP    = [30,   40,   60,   100,  200,   80,      140, 2400];
+export const KIND_DMG   = [12,   10,   16,   22,   35,    14,      20, 38];
+export const KIND_CD    = [0.9,  0.7,  0.9,  1.1,  1.3,   0.9,     1.1, 1.6];
+export const KIND_MELEE = [2.0,  2.0,  2.3,  2.6,  3.0,   2.3,     2.6, 3.0];
 // SH-052 — locomotion audio. Stride = metres of travel per audible step
 // (drives enStepPhase for EVERY kind now, not just the tyrant, whose 2.2 is
 // the pre-SH-052 value unchanged). Small things patter, big things pound.
-export const KIND_STRIDE = [0.7,  1.1,  1.3,  1.6,  2.2,   1.3,     1.6];
+export const KIND_STRIDE = [0.7,  1.1,  1.3,  1.6,  2.2,   1.3,     1.6, 2.2];
 export const DRETCH_HIT_FLASH = 0.18;
 // Ichor colour per kind — drives the blood decal tint (SH-033).
-export const KIND_BLOOD_R = [0.55, 0.50, 0.62, 0.70, 0.45, 0.62, 0.70];
-export const KIND_BLOOD_G = [0.95, 0.85, 0.55, 0.35, 0.90, 0.55, 0.35];
-export const KIND_BLOOD_B = [0.35, 0.95, 0.85, 0.75, 0.30, 0.85, 0.75];
+export const KIND_BLOOD_R = [0.55, 0.50, 0.62, 0.70, 0.45, 0.62, 0.70, 0.80];
+export const KIND_BLOOD_G = [0.95, 0.85, 0.55, 0.35, 0.90, 0.55, 0.35, 0.70];
+export const KIND_BLOOD_B = [0.35, 0.95, 0.85, 0.75, 0.30, 0.85, 0.75, 0.25];
 
 export const K_ADV_MARAUDER = 5;
 export const K_ADV_DRAGOON  = 6;
@@ -169,18 +178,18 @@ export const K_ADV_DRAGOON  = 6;
 // It also gives the arena a reason to have a shape.
 //   1 = adv marauder (fast, light, chip damage)
 //   0 = adv dragoon  (slow, tanky, hits hard — the barb spitter)
-export const KIND_RANGED = [0, 0, 0, 0, 0, 1, 1];
+export const KIND_RANGED = [0, 0, 0, 0, 0, 1, 1, 0];
 // Band each holds. Closer than MIN and it backs off; further than MAX and it
 // closes. Inside the band it strafes.
-export const RANGED_MIN = [0, 0, 0, 0, 0, 10.0, 13.0];
-export const RANGED_MAX = [0, 0, 0, 0, 0, 17.0, 22.0];
-export const RANGED_CD  = [0, 0, 0, 0, 0,  2.2,  3.0];   // seconds between volleys
-export const RANGED_SHOTS  = [0, 0, 0, 0, 0, 3, 1];      // rounds per volley
-export const RANGED_DMG    = [0, 0, 0, 0, 0, 6, 16];
-export const RANGED_SPEED  = [0, 0, 0, 0, 0, 30.0, 22.0];
-export const RANGED_SPREAD = [0, 0, 0, 0, 0, 0.05, 0.02];   // radians
+export const RANGED_MIN = [0, 0, 0, 0, 0, 10.0, 13.0, 0];
+export const RANGED_MAX = [0, 0, 0, 0, 0, 17.0, 22.0, 0];
+export const RANGED_CD  = [0, 0, 0, 0, 0,  2.2,  3.0, 0];   // seconds between volleys
+export const RANGED_SHOTS  = [0, 0, 0, 0, 0, 3, 1, 0];      // rounds per volley
+export const RANGED_DMG    = [0, 0, 0, 0, 0, 6, 16, 0];
+export const RANGED_SPEED  = [0, 0, 0, 0, 0, 30.0, 22.0, 0];
+export const RANGED_SPREAD = [0, 0, 0, 0, 0, 0.05, 0.02, 0];   // radians
 // Telegraph: a rooted wind-up before the volley, so it can be dodged and read.
-export const RANGED_WINDUP = [0, 0, 0, 0, 0, 0.35, 0.6];
+export const RANGED_WINDUP = [0, 0, 0, 0, 0, 0.35, 0.6, 0];
 
 
 // Enemy pool — each slot is permanently tied to one kind because Jolt body
@@ -192,9 +201,9 @@ export const RANGED_WINDUP = [0, 0, 0, 0, 0, 0.35, 0.6];
 // does not fail loudly: the draw that does not fit is posed with another model's matrices. Slots of one kind are
 // contiguous: kind k owns KIND_SLOT0[k] .. KIND_SLOT0[k] + KIND_POOL[k] - 1.
 //                      skitter stalker ravager bruiser colossus spitter bombard
-export const KIND_POOL  = [8,    5,     5,      3,      2,       4,      3];
-export const KIND_SLOT0 = [0,    8,     13,     18,     21,      23,     27];
-export const MAX_ENEMIES = 30;
+export const KIND_POOL  = [8,    5,     5,      3,      2,       4,      3, 1];
+export const KIND_SLOT0 = [0,    8,     13,     18,     21,      23,     27, 30];
+export const MAX_ENEMIES = 31;
 export const enX = new Array<number>(MAX_ENEMIES);
 export const enY = new Array<number>(MAX_ENEMIES);
 export const enZ = new Array<number>(MAX_ENEMIES);
@@ -228,7 +237,7 @@ export const STAGGER_WINDOW = 1.0;
 export const STAGGER_FRAC   = 0.15;   // % of max HP inside the window to stagger
 export const STAGGER_TIME   = 0.60;
 // Which kinds flinch on any hit (light) vs need the stagger meter (heavy).
-export const KIND_LIGHT = [1, 1, 1, 0, 0, 1, 1];
+export const KIND_LIGHT = [1, 1, 1, 0, 0, 1, 1, 0];
 export const enAIState  = new Array<number>(MAX_ENEMIES);
 export const enStateT   = new Array<number>(MAX_ENEMIES);   // seconds left in state
 export const enOrbitDir = new Array<number>(MAX_ENEMIES);   // ±1 — circle/flank side
@@ -281,7 +290,7 @@ export const enBlockT  = new Array<number>(MAX_ENEMIES);   // ranged: seconds wi
 export const enRouteT  = new Array<number>(MAX_ENEMIES);   // seconds until the next wall-in-the-way test
 export const enRouted  = new Array<number>(MAX_ENEMIES);   // 1 = a wall is between it and its target
 // How far each kind sees (m, standing target in the open) and the half-angle of its sight cone.
-export const KIND_SIGHT = [26, 34, 30, 28, 30, 38, 40];
+export const KIND_SIGHT = [26, 34, 30, 28, 30, 38, 40, 60];
 export const SIGHT_COS = 0.26;          // cos 75 deg: a 150 deg cone while unaware
 export const SIGHT_CROUCH_MUL = 0.5;    // a crouched Trooper is seen at half the distance
 export const SENSE_NEAR = 3.5;          // inside this it knows, whatever it faces
@@ -295,16 +304,16 @@ export const AI_STRIKE_WIND = 6;
 export const AI_STRIKE_HIT  = 7;
 export const AI_STRIKE_REC  = 8;
 //                              skitter stalker ravager bruiser colossus spitter bombard
-export const STRIKE_WINDUP   = [0.34,  0.40,   0.48,   0.62,   0.80,    0,      0];
-export const STRIKE_ACTIVE   = [0.14,  0.14,   0.16,   0.20,   0.24,    0,      0];
-export const STRIKE_RECOVER  = [0.45,  0.50,   0.60,   0.85,   1.20,    0,      0];
-export const STRIKE_START    = [1.5,   1.9,    2.1,    2.6,    3.3,     0,      0];   // begin a strike inside this
-export const STRIKE_REACH    = [0.9,   1.2,    1.3,    1.6,    2.2,     0,      0];   // disc centre, ahead of the body
-export const STRIKE_RADIUS   = [0.9,   1.0,    1.1,    1.4,    1.9,     0,      0];
-export const STRIKE_LUNGE    = [4.0,   5.0,    4.0,    3.0,    1.5,     0,      0];   // m/s forward while active
+export const STRIKE_WINDUP   = [0.34,  0.40,   0.48,   0.62,   0.80,    0,      0, 0.85];
+export const STRIKE_ACTIVE   = [0.14,  0.14,   0.16,   0.20,   0.24,    0,      0, 0.24];
+export const STRIKE_RECOVER  = [0.45,  0.50,   0.60,   0.85,   1.20,    0,      0, 1.20];
+export const STRIKE_START    = [1.5,   1.9,    2.1,    2.6,    3.3,     0,      0, 4.0];   // begin a strike inside this
+export const STRIKE_REACH    = [0.9,   1.2,    1.3,    1.6,    2.2,     0,      0, 2.8];   // disc centre, ahead of the body
+export const STRIKE_RADIUS   = [0.9,   1.0,    1.1,    1.4,    1.9,     0,      0, 2.3];
+export const STRIKE_LUNGE    = [4.0,   5.0,    4.0,    3.0,    1.5,     0,      0, 1.5];   // m/s forward while active
 // The attack clip, and when in it the blow lands (measured per rig): the upper-body layer is
 // played at ATTACK_HIT_T / STRIKE_WINDUP speed so the claw arrives as the active frames open.
-export const ATTACK_HIT_T    = [0.42,  0.46,   0.50,   0.80,   0.55,    0.15,   1.50];
+export const ATTACK_HIT_T    = [0.42,  0.46,   0.50,   0.80,   0.55,    0.15,   1.50, 0.55];
 export const enHitDone  = new Array<number>(MAX_ENEMIES);   // this strike already landed or whiffed
 export const enStrikeSeq = new Array<number>(MAX_ENEMIES);  // bumped per strike; the draw restarts the layer on a change
 export const enHasToken = new Array<number>(MAX_ENEMIES);   // holds an attack token (plan 2.5)
@@ -313,25 +322,25 @@ export const enHasToken = new Array<number>(MAX_ENEMIES);   // holds an attack t
 // Sizes measured from each mesh in its idle pose (85th percentile of the vertices skinned to the
 // part), then floored: the Skitter's real torso is 6 cm thick and nobody could hit that.
 //                             skitter stalker ravager bruiser colossus spitter bombard
-export const KIND_HEAD_OFF_X = [0.03,  0.05,   0.07,   0.11,   0.18,    0.07,   0.15];
-export const KIND_HEAD_OFF_Y = [0.03,  0.04,   0.07,   0.00,  -0.09,    0.07,  -0.05];
-export const KIND_HEAD_R     = [0.14,  0.18,   0.20,   0.25,   0.31,    0.21,   0.21];
-export const KIND_TORSO_R    = [0.16,  0.17,   0.28,   0.44,   0.74,    0.20,   0.47];
-export const KIND_ARM_R      = [0.07,  0.10,   0.13,   0.18,   0.36,    0.09,   0.26];
-export const KIND_LEG_R      = [0.08,  0.10,   0.14,   0.19,   0.42,    0.10,   0.18];
-export const KIND_HEIGHT     = [0.80,  1.70,   1.89,   2.40,   3.51,    1.90,   2.37];
+export const KIND_HEAD_OFF_X = [0.03,  0.05,   0.07,   0.11,   0.18,    0.07,   0.15, 0.18];
+export const KIND_HEAD_OFF_Y = [0.03,  0.04,   0.07,   0.00,  -0.09,    0.07,  -0.05, -0.09];
+export const KIND_HEAD_R     = [0.14,  0.18,   0.20,   0.25,   0.31,    0.21,   0.21, 0.31];
+export const KIND_TORSO_R    = [0.16,  0.17,   0.28,   0.44,   0.74,    0.20,   0.47, 0.74];
+export const KIND_ARM_R      = [0.07,  0.10,   0.13,   0.18,   0.36,    0.09,   0.26, 0.36];
+export const KIND_LEG_R      = [0.08,  0.10,   0.14,   0.19,   0.42,    0.10,   0.18, 0.42];
+export const KIND_HEIGHT     = [0.80,  1.70,   1.89,   2.40,   3.51,    1.90,   2.37, 4.50];
 // A weak point per heavy (the plan's phrase): a sphere riding a joint, offset in the model's axes
 // (X forward, Y up, Z right; a non-zero Z is mirrored to both sides). FRONT = it only counts for
 // a shot coming in from the front, where the pale belly is; the Bombard's launcher tubes sit on
 // top of its back and can be hit from anywhere.
-export const KIND_WEAK_JOINT_NAME = ['', '', '', 'mixamorig:Spine', 'mixamorig:Spine', '', 'mixamorig:Neck'];
-export const KIND_WEAK_X     = [0, 0, 0, 0.25, 0.36, 0, 0.00];
-export const KIND_WEAK_Y     = [0, 0, 0, 0.00, 0.04, 0, 0.28];
-export const KIND_WEAK_Z     = [0, 0, 0, 0.00, 0.00, 0, 0.32];
-export const KIND_WEAK_R     = [0, 0, 0, 0.27, 0.42, 0, 0.24];
-export const KIND_WEAK_FRONT = [0, 0, 0, 1,    1,    0, 0];
+export const KIND_WEAK_JOINT_NAME = ['', '', '', 'mixamorig:Spine', 'mixamorig:Spine', '', 'mixamorig:Neck', 'mixamorig:Spine'];
+export const KIND_WEAK_X     = [0, 0, 0, 0.25, 0.36, 0, 0.00, 0.36];
+export const KIND_WEAK_Y     = [0, 0, 0, 0.00, 0.04, 0, 0.28, 0.04];
+export const KIND_WEAK_Z     = [0, 0, 0, 0.00, 0.00, 0, 0.32, 0.00];
+export const KIND_WEAK_R     = [0, 0, 0, 0.27, 0.42, 0, 0.24, 0.42];
+export const KIND_WEAK_FRONT = [0, 0, 0, 1,    1,    0, 0, 1];
 // Shelled backs: a body shot that comes in from behind a Bruiser or a Colossus glances.
-export const KIND_SHELL      = [0, 0, 0, 1,    1,    0, 0];
+export const KIND_SHELL      = [0, 0, 0, 1,    1,    0, 0, 0];
 export const LOC_LIMB = 0;
 export const LOC_BODY = 1;
 export const LOC_HEAD = 2;

@@ -9,7 +9,8 @@ The full picture is in `README.md`. This is a Perry-compiled TypeScript
 FPS) built on the Bloom engine. Seven alien kinds (two RANGED; an original
 cast since 2026-11: Skitter, Stalker, Ravager, Bruiser, Colossus, Spitter,
 Bombard, against the Trooper), three
-waves, four weapons, THREE playable arenas of ten waves each (elites, a hold or a nest objective
+waves, six weapons, FIVE playable arenas of ten waves each (`arena_05` Quarry at an overcast noon,
+`arena_06` Brood Hollow at night, where wave 10 is the boss, the Matriarch) (elites, a hold or a nest objective
 wave, credits and weapon upgrades between runs: Phase 6), (`arena_02` Outdoor Plaza in late afternoon,
 `arena_03` Riverbend Ravine on a misty morning, `arena_04` Checkpoint at dusk),
 textured arena, skeletal-animated enemies, ambient music, and a live 3D
@@ -255,13 +256,15 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
    holds every string in four languages and writes `src/strings.ts`: edit the table, not the
    generated file. `tools/gen/ui_sfx.py` synthesises the interface sounds. Arena pictures for the
    menu are `assets/ui/<arena_id>.png`, 640 x 360.
-10. **Encounters** (Phase 6, SH-060): `python3 tools/gen/gen_waves.py <arena_id>` writes the ten-wave
+10. **Open arenas** (slice D, SH-061): `tools/gen/gen_arena_open.py arena_05|arena_06` seeds the Quarry and
+   Brood Hollow (its docstring lists the four commands that follow it). Re-running overwrites.
+11. **Encounters** (Phase 6, SH-060): `python3 tools/gen/gen_waves.py <arena_id>` writes the ten-wave
    plan into the world's `wave_config` (its docstring is the format: `!` marks an elite, `groups`
    is `size:pattern:gap`, `type` is kill / hold / nests), adds four spawn points (`spawner_x*`)
    and the objective sites (`obj_hold` at the arena's generator, three `obj_nest_*`). Re-running
    replaces all of those. The nest model is procedural: `blender -b -P tools/blender/build_nest.py
    -- assets/models/prop_nest.glb`.
-11. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
+12. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
    bundles ship those under the plain names.
 Check anything visually with `tools/blender/model_sheet.py` (four views with axes) and
 `tools/blender/clip_sheet.py` (frames of one clip), and in-game with the COMBATSHOT harness, which
@@ -281,7 +284,7 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   translation, and if that were the hips a death would lie down in mid-air and a crouch would not
   lower the body. The engine has 1024 joint matrices per frame for ALL skinned draws
   and fails silently past it (the draw that does not fit is posed with another model's matrices):
-  67 + 30 pool slots x 23 = 757. The pool is per kind (`KIND_POOL` / `KIND_SLOT0` in
+  67 + 31 pool slots x 23 = 780 (the 31st is the boss). The pool is per kind (`KIND_POOL` / `KIND_SLOT0` in
   `src/enemies.ts`: 8 Skitters down to 2 Colossi); 41 creature slots is the ceiling.
 - The Trooper's rig sits on top of its clips (engine EN-064, the player block of `src/main.ts`):
   the spine leans with the camera pitch, the off hand is pulled onto the weapon's handguard by IK
@@ -346,6 +349,14 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   have. Judge changes with P2BOT (it is PUT at each objective; it does not walk),
   UISHOT (captures 21-26: tutorial, elite, objective waves; run it per arena with `level.txt`)
   and MENUTEST.
+- Slice D (SH-061). There are EIGHT kinds: kind 7 (`K_BOSS`) is the Matriarch, one body, and
+  every per-kind table anywhere must have eight entries (a seven-entry one crashes with a
+  TypeError the moment she is alive). Until `assets/models/enemy_matriarch.glb`,
+  `weapon_scattergun.glb` and `weapon_lance.glb` exist the game draws a larger Colossus, the
+  blaster and the rifle in their place (`HAS_BOSS_MODEL`, `HAS_SCATTER_MDL`, `HAS_LANCE_MDL`);
+  when a model arrives its tables want measuring, not just the file dropped in. A weapon with
+  pellets or a piercing hitscan round goes through `combat.fireMulti`. Bot aids:
+  `--wave N` starts the stand-in at a wave, `--weapon N` gives it a weapon.
 - No vertex colours (the engine multiplies `COLOR_0` into albedo).
 - Weapons: barrel along +Z, rear at z = 0, metres. Props: origin at the base centre, drawn unrotated.
 

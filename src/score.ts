@@ -15,7 +15,7 @@ import { setBestScore, bestScore, get, SET_DIFFICULTY } from './settings';
 // multiplier. The two SH-042 upgrade kinds are RANGED and tougher than their
 // base classes — they pay ~1.5x. (This table sat at 5 entries for a while,
 // so both adv kinds fell to the 10-point fallback: less than a mantis.)
-const KIND_POINTS = [10, 15, 25, 60, 200, 40, 90];
+const KIND_POINTS = [10, 15, 25, 60, 200, 40, 90, 1500];   // the last is the boss
 
 const COMBO_WINDOW = 4.0;   // seconds without a kill before the combo drops
 const COMBO_STEP   = 0.25;  // each kill adds this to the multiplier
@@ -28,7 +28,7 @@ const COMBO_MAX    = 5.0;
 //   13 its pop-up timer  14 kind of the last kill
 const S = [0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];
 // Kills per kind, for the results screen.
-const KK = [0, 0, 0, 0, 0, 0, 0];
+const KK = [0, 0, 0, 0, 0, 0, 0, 0];
 
 // Plan 4.3 - difficulty. One place for the three multipliers, so the settings row, the
 // director and the score agree: easy is forgiving and pays less, hard the reverse.
@@ -50,7 +50,7 @@ export function damageTaken(): number { return Math.round(S[10]); }
 export function killFlash(): number { return S[11]; }
 export function lastGain(): number { return S[12]; }
 export function lastGainT(): number { return S[13]; }
-export function killsOfKind(k: number): number { return k >= 0 && k < 7 ? KK[k] : 0; }
+export function killsOfKind(k: number): number { return k >= 0 && k < 8 ? KK[k] : 0; }
 export function noteCrit(): void { S[9] = S[9] + 1; }
 export function noteDamage(d: number): void { S[10] = S[10] + d; }
 
@@ -58,7 +58,7 @@ export function resetScore(): void {
   S[0] = 0; S[1] = 1; S[2] = 0; S[3] = 0; S[4] = 0; S[5] = 0;
   S[6] = 0; S[7] = 1; S[8] = 0;
   S[9] = 0; S[10] = 0; S[11] = 0; S[12] = 0; S[13] = 0; S[14] = 0;
-  for (let i = 0; i < 7; i++) KK[i] = 0;
+  for (let i = 0; i < 8; i++) KK[i] = 0;
 }
 
 export function score(): number { return Math.floor(S[0]); }
@@ -82,9 +82,9 @@ export function noteKill(kind: number): number { return noteKillMul(kind, 1); }
 
 /// The same with a multiplier on the points (an elite pays ELITE_SCORE times its kind).
 export function noteKillMul(kind: number, mul: number): number {
-  const base = kind >= 0 && kind < 7 ? KIND_POINTS[kind] : 10;
+  const base = kind >= 0 && kind < 8 ? KIND_POINTS[kind] : 10;
   const gained = base * mul * S[1] * DIFF_SCORE[diff()];
-  if (kind >= 0 && kind < 7) KK[kind] = KK[kind] + 1;
+  if (kind >= 0 && kind < 8) KK[kind] = KK[kind] + 1;
   S[11] = 0.5; S[12] = Math.floor(gained); S[13] = 1.1; S[14] = kind;
   S[0] = S[0] + gained;
   S[3] = S[3] + 1;

@@ -61,6 +61,27 @@ EXTRA = {
         ("prop_shelf", 4.4, -15.4, 0, 1.0, 0.2), ("prop_locker", 13.35, -12.2, 90, 1.0, 0.2),
         ("prop_worklight", 11.2, -14.8, 320, 1.0, 0.2),
     ],
+    # Quarry (gen_arena_open.py): the pit floor is x -20.5..12.5, z -17.5..13.5, about 0.25 m up
+    "arena_05": [
+        ("prop_generator", -1.0, -11.0, 0, 1.0), ("prop_worklight", 1.2, -12.6, 150, 1.0),
+        ("prop_wreck", -12.0, 3.0, 62, 1.0), ("prop_barrier", 4.5, 7.0, 10, 1.0),
+        ("prop_barrier", -15.0, -10.0, 80, 1.0), ("prop_sandbags", -9.0, -13.5, 0, 1.0),
+        ("prop_sandbags", 8.0, -2.0, 90, 1.0), ("prop_worklight", -17.5, 9.5, 300, 1.0),
+        # on the rim by the spawn and at the head of each ramp
+        ("prop_barrier", -8.0, 27.5, 0, 1.0), ("prop_sandbags", 2.5, 24.0, 0, 1.0),
+        ("prop_worklight", -33.0, 2.0, 80, 1.0), ("prop_worklight", 0.5, 28.5, 10, 1.0),
+        ("log_fallen", 14.0, 26.0, 30, 1.0),
+    ],
+    # Brood Hollow: the clearing is a 20 m circle centred on (0, -2); cover hugs its edge
+    "arena_06": [
+        ("prop_generator", 13.5, 9.0, 40, 1.0), ("prop_worklight", 15.5, 6.8, 300, 1.0),
+        ("prop_wreck", -13.5, 9.5, -38, 1.0), ("prop_sandbags", 0.0, 15.5, 0, 1.0),
+        ("prop_sandbags", 16.5, -8.0, 90, 1.0), ("prop_sandbags", -17.0, -6.5, 90, 1.0),
+        ("prop_barrier", 7.0, -19.0, 12, 1.0), ("prop_barrier", -8.0, -19.5, -10, 1.0),
+        ("prop_worklight", -16.0, 5.0, 60, 1.0), ("prop_worklight", 2.0, -21.0, 180, 1.0),
+        ("prop_worklight", -4.5, 17.5, 20, 1.0), ("prop_worklight", 18.5, -1.0, 270, 1.0),
+        ("log_fallen", -6.0, -8.0, 50, 1.0), ("log_fallen", 8.0, 2.0, -24, 1.1),
+    ],
 }
 # World lights with no lamp to come from: removed, now that the ground and the house are lit by
 # point lights too (a warm pool on the grass at noon with nothing above it reads as a bug).
@@ -396,6 +417,26 @@ if "--no-paint" not in sys.argv:
         if kind(e) == "enemy_spawner":
             p = e["transform"]["position"]
             trail((p[0], p[2]), (spawn[0] * 0.3, spawn[2] * 0.3), 0.55, 0.6)
+
+    # The Quarry is cut stone: rock on the benches and their faces, packed dirt and scree on the
+    # floor and the ramps (gen_arena_open.py's PIT and BENCH_W). The grass thins on rock and mud
+    # (environment.ts), which is what makes the pit read as a pit and not a dip in a meadow.
+    if arena == "arena_05":
+        for j in range(N):
+            for i in range(N):
+                x, z = OX + i * CS, OZ + j * CS
+                d = min(25.0 - abs(x + 4.0), 23.0 - abs(z + 2.0))
+                if d <= -1.5:
+                    continue
+                c = j * N + i
+                edge = smooth(-1.5, 1.0, d)
+                grain = 0.82 + 0.18 * noise2(x * 0.9, z * 0.9)
+                if d > 3 * 5.5 + 1.0:
+                    L[2][c] = max(L[2][c], 0.62 * grain)
+                    L[3][c] = max(L[3][c], 0.38)
+                else:
+                    L[3][c] = max(L[3][c], 0.97 * edge * grain)
+                    L[2][c] = max(L[2][c], 0.25 * edge * (1 - grain) * 3)
 
     # Mud wins over forest floor, rock over both; then cap the sum at 1.
     for c in range(N * N):

@@ -113,7 +113,7 @@ let sfxRiver: Sound = NO_SOUND;
 const CRAWL_VOICES = 4;
 const CRAWL_RANGE  = 28.0;   // m — candidates beyond this stay silent anyway
 // Per-kind crawl pitch: small = fast ticking, big = slow chitin. Index = kind.
-const CRAWL_PITCH  = [1.25, 1.1, 0.95, 0.8, 1.0, 0.95, 0.8];
+const CRAWL_PITCH  = [1.25, 1.1, 0.95, 0.8, 1.0, 0.95, 0.8, 0.7];   // the last is the boss
 const crawlVoice = new Array<number>(CRAWL_VOICES);
 const crawlEnemy = new Array<number>(CRAWL_VOICES);
 // Scratch (per frame, preallocated): candidate flag / dist² / speed / top-set.
@@ -251,7 +251,9 @@ export function tyrantStep(x: number, y: number, z: number): void {
 /// The tail is what makes a gun sound big. It rides the reverb send, so the
 /// same shot is dry in the open field and cracks off the walls indoors.
 export function weaponTailFor(weapon: number, x: number, y: number, z: number): void {
-  if (weapon >= 0 && weapon < 4) play3d(weaponTail[weapon], x, y, z);
+  // The two slice D weapons borrow a tail each (cannon, rifle) until they have their own.
+  const wt = weapon === 4 ? 3 : (weapon === 5 ? 0 : weapon);
+  if (wt >= 0 && wt < 4) play3d(weaponTail[wt], x, y, z);
 }
 
 export function reloadStart(): void { play(sfxReloadStart); }

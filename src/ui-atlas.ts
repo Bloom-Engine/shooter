@@ -42,49 +42,53 @@ export const A_WPN_RIFLE = 37;
 export const A_WPN_BLASTER = 38;
 export const A_WPN_CHAIN = 39;
 export const A_WPN_CANNON = 40;
-export const A_COUNT = 41;
+export const A_WPN_SCATTER = 41;
+export const A_WPN_LANCE = 42;
+export const A_COUNT = 43;
 
 export const ATLAS_SIZE = 1024;
 export const ATLAS_RECT: number[] = [
-  262, 558, 64, 64,   // DISC
-  390, 410, 128, 128,   // RING
-  522, 410, 128, 128,   // RING_THIN
-  654, 410, 128, 128,   // SOFT
+  262, 706, 64, 64,   // DISC
+  390, 558, 128, 128,   // RING
+  522, 558, 128, 128,   // RING_THIN
+  654, 558, 128, 128,   // SOFT
   2, 2, 256, 256,   // VIG
-  2, 558, 256, 96,   // ARC
-  330, 558, 64, 64,   // CHEV
-  886, 658, 48, 48,   // PANEL
-  938, 658, 48, 48,   // PANEL_LINE
-  2, 726, 48, 48,   // KEY
-  54, 726, 48, 48,   // KEY_LINE
-  122, 726, 128, 8,   // FADE_H
-  254, 726, 128, 8,   // FADE_R
-  106, 726, 12, 28,   // PIP
-  398, 558, 64, 64,   // GRENADE
-  466, 558, 64, 64,   // CROSS
-  534, 558, 64, 64,   // SKULL
-  602, 558, 64, 64,   // ROLL
-  670, 558, 64, 64,   // HEAD
-  738, 558, 64, 64,   // CLOCK
-  806, 558, 64, 64,   // TARGET
-  874, 558, 64, 64,   // BOLT
-  942, 558, 64, 64,   // EYE
-  2, 658, 64, 64,   // BUTT
-  70, 658, 64, 64,   // ARROW_R
-  138, 658, 64, 64,   // ARROW_L
-  206, 658, 64, 64,   // CHECK
-  274, 658, 64, 64,   // STAR
-  342, 658, 64, 64,   // LOCK
-  410, 658, 64, 64,   // DPAD
-  478, 658, 64, 64,   // STICK
-  546, 658, 64, 64,   // TRIGGER
-  614, 658, 64, 64,   // BUMPER
-  682, 658, 64, 64,   // MOUSE_L
-  750, 658, 64, 64,   // MOUSE_R
-  818, 658, 64, 64,   // MOUSE_M
+  2, 706, 256, 96,   // ARC
+  330, 706, 64, 64,   // CHEV
+  886, 806, 48, 48,   // PANEL
+  938, 806, 48, 48,   // PANEL_LINE
+  2, 874, 48, 48,   // KEY
+  54, 874, 48, 48,   // KEY_LINE
+  122, 874, 128, 8,   // FADE_H
+  254, 874, 128, 8,   // FADE_R
+  106, 874, 12, 28,   // PIP
+  398, 706, 64, 64,   // GRENADE
+  466, 706, 64, 64,   // CROSS
+  534, 706, 64, 64,   // SKULL
+  602, 706, 64, 64,   // ROLL
+  670, 706, 64, 64,   // HEAD
+  738, 706, 64, 64,   // CLOCK
+  806, 706, 64, 64,   // TARGET
+  874, 706, 64, 64,   // BOLT
+  942, 706, 64, 64,   // EYE
+  2, 806, 64, 64,   // BUTT
+  70, 806, 64, 64,   // ARROW_R
+  138, 806, 64, 64,   // ARROW_L
+  206, 806, 64, 64,   // CHECK
+  274, 806, 64, 64,   // STAR
+  342, 806, 64, 64,   // LOCK
+  410, 806, 64, 64,   // DPAD
+  478, 806, 64, 64,   // STICK
+  546, 806, 64, 64,   // TRIGGER
+  614, 806, 64, 64,   // BUMPER
+  682, 806, 64, 64,   // MOUSE_L
+  750, 806, 64, 64,   // MOUSE_R
+  818, 806, 64, 64,   // MOUSE_M
   262, 2, 256, 256,   // EMBLEM
   522, 2, 384, 144,   // WPN_RIFLE
   2, 262, 384, 144,   // WPN_BLASTER
   390, 262, 384, 144,   // WPN_CHAIN
   2, 410, 384, 144,   // WPN_CANNON
+  390, 410, 384, 144,   // WPN_SCATTER
+  2, 558, 384, 144,   // WPN_LANCE
 ];

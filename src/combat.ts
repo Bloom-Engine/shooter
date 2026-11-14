@@ -73,7 +73,7 @@ const MAG = [0, 0, 0, 0];
 const REC = [0, 0];
 const NH = [0];              // distance to the nest a ray hit (objective.rayNests)
 // How far each weapon's report carries (plan 2.1), metres.
-const W_NOISE = [45, 30, 50, 35];
+const W_NOISE = [45, 30, 50, 35, 50, 55];
 
 // SH-028/SH-042 — weapon state now lives in src/weapons.ts as a stat TABLE, so
 // the chaingun and the cannon are rows rather than branches. What stays here is
@@ -516,6 +516,70 @@ export function updateWeaponTransform(): void {
 //
 // fireDown/firePressed come from main's input read; forceFire is the
 // COMBATSHOT harness's trigger.
+/// Hitscan with more than one round (the scattergun's pellets) or a round that passes through
+/// bodies (the lance). Each pellet leaves inside the weapon's cone round the aim; each round
+/// is tested against the world, the nests and the creatures, and a piercing one starts again
+/// from where it struck, skipping the creature it has just been through.
+function fireMulti(wpn: number, ox: number, oy: number, oz: number,
+                   ax: number, ay: number, az: number, rgX: number, rgZ: number,
+                   upX: number, upY: number, upZ: number): void {
+  const pellets = WPN.W_PELLETS[wpn];
+  const cone = Math.tan(WPN.pelletCone(wpn) * Math.PI / 180);
+  let anyHit = false;
+  let wallMarks = 0;
+  for (let p = 0; p < pellets; p++) {
+    let dx = ax, dy = ay, dz = az;
+    if (pellets > 1) {
+      // a disc of offsets: the first pellet flies true, the rest fill the cone
+      const rr = p === 0 ? 0 : Math.sqrt(Math.random()) * cone;
+      const ra = Math.random() * Math.PI * 2;
+      const sxo = Math.cos(ra) * rr, syo = Math.sin(ra) * rr;
+      dx = ax + rgX * sxo + upX * syo;
+      dy = ay + upY * syo;
+      dz = az + rgZ * sxo + upZ * syo;
+      const dl = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      dx = dx / dl; dy = dy / dl; dz = dz / dl;
+    }
+    if (p < 3) VFX.emitTracer(ox, oy, oz, dx, dy, dz);
+    const hit = raycast(DEPS.o.physics, vec3(ox, oy, oz), vec3(dx, dy, dz), FIRE_RANGE, STATIC_MASK);
+    const wallT = hit ? hit.fraction * FIRE_RANGE : FIRE_RANGE;
+    let left = WPN.pierceOf(wpn);
+    let from = 0;                       // distance already travelled along this round
+    let skip = -1;
+    let stopped = false;
+    while (!stopped) {
+      setRaySkip(skip);
+      const ei = rayEnemies(ox + dx * from, oy + dy * from, oz + dz * from, dx, dy, dz, wallT - from, 0, HIT);
+      setRaySkip(-1);
+      const eT = ei >= 0 ? from + HIT[0] : wallT;
+      const ni = from === 0 ? OBJECTIVE.rayNests(ox, oy, oz, dx, dy, dz, eT, NH) : -1;
+      if (ni >= 0) {
+        anyHit = true;
+        OBJECTIVE.damageNest(ni, WPN.damageOf(wpn) * WPN.falloffAt(wpn, NH[0]),
+                             ox + dx * NH[0], oy + dy * NH[0], oz + dz * NH[0]);
+        stopped = true;
+      } else if (ei >= 0) {
+        anyHit = true;
+        const loc = HIT[1];
+        let dmg = WPN.damageOf(wpn) * WPN.falloffAt(wpn, eT) * LOC_MUL[loc];
+        if (loc === LOC_HEAD) dmg = dmg * WPN.W_HEAD_MUL[wpn];
+        if (loc === LOC_HEAD || loc === LOC_WEAK) dmg = dmg * WPN.critMul(wpn);
+        damageEnemy(ei, dmg, HIT[2], HIT[3], HIT[4], dx, dy, dz, loc);
+        if (left > 0) { left = left - 1; skip = ei; from = eT + 0.05; }
+        else stopped = true;
+      } else {
+        if (hit && wallMarks < 4) {
+          wallMarks = wallMarks + 1;
+          const n = hit.normal;
+          VFX.emitImpactHard(hit.point.x, hit.point.y, hit.point.z, n.x, n.y, n.z, Math.random() * 6.28);
+        }
+        stopped = true;
+      }
+    }
+  }
+  if (anyHit) SCORE.noteHit();
+}
+
 export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean,
                              fireDown: boolean, firePressed: boolean,
                              forceFire: boolean): void {
@@ -665,6 +729,10 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
       }
       // Two tests, nearest wins: the static world by physics ray, the creatures by their
       // shapes (hitshapes.ts). The creatures' physics boxes are no longer what a bullet hits.
+      // Slice D: a scattergun is ten of these in a cone, a lance one that carries on through.
+      if (WPN.W_PELLETS[wpn] > 1 || WPN.pierceOf(wpn) > 0) {
+        fireMulti(wpn, originX, originY, originZ, aim.x, aim.y, aim.z, rgX, rgZ, upX, upY, upZ);
+      } else {
       const hit = raycast(DEPS.o.physics, vec3(originX, originY, originZ), aim,
                           FIRE_RANGE, STATIC_MASK);
       const wallT = hit ? hit.fraction * FIRE_RANGE : FIRE_RANGE;
@@ -693,6 +761,7 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
                            n.x, n.y, n.z, Math.random() * 6.28);
         playSound3D(DEPS.o.sfxRicochet[SCORE.shotsFired() & 1],
                     hit.point.x, hit.point.y, hit.point.z);
+      }
       }
     } else {
       const speed = WPN.projSpeedOf(wpn);

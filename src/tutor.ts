@@ -96,7 +96,7 @@ export function updateTutor(dt: number, playing: boolean): void {
     // Hints the tutor can see for itself (the director raises the rest).
     if (GS.playerHP > 0 && GS.playerHP < 40) hint(HINT_HEAL);
     if (WPN.currentReserve() === 0 && WPN.currentAmmo() < WPN.magSize(WPN.currentWeapon()) * 0.5) hint(HINT_CRATE);
-    if (GS.runElapsed > 4 && GS.runElapsed < 6 && (WPN.isUnlocked(WPN.W_CHAIN) || WPN.isUnlocked(WPN.W_CANNON))) hint(HINT_SWAP);
+    if (GS.runElapsed > 4 && GS.runElapsed < 6 && (WPN.isUnlocked(WPN.W_CHAIN) || WPN.isUnlocked(WPN.W_CANNON) || WPN.isUnlocked(WPN.W_SCATTER) || WPN.isUnlocked(WPN.W_LANCE))) hint(HINT_SWAP);
     return;
   }
 

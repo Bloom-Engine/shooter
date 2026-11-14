@@ -24,42 +24,47 @@
 
 import * as PROFILE from './profile';
 
-const MAX_WEAPONS = 4;
+const MAX_WEAPONS = 6;
 
 export const W_RIFLE   = 0;
 export const W_BLASTER = 1;
 export const W_CHAIN   = 2;   // unlocked by clearing the first arena in arenas.json
-export const W_CANNON  = 3;   // unlocked by clearing any later arena (director.ts)
+export const W_CANNON  = 3;   // unlocked by clearing the second arena (director.ts)
+export const W_SCATTER = 4;   // slice D: ten pellets in a cone, brutal up close, nothing at range
+export const W_LANCE   = 5;   // slice D: one slow round that goes through four bodies, no falloff
 
 export const WEAPON_COUNT = MAX_WEAPONS;
-export const WEAPON_NAMES = ['RIFLE', 'BLASTER', 'CHAINGUN', 'CANNON'];
+export const WEAPON_NAMES = ['RIFLE', 'BLASTER', 'CHAINGUN', 'CANNON', 'SCATTERGUN', 'LANCE'];
+// Rounds a hitscan shot is made of, and the cone they leave in (degrees, half angle).
+export const W_PELLETS      = [1, 1, 1, 1, 10, 1];
+export const W_PELLET_CONE  = [0, 0, 0, 0, 5.5, 0];
 
 // --- stat table (flat arrays, Perry convention) ------------------------------
 // Projectile weapons have PROJ_SPEED > 0; the rest are hitscan.
-export const W_MAG        = [30,   20,   120,  4];
-export const W_FIRE_CD    = [0.10, 0.35, 0.05, 0.9];   // seconds between shots
-export const W_DAMAGE     = [10,   22,   8,    90];    // x10 since plan 2.3 (see enemies.ts KIND_HP)
-export const W_RELOAD     = [1.6,  2.0,  3.2,  2.4];   // seconds
-export const W_SPREAD0    = [0.8,  0.0,  5.5,  0.0];   // degrees, base cone
-export const W_SPREAD_ADD = [0.25, 0.0, -0.22, 0.0];   // degrees added per shot (the chaingun TIGHTENS)
-export const W_SPREAD_MAX = [3.0,  0.0,  5.5,  0.0];
-export const W_SPREAD_MIN = [0.8,  0.0,  1.6,  0.0];   // floor for a weapon whose cone shrinks
-export const W_SPREAD_REC = [4.0,  0.0,  6.0,  0.0];   // degrees recovered / sec
-export const W_KICK       = [0.35, 1.2,  0.22, 3.0];   // degrees of pitch per shot
-export const W_KICK_YAW   = [0.12, 0.25, 0.18, 0.4];   // random horizontal wobble
-export const W_PROJ_SPEED = [0,    40,   0,    28];    // 0 = hitscan
-export const W_AUTO       = [1,    0,    1,    0];     // 1 = hold to fire
-export const W_SPINUP     = [0,    0,    0.5,  0];     // chaingun spool time
-export const W_CHARGE     = [0,    0,    0,    1.5];   // cannon max charge time
-export const W_AOE        = [0,    0,    0,    4.0];   // explosion radius, metres
-export const W_PICKUP_AMT = [15,   8,    40,   2];     // ammo per crate
+export const W_MAG        = [30,   20,   120,  4, 6,    5];
+export const W_FIRE_CD    = [0.10, 0.35, 0.05, 0.9, 0.75, 1.25];   // seconds between shots
+export const W_DAMAGE     = [10,   22,   8,    90, 11,   150];    // x10 since plan 2.3 (see enemies.ts KIND_HP)
+export const W_RELOAD     = [1.6,  2.0,  3.2,  2.4, 2.3,  2.6];   // seconds
+export const W_SPREAD0    = [0.8,  0.0,  5.5,  0.0, 0.0,  0.0];   // degrees, base cone
+export const W_SPREAD_ADD = [0.25, 0.0, -0.22, 0.0, 0.0, 0.0];   // degrees added per shot (the chaingun TIGHTENS)
+export const W_SPREAD_MAX = [3.0,  0.0,  5.5,  0.0, 0.0,  0.0];
+export const W_SPREAD_MIN = [0.8,  0.0,  1.6,  0.0, 0.0,  0.0];   // floor for a weapon whose cone shrinks
+export const W_SPREAD_REC = [4.0,  0.0,  6.0,  0.0, 0.0,  0.0];   // degrees recovered / sec
+export const W_KICK       = [0.35, 1.2,  0.22, 3.0, 2.4,  3.2];   // degrees of pitch per shot
+export const W_KICK_YAW   = [0.12, 0.25, 0.18, 0.4, 0.5,  0.2];   // random horizontal wobble
+export const W_PROJ_SPEED = [0,    40,   0,    28, 0,    0];    // 0 = hitscan
+export const W_AUTO       = [1,    0,    1,    0, 0,    0];     // 1 = hold to fire
+export const W_SPINUP     = [0,    0,    0.5,  0, 0,    0];     // chaingun spool time
+export const W_CHARGE     = [0,    0,    0,    1.5, 0,    0];   // cannon max charge time
+export const W_AOE        = [0,    0,    0,    4.0, 0,    0];   // explosion radius, metres
+export const W_PICKUP_AMT = [15,   8,    40,   2, 4,    3];     // ammo per crate
 // Damage falloff (hitscan only): full to START metres, down to MIN x at END and beyond.
-export const W_FALL_START = [30,   0,    14,   0];
-export const W_FALL_END   = [55,   0,    38,   0];
-export const W_FALL_MIN   = [0.6,  1,    0.4,  1];
-export const W_HEAD_MUL   = [1.25, 1.0,  0.75, 1.0];   // on top of the x2 for a head
-export const W_PIERCE     = [0,    1,    0,    0];     // extra bodies a bolt passes through
-export const W_CARRY_MUL  = [1,    1,    0.6,  1];     // walk speed while this weapon is spun up
+export const W_FALL_START = [30,   0,    14,   0, 5,    0];
+export const W_FALL_END   = [55,   0,    38,   0, 20,   0];
+export const W_FALL_MIN   = [0.6,  1,    0.4,  1, 0.12, 1];
+export const W_HEAD_MUL   = [1.25, 1.0,  0.75, 1.0, 1.0,  1.6];   // on top of the x2 for a head
+export const W_PIERCE     = [0,    1,    0,    0, 0,    3];     // extra bodies a bolt passes through
+export const W_CARRY_MUL  = [1,    1,    0.6,  1, 1,    1];     // walk speed while this weapon is spun up
 // Recoil patterns: degrees of (pitch up, yaw right) for shot n of a burst, PAT_LEN entries per
 // weapon; a burst longer than the pattern repeats its last PAT_LOOP entries. The pattern is what
 // a player can learn: the rifle climbs, leans right, then swings back left.
@@ -70,12 +75,16 @@ const PAT_PITCH = [
   1.30, 1.10, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00,     // blaster
   0.26, 0.24, 0.22, 0.20, 0.18, 0.16, 0.15, 0.14, 0.14, 0.14,     // chaingun
   3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00, 3.00,     // cannon
+  2.40, 2.40, 2.40, 2.40, 2.40, 2.40, 2.40, 2.40, 2.40, 2.40,     // scattergun
+  3.20, 3.20, 3.20, 3.20, 3.20, 3.20, 3.20, 3.20, 3.20, 3.20,     // lance
 ];
 const PAT_YAW = [
   0.00, 0.04, 0.10, 0.16, 0.18, 0.10, -0.06, -0.16, -0.18, -0.08, // rifle
   0.10, -0.12, 0.10, -0.10, 0.10, -0.10, 0.10, -0.10, 0.10, -0.10,// blaster
   0.10, 0.14, 0.06, -0.08, -0.14, -0.10, 0.04, 0.12, 0.08, -0.06, // chaingun
   0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,     // cannon
+  0.20, -0.20, 0.20, -0.20, 0.20, -0.20, 0.20, -0.20, 0.20, -0.20,// scattergun
+  0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,     // lance
 ];
 const KICK_JITTER = 0.25;      // fraction of random wobble on top of the pattern
 const BURST_RESET = 0.28;      // seconds off the trigger before the pattern starts over
@@ -108,8 +117,8 @@ const unlocked = new Array<number>(MAX_WEAPONS);
 // Starting reserve, in magazines.
 /// Seconds a freshly selected weapon needs before it can fire.
 export const SWAP_TIME = 0.35;
-const START_MAGS = [4, 4, 2, 3];
-const MAX_MAGS   = [8, 8, 4, 5];
+const START_MAGS = [4, 4, 2, 3, 4, 4];
+const MAX_MAGS   = [8, 8, 4, 5, 7, 6];
 
 export function initWeapons(): void {
   for (let i = 0; i < MAX_WEAPONS; i++) {
@@ -146,6 +155,10 @@ export function aoeOf(w: number): number {
 /// Extra damage on a head or weak-point hit (the rifle's perk).
 export function critMul(w: number): number {
   return w === W_RIFLE && PROFILE.hasPerk(w) ? 1.35 : 1;
+}
+/// The scattergun's cone right now, degrees: tighter while aiming, and with its perk (a choke).
+export function pelletCone(w: number): number {
+  return W_PELLET_CONE[w] * (1 - S[4] * 0.35) * (w === W_SCATTER && PROFILE.hasPerk(w) ? 0.65 : 1);
 }
 /// How much of its own blast the owner takes (the cannon's perk halves it).
 export function selfBlastMul(): number { return PROFILE.hasPerk(W_CANNON) ? 0.5 : 1; }
@@ -315,7 +328,8 @@ export function releaseCharge(): number {
 export function fireShot(kickOut: number[]): void {
   const w = S[0];
   mag[w] = mag[w] - 1;
-  S[1] = W_FIRE_CD[w];
+  // The lance's perk: the capacitor recharges a third faster.
+  S[1] = W_FIRE_CD[w] * (w === W_LANCE && PROFILE.hasPerk(w) ? 0.7 : 1);
 
   S[2] = S[2] + W_SPREAD_ADD[w];
   if (S[2] > W_SPREAD_MAX[w]) S[2] = W_SPREAD_MAX[w];
