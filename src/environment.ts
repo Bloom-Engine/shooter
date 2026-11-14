@@ -38,6 +38,7 @@ import * as W from './world-runtime';
 import * as T from './world-runtime';
 import { terrainHeightAt } from './terrain';
 import { bootStage, BOOT_WATER, BOOT_GRASS, BOOT_PROPS } from './boot';
+import { ANDROID, MOBILE } from './input';
 
 /// Handles main.ts's frame loop (and later combat/draw modules) read.
 /// Written exactly once, inside initEnvironment(). Mesh entries hold the
@@ -70,6 +71,45 @@ function moistureNoise(x: number, z: number): number {
   return (a * (1 - sx) + b * sx) * (1 - sz) + (c * (1 - sx) + d * sx) * sz;
 }
 
+// One axis-aligned box into the building mesh: 24 verts (pos.3 normal.3 colour.4 uv.2), 36
+// indices, at slot `k`. BOX_FACES rows: normal xyz, then four corners as -1/+1 signs.
+//
+// WINDING MATTERS: every quad is CCW seen from OUTSIDE the box. The side faces were once wound
+// the other way while the vertex NORMALS were right, so the lighting looked fine — but the
+// exterior walls were backface-culled and the shadow pass never wrote wall depth: the house cast
+// no shadow and tree dapple leaked onto the interior. If you touch the table, re-check with a
+// north-side capture: solid facade and a ground shadow NW of the house.
+const BOX_FACES = [
+   1, 0, 0,    1,-1,-1,   1, 1,-1,   1, 1, 1,   1,-1, 1,
+  -1, 0, 0,   -1,-1, 1,  -1, 1, 1,  -1, 1,-1,  -1,-1,-1,
+   0, 1, 0,   -1, 1, 1,   1, 1, 1,   1, 1,-1,  -1, 1,-1,
+   0,-1, 0,   -1,-1,-1,   1,-1,-1,   1,-1, 1,  -1,-1, 1,
+   0, 0, 1,    1,-1, 1,   1, 1, 1,  -1, 1, 1,  -1,-1, 1,
+   0, 0,-1,   -1,-1,-1,  -1, 1,-1,   1, 1,-1,   1,-1,-1,
+];
+function bakeBox(verts: number[], inds: number[], k: number,
+                 cx: number, cy: number, cz: number, hx: number, hy: number, hz: number,
+                 code: number): void {
+  let vi = k * 24 * 12;
+  let ii = k * 36;
+  const vbase = k * 24;
+  for (let f = 0; f < 6; f++) {
+    const o = f * 15;
+    for (let c = 0; c < 4; c++) {
+      verts[vi++] = cx + BOX_FACES[o + 3 + c * 3] * hx;
+      verts[vi++] = cy + BOX_FACES[o + 4 + c * 3] * hy;
+      verts[vi++] = cz + BOX_FACES[o + 5 + c * 3] * hz;
+      verts[vi++] = BOX_FACES[o]; verts[vi++] = BOX_FACES[o + 1]; verts[vi++] = BOX_FACES[o + 2];
+      verts[vi++] = code; verts[vi++] = 1; verts[vi++] = 1; verts[vi++] = 1;
+      verts[vi++] = (c === 2 || c === 3) ? 1 : 0;
+      verts[vi++] = (c === 1 || c === 2) ? 1 : 0;
+    }
+    const b = vbase + f * 4;
+    inds[ii++] = b; inds[ii++] = b + 1; inds[ii++] = b + 2;
+    inds[ii++] = b; inds[ii++] = b + 2; inds[ii++] = b + 3;
+  }
+}
+
 export function initEnvironment(): void {
   // ---- Phase 9 water — real shader-based river ----------------------------
   // Replaces the ~1800-cube tessellated river from earlier with a proper
@@ -100,8 +140,13 @@ export function initEnvironment(): void {
   // flow-advected noise streaks (see water.wgsl) and carries most of the
   // "moving river" read, so it gets a little more normal weight.
   const WATER_PARAMS = [
-    2.20, 0.90, 0.60,   0.0,    // absorption per metre
-    0.05, 0.18, 0.28,   0.0,    // deep_tint
+    // 2026-11 photoreal pass: 2.20/0.90/0.60 with a 0.05/0.18/0.28 tint made the river an opaque
+    // swimming-pool teal. That exaggeration was needed while the bed was bright grass-coloured
+    // ground ("hazy grass" without it); the bed and banks are dark forest mud now, so the column
+    // can be clearer and the deep colour a natural green-brown river tone. The bed shows through
+    // in the shallows and the surface still darkens toward mid-channel.
+    1.30, 0.55, 0.42,   0.0,    // absorption per metre
+    0.035, 0.085, 0.080, 0.0,   // deep_tint
     0.50, 0.10,         0.6,   0.26,    // foam / rim / sky_lod / micro_strength
   ];
   if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
@@ -162,7 +207,11 @@ export function initEnvironment(): void {
   // water.wgsl blends it over the analytic sky by probe alpha, so trees /
   // house / banks actually appear in the river. Materials linked to a
   // probe are excluded from their own reflection automatically.
-  const waterProbe = matWater > 0 ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
+  // SH-055 — the planar reflection mirror-renders the whole scene into a 512 RT
+  // every frame (a full second geometry+material pass). On the Adreno 618 that
+  // is unaffordable; skip it on Android and let the water fall back to the
+  // analytic sky reflection. (Prime perf suspect now that materials render.)
+  const waterProbe = (matWater > 0 && !ANDROID) ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
   if (waterProbe > 0) setMaterialReflectionProbe(matWater, waterProbe);
   
   // ---- SH-021 instanced grass — canonical blade × N instances -------------
@@ -200,7 +249,8 @@ export function initEnvironment(): void {
     // olive the round-4 de-cartoonification pass was after. Grass still reads
     // greener than soil; it no longer reads as a different art style.
     // Target tip ≈ RGB 0.42 0.50 0.26 (saturation 0.48) — in the ground's family.
-    0.44, 0.45, 0.38,  0.40,
+    // 2026-11: greener (0.44/0.45/0.38 was olive-grey) to sit on the leafy_grass ground scan.
+    0.37, 0.49, 0.25,  0.40,
   ];
   if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
   // Blades are sub-pixel in the 512² water probe but cost the full 20k-
@@ -234,36 +284,58 @@ export function initEnvironment(): void {
   // is the floor set by the 0.5-render-scale TSR path (SH-045's output-scale
   // knob), where a 2 cm blade at 20 m lands under one internal pixel and the
   // speckle comes back.
-  const GB_W0 = 0.018;   // root half-width (was 0.062)
-  const GB_W1 = 0.010;   // mid half-width  (was 0.038)
-  const GB_H1 = 0.16;    // mid height      (was 0.26)
-  const GB_H2 = 0.34;    // tip height      (was 0.55) — ~22-45 cm after per-blade
-                         //                   scale: meadow, not waist-high reeds
-  const GB_B1 = 0.020;   // bow at mid
-  const GB_B2 = 0.065;   // bow at tip
-  const GRASS_BLADE_VERTS: number[] = [
-    // Plane 1 (XY plane, normal +Z, bows toward +Z)
-    -GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   0,   0,
-     GB_W0, 0,     0,      0, 0, 1,   0,    0, 1, 1,   1,   0,
-    -GB_W1, GB_H1, GB_B1,  0, 0, 1,   0.55, 0, 1, 1,   0,   0.55,
-     GB_W1, GB_H1, GB_B1,  0, 0, 1,   0.55, 0, 1, 1,   1,   0.55,
-     0,     GB_H2, GB_B2,  0, 0, 1,   1,    0, 1, 1,   0.5, 1,
-    // Plane 2 (YZ plane, normal +X, bows toward +X)
-     0,     0,     -GB_W0,   1, 0, 0,   0,    0, 1, 1,   0,   0,
-     0,     0,      GB_W0,   1, 0, 0,   0,    0, 1, 1,   1,   0,
-     GB_B1, GB_H1, -GB_W1,   1, 0, 0,   0.55, 0, 1, 1,   0,   0.55,
-     GB_B1, GB_H1,  GB_W1,   1, 0, 0,   0.55, 0, 1, 1,   1,   0.55,
-     GB_B2, GB_H2,  0,       1, 0, 0,   1,    0, 1, 1,   0.5, 1,
-  ];
-  const GRASS_BLADE_INDS: number[] = [
-    // Plane 1: root quad + tip tri, front (CCW from +Z) then back.
-    0, 1, 3,   0, 3, 2,   2, 3, 4,
-    0, 3, 1,   0, 2, 3,   2, 4, 3,
-    // Plane 2: same topology at base 5.
-    5, 6, 8,   5, 8, 7,   7, 8, 9,
-    5, 8, 6,   5, 7, 8,   7, 9, 8,
-  ];
-  const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, 10, GRASS_BLADE_INDS, 36);
+  // 2026-11 — the canonical mesh is a TUFT, not a blade. One instance used to be a single
+  // crossed blade, and 120k of them over the arena is ~20 per m2: stubble on bare ground,
+  // however good the ground scan under it. A tuft is GT_BLADES blades fanned out of one
+  // root, each a single tapered card (root pair, mid pair, tip) leaning outward with its own
+  // height, so the same instance count covers the ground about seven times over.
+  // Vertex: pos.3 normal.3 color.4 uv.2; color.r = tip weight (0 root, 0.55 mid, 1 tip).
+  // Normals lean mostly UP so a tuft shades as one soft mass rather than as flickering cards.
+  const GT_BLADES = 7;
+  const GT_VERTS = GT_BLADES * 5;
+  const GT_INDS = GT_BLADES * 18;
+  const GRASS_BLADE_VERTS = new Array<number>(GT_VERTS * 12);
+  const GRASS_BLADE_INDS = new Array<number>(GT_INDS);
+  {
+    let ts = 0x5eed1 | 0;
+    let gv = 0, gi = 0;
+    for (let b = 0; b < GT_BLADES; b++) {
+      ts = (ts * 16807) % 2147483647; const q1 = ts / 0x7fffffff;
+      ts = (ts * 16807) % 2147483647; const q2 = ts / 0x7fffffff;
+      ts = (ts * 16807) % 2147483647; const q3 = ts / 0x7fffffff;
+      ts = (ts * 16807) % 2147483647; const q4 = ts / 0x7fffffff;
+      const ang = b * 2.39996 + q1 * 0.6;            // golden-angle fan
+      const rad = b === 0 ? 0.0 : 0.035 + q2 * 0.075; // root offset from the tuft centre
+      const hgt = b === 0 ? 0.46 : 0.22 + q3 * 0.20;
+      const lean = b === 0 ? 0.03 : 0.07 + q4 * 0.10; // tip displacement, outward
+      const dx = Math.cos(ang), dz = Math.sin(ang);   // outward
+      const wa = ang + 1.5708 + (q4 - 0.5) * 0.9;     // card width direction
+      const wx = Math.cos(wa), wz = Math.sin(wa);
+      const rx = dx * rad, rz = dz * rad;
+      const W0 = 0.013, W1 = 0.0095;
+      // card normal (perpendicular to width, horizontal), blended toward up
+      let nx = -wz * 0.45, ny = 0.9, nz = wx * 0.45;
+      const nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
+      nx = nx / nl; ny = ny / nl; nz = nz / nl;
+      const mx = rx + dx * lean * 0.30, mz = rz + dz * lean * 0.30, my = hgt * 0.52;
+      const tx = rx + dx * lean, tz = rz + dz * lean;
+      const px = [rx - wx * W0, rx + wx * W0, mx - wx * W1, mx + wx * W1, tx];
+      const py = [0, 0, my, my, hgt];
+      const pz = [rz - wz * W0, rz + wz * W0, mz - wz * W1, mz + wz * W1, tz];
+      const tw = [0, 0, 0.55, 0.55, 1];
+      const uu = [0, 1, 0, 1, 0.5];
+      for (let k = 0; k < 5; k++) {
+        GRASS_BLADE_VERTS[gv++] = px[k]; GRASS_BLADE_VERTS[gv++] = py[k]; GRASS_BLADE_VERTS[gv++] = pz[k];
+        GRASS_BLADE_VERTS[gv++] = nx; GRASS_BLADE_VERTS[gv++] = ny; GRASS_BLADE_VERTS[gv++] = nz;
+        GRASS_BLADE_VERTS[gv++] = tw[k]; GRASS_BLADE_VERTS[gv++] = 0; GRASS_BLADE_VERTS[gv++] = 1; GRASS_BLADE_VERTS[gv++] = 1;
+        GRASS_BLADE_VERTS[gv++] = uu[k]; GRASS_BLADE_VERTS[gv++] = tw[k];
+      }
+      const o = b * 5;
+      const tri = [0, 1, 3, 0, 3, 2, 2, 3, 4, 0, 3, 1, 0, 2, 3, 2, 4, 3];   // both windings
+      for (let k = 0; k < 18; k++) GRASS_BLADE_INDS[gi++] = o + tri[k];
+    }
+  }
+  const matGrassMesh = createMeshExplicit(GRASS_BLADE_VERTS, GT_VERTS, GRASS_BLADE_INDS, GT_INDS);
   
   
   // Per-instance buffer — 20 000 blades × 9 floats (pos.xyz, rot_y,
@@ -302,7 +374,18 @@ export function initEnvironment(): void {
   // 0.4 fps for 3x the blades. The engine's grass-tile culling (aeb3228) throws
   // away everything off-screen before it costs anything, so what is on screen —
   // not what is scattered — sets the price.
-  const GRASS_INSTANCE_COUNT_MAX = 120000;
+  // SH-055 — the Pixel 4a's Adreno 618 is geometry-bound here (CPU idle, GPU
+  // pinned): a menu frame is one big geometry submission and 120k grass blades
+  // dominate it. Native-res/pass cuts barely moved it (1→2 fps); the blade
+  // count is the real lever. Drop it ~40x on Android as the low tier. (The
+  // instanced grass material also panics on the Adreno Vulkan path — a separate
+  // engine bug — so these render via a fallback anyway.)
+  // SH-055 — measured: grass cost main_hdr_pass ~nothing on Android (the
+  // fill-bound cost lives in the render-pass's simultaneous-target count, not
+  // geometry). Kept at a moderate cap rather than restored to full anyway —
+  // draw-call/CPU overhead at 120k was never isolated separately.
+  // 2026-11: instances are 7-blade tufts now (3.5x the triangles each), so fewer of them.
+  const GRASS_INSTANCE_COUNT_MAX = ANDROID ? 3000 : (MOBILE ? 36000 : 80000);
   const GRASS_INSTANCE_FLOATS    = 9;
   const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
   let GRASS_INSTANCE_COUNT = 0;
@@ -311,23 +394,26 @@ export function initEnvironment(): void {
     // tuft rows can't line up with the view/river/arena edges.
     const CLUMP_C = Math.cos(0.65);
     const CLUMP_S = Math.sin(0.65);
+    // Park-Miller. The old LCG multiplied by 1103515245, which overflows a double's 53-bit
+    // mantissa: the low bits it then masked out were rounding noise, the sequence collapsed
+    // onto a few lattice lines, and most of the 120k instances sat on top of each other.
     let seed = 0x12345 | 0;
     let wi = 0;
     for (let attempt = 0; attempt < GRASS_INSTANCE_COUNT_MAX * 3 && GRASS_INSTANCE_COUNT < GRASS_INSTANCE_COUNT_MAX; attempt++) {
-      seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+      seed = (seed * 16807) % 2147483647;
       const r1 = seed / 0x7fffffff;
-      seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+      seed = (seed * 16807) % 2147483647;
       const r2 = seed / 0x7fffffff;
-      seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+      seed = (seed * 16807) % 2147483647;
       const r3 = seed / 0x7fffffff;
-      seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+      seed = (seed * 16807) % 2147483647;
       const r4 = seed / 0x7fffffff;
-      seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+      seed = (seed * 16807) % 2147483647;
       const r5 = seed / 0x7fffffff;
-      seed = ((seed * 1103515245) + 12345) & 0x7fffffff;
+      seed = (seed * 16807) % 2147483647;
       const r6 = seed / 0x7fffffff;
-      let px = -38 + r1 * 76;
-      let pz = -38 + r2 * 76;
+      let px = -47 + r1 * 94;
+      let pz = -47 + r2 * 94;
       // Round-4 — clumping: pull each blade toward a per-1.7 m-cell anchor
       // so the field reads as natural tufts instead of an even lawn. Pull
       // FIRST, then reject on the pulled position.
@@ -344,7 +430,7 @@ export function initEnvironment(): void {
       const aqz = (cellZ + hashCell(cellX + 137, cellZ - 91)) * 1.7;
       const ax =  aqx * CLUMP_C + aqz * CLUMP_S;
       const az = -aqx * CLUMP_S + aqz * CLUMP_C;
-      const pull = r6 < 0.22 ? 0.12 : 0.65;
+      const pull = r6 < 0.45 ? 0.05 : 0.38;   // 2026-11: looser, the instances are tufts now
       px = px + (ax - px) * pull;
       pz = pz + (az - pz) * pull;
       // No grass on the water or inside the building. Same world-derived shapes
@@ -379,9 +465,9 @@ export function initEnvironment(): void {
       GRASS_INSTANCES[wi++] = pz;
       GRASS_INSTANCES[wi++] = r3 * 6.2832;                          // rot_y radians
       GRASS_INSTANCES[wi++] = (0.85 + r4 * 0.40) * (1.05 - dry * 0.30);  // scale
-      GRASS_INSTANCES[wi++] = 0.85 + dry * 0.60 + jit;              // tint r
+      GRASS_INSTANCES[wi++] = 0.88 + dry * 0.42 + jit;              // tint r
       GRASS_INSTANCES[wi++] = 1.03 + dry * 0.02 + jit * 0.5;        // tint g
-      GRASS_INSTANCES[wi++] = 0.95 - dry * 0.40 + jit * 0.3;        // tint b
+      GRASS_INSTANCES[wi++] = 0.95 - dry * 0.30 + jit * 0.3;        // tint b
       GRASS_INSTANCES[wi++] = 1.0;
       GRASS_INSTANCE_COUNT++;
     }
@@ -412,14 +498,15 @@ export function initEnvironment(): void {
     // palette — and this building's own history — is warm sandstone. This tint
     // is what keeps a concrete wall from turning the plaza cold.
     // w = macro tone-variation strength (breaks up the 2 m tile).
-    1.10, 1.02, 0.90,                   0.55,
+    // 2026-11: walls are a brick scan now (brick_wall_006); the tint only takes a little red out.
+    0.66, 0.70, 0.72,                   0.55,
     // band rgb (darker mortar line)    band tightness (higher = sharper)
     0.40, 0.34, 0.28,                   1.4,
     // noise_freq, band_period (m), WALL scan size (m), SLAB scan size (m).
     // The last two are real-world extents from Poly Haven's `dimensions` —
     // both sources are 2.0 m across — so each slice tiles at 1:1 physical
     // scale. They were dead fields before ("roof_dim, unused").
-    0.50, 3.0,                          2.0,   2.0,
+    0.50, 3.0,                          3.0,   2.0,   // brick_wall_006 is 3.0 m across
     // normal-map strength, reserved x3.
     1.0,  0.0, 0.0, 0.0,
   ];
@@ -438,17 +525,20 @@ export function initEnvironment(): void {
     const bldgAlbedo = createTextureArrayFromFiles([
       'assets/textures/building_wall_albedo.png',
       'assets/textures/building_slab_albedo.png',
-    ], TEX_ARRAY_FORMAT_SRGB, 4);
+      'assets/textures/building_metal_albedo.png',
+    ], TEX_ARRAY_FORMAT_SRGB, 11);
     // Normals and roughness MUST be linear — sRGB-decoding an encoded normal
     // corrupts it, and roughness is a measurement, not a colour.
     const bldgNormal = createTextureArrayFromFiles([
       'assets/textures/building_wall_normal.png',
       'assets/textures/building_slab_normal.png',
-    ], TEX_ARRAY_FORMAT_LINEAR, 4);
+      'assets/textures/building_metal_normal.png',
+    ], TEX_ARRAY_FORMAT_LINEAR, 11);
     const bldgRough = createTextureArrayFromFiles([
       'assets/textures/building_wall_rough.png',
       'assets/textures/building_slab_rough.png',
-    ], TEX_ARRAY_FORMAT_LINEAR, 4);
+      'assets/textures/building_metal_rough.png',
+    ], TEX_ARRAY_FORMAT_LINEAR, 11);
     if (bldgAlbedo > 0) {
       setMaterialTextureArray(matBuilding, TEXTURE_ARRAY_ALBEDO, bldgAlbedo);
       setMaterialTextureArray(matBuilding, TEXTURE_ARRAY_NORMAL, bldgNormal);
@@ -459,86 +549,33 @@ export function initEnvironment(): void {
     }
   }
   
-  // Count the building boxes first so we can size the arrays.
+  // The building mesh: every box-placeholder wall/slab/stair of the world, plus the drawn-only
+  // trim boxes (W.TRIM_*, see tools/gen/house_trim.py). Vertex colour .r tells building.wgsl
+  // which material a box wears: 1 = by face (brick walls, concrete slabs), 0 = concrete on
+  // every face (frame, plinth, coping, sills), 0.5 = steel.
   let _bldgCount = 0;
   for (let i = 0; i < W.MESH_COUNT; i++) {
     const mi = W.MESH_MODEL_IDX[i];
     if (W.MODEL_IS_BOX[mi] === 1 && W.MESH_CATEGORY[i] === 1) _bldgCount++;
   }
-  const _bvc = _bldgCount * 24;     // 24 verts per cube (4 per face × 6 faces)
-  const _bic = _bldgCount * 36;     // 36 indices per cube (2 tris × 6 faces)
+  const _boxTotal = _bldgCount + W.TRIM_COUNT;
+  const _bvc = _boxTotal * 24;     // 24 verts per cube (4 per face x 6 faces)
+  const _bic = _boxTotal * 36;     // 36 indices per cube (2 tris x 6 faces)
   const BUILDING_VERTS = new Array<number>(_bvc * 12);
   const BUILDING_INDS  = new Array<number>(_bic);
   {
-    let vi = 0, ii = 0, vbase = 0;
+    let k = 0;
     for (let i = 0; i < W.MESH_COUNT; i++) {
       const mi = W.MESH_MODEL_IDX[i];
       if (W.MODEL_IS_BOX[mi] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
-      const cx = W.MESH_X[i], cy = W.MESH_Y[i], cz = W.MESH_Z[i];
-      const hx = W.MESH_COLLIDER_HX[i];
-      const hy = W.MESH_COLLIDER_HY[i];
-      const hz = W.MESH_COLLIDER_HZ[i];
-      const xn = cx - hx, xp = cx + hx;
-      const yn = cy - hy, yp = cy + hy;
-      const zn = cz - hz, zp = cz + hz;
-      // Six faces, 4 verts each. Vertex layout: pos(3) normal(3)
-      // color(4) uv(2) — colors all white, UVs unused (material
-      // samples world XY/XZ/YZ).
-      //
-      // WINDING MATTERS: every quad below is CCW seen from OUTSIDE the box.
-      // The four side faces used to be wound CW-from-outside, and because the
-      // vertex NORMALS were still correct the lighting looked fine — but the
-      // exterior wall quads were backface-culled (facades read as hollow from
-      // the north/east) and the shadow pass never wrote wall depth, so the
-      // house cast NO shadow and the sun's tree-dapple leaked straight onto
-      // interior surfaces as if the masonry were glass. If you touch these,
-      // re-check with the house-v2 north-side capture: solid facade + a
-      // ground shadow pool NW of the house.
-      // +X face (normal +X)
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-      // -X face
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-      // +Y face (top)
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-      // -Y face (bottom)
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-      // +Z face
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zp; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-      // -Z face
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0;
-      BUILDING_VERTS[vi++] = xn; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yp; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1;
-      BUILDING_VERTS[vi++] = xp; BUILDING_VERTS[vi++] = yn; BUILDING_VERTS[vi++] = zn; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = 0; BUILDING_VERTS[vi++] = -1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 1; BUILDING_VERTS[vi++] = 0;
-  
-      // 36 indices: 6 faces × 2 tris × 3, CCW from outside.
-      BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  1; BUILDING_INDS[ii++] = vbase +  2;
-      BUILDING_INDS[ii++] = vbase +  0; BUILDING_INDS[ii++] = vbase +  2; BUILDING_INDS[ii++] = vbase +  3;
-      BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  5; BUILDING_INDS[ii++] = vbase +  6;
-      BUILDING_INDS[ii++] = vbase +  4; BUILDING_INDS[ii++] = vbase +  6; BUILDING_INDS[ii++] = vbase +  7;
-      BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase +  9; BUILDING_INDS[ii++] = vbase + 10;
-      BUILDING_INDS[ii++] = vbase +  8; BUILDING_INDS[ii++] = vbase + 10; BUILDING_INDS[ii++] = vbase + 11;
-      BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 13; BUILDING_INDS[ii++] = vbase + 14;
-      BUILDING_INDS[ii++] = vbase + 12; BUILDING_INDS[ii++] = vbase + 14; BUILDING_INDS[ii++] = vbase + 15;
-      BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 17; BUILDING_INDS[ii++] = vbase + 18;
-      BUILDING_INDS[ii++] = vbase + 16; BUILDING_INDS[ii++] = vbase + 18; BUILDING_INDS[ii++] = vbase + 19;
-      BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 21; BUILDING_INDS[ii++] = vbase + 22;
-      BUILDING_INDS[ii++] = vbase + 20; BUILDING_INDS[ii++] = vbase + 22; BUILDING_INDS[ii++] = vbase + 23;
-      vbase += 24;
+      bakeBox(BUILDING_VERTS, BUILDING_INDS, k, W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i],
+              W.MESH_COLLIDER_HX[i], W.MESH_COLLIDER_HY[i], W.MESH_COLLIDER_HZ[i], 1.0);
+      k++;
+    }
+    for (let i = 0; i < W.TRIM_COUNT; i++) {
+      bakeBox(BUILDING_VERTS, BUILDING_INDS, k, W.TRIM_X[i], W.TRIM_Y[i], W.TRIM_Z[i],
+              W.TRIM_HX[i], W.TRIM_HY[i], W.TRIM_HZ[i], W.TRIM_SLICE[i] === 1 ? 0.5 : 0.0);
+      k++;
     }
   }
   const matBuildingMesh = createMeshExplicit(BUILDING_VERTS, _bvc, BUILDING_INDS, _bic);
@@ -648,7 +685,14 @@ export function initGiProxies(
     // ride along through attachModelToNode, so trunks bounce brown and
     // canopies green without per-node colour overrides. (GI proxies are
     // unrotated — close enough for bounce lighting.)
-    for (let i = 0; i < W.FOREST_COUNT; i++) {
+    // SH-055 — 88 alpha-tested trees are the main_hdr_pass's overdraw amplifier
+    // on the Adreno 618 (each pixel a tree covers re-runs the heavy material
+    // fragment shader). Cap the forest hard on Android; the near trees still
+    // frame the plaza, the far density is what was killing fill.
+    // SH-055 — measured: forest cost main_hdr_pass ~nothing on Android either.
+    // Same moderate-cap reasoning as grass above.
+    const forestCount = ANDROID ? Math.min(W.FOREST_COUNT, 24) : W.FOREST_COUNT;
+    for (let i = 0; i < forestCount; i++) {
       const v = treeVariants[W.FOREST_VAR[i]];
       for (let mIdx = 0; mIdx < treeGlbParts; mIdx++) {
         const n = createSceneNode();

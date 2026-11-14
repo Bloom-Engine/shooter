@@ -16,24 +16,26 @@ The manifest inside that tool IS the mapping — the table below mirrors it for
 reading. It used to say "regenerate by hand if sources change", which meant the
 42-file set was unreproducible: the flags lived in someone's shell history.
 
-## Unvanquished legacy assets (GPL-compatible, same line as our models)
+## Generated with ElevenLabs sound effects (`tools/gen/sfx.py`, 2026-11-13)
 
-From github.com/UnvanquishedAssets/res-legacy_src.dpkdir (FLAC sources):
+These replaced every file that used to be converted from Unvanquished (GPLv3), and three older
+files whose origin was never recorded. Prompts are in the tool; file names are unchanged.
 
-| File(s) | Source path |
+| File(s) | What |
 |---|---|
-| `alien{0-4}_die{1-3}.wav` | `sound/player/level{0-4}/death{1-3}.flac` |
-| `alien{0-4}_pain.wav` | `sound/player/level{0-4}/pain50_1.flac` |
-| `alien0_attack.wav` | `models/weapons/level0/flash0.flac` |
-| `alien1_attack.wav` | `sound/player/level1/grab.flac` |
-| `alien{2-4}_attack.wav` | `models/weapons/level{2-4}/flash0.flac` |
-| `impact_flesh.wav` | `models/weapons/level2/impactflesh0.flac` |
-| `ricochet{1,2}.wav` | `models/weapons/rifle/ricochet{0,1}.flac` |
-| `player_pain{1,2}.wav` | `sound/player/human_bsuit/pain{50,100}_1.flac` |
-| `player_die{1,2}.wav` | `sound/player/human_bsuit/death{1,2}.flac` |
+| `alien{0-4}_attack.wav`, `alien{0-4}_pain.wav`, `alien{0-4}_die{1-3}.wav` | creature voices: 0 Skitter, 1 Stalker, 2 Ravager (also Spitter), 3 Bruiser (also Bombard), 4 Colossus |
+| `dretch_attack.wav` | bite |
+| `impact_flesh.wav`, `ricochet{1,2}.wav` | bullet impacts |
+| `player_pain{1,2}.wav`, `player_die{1,2}.wav` | the Trooper, muffled by the helmet |
+| `pickup.wav`, `rifle_fire.wav` | weapon pickup; legacy rifle shot (superseded by rifle_fire2) |
+| `step_grass{1-4}.wav`, `step_dirt{1-4}.wav`, `step_heavy1.wav` | footsteps (second pass: these and the rows below replaced the synthesised placeholders) |
+| `skitter_light{1-4}.wav`, `skitter_heavy{1-4}.wav`, `crawl_loop.wav` | creature locomotion |
+| `reload_start.wav`, `reload_end.wav`, `ui_move.wav`, `ui_select.wav` | reload and interface |
+| `rifle_tail.wav`, `blaster_tail.wav`, `chain_tail.wav`, `cannon_tail.wav` | weapon echo tails |
+| `ambient_wind.wav` | wind bed (seamless loop) |
 
-Kind mapping: 0=dretch(level0) 1=mantis(level1) 2=marauder(level2)
-3=dragoon(level3) 4=tyrant(level4).
+`tools/convert-audio.ts` still lists the Unvanquished sources for these names: do not run it with
+`--force`, it would put the GPL files back.
 
 ## Sonniss GDC 2024 Game Audio Bundle (royalty-free game-use license)
 
@@ -50,18 +52,10 @@ game-ready files are committed, never pack folders.
 
 ## Pre-existing (provenance predates this file)
 
-`rifle_fire.wav` (superseded by rifle_fire2 but kept), `dretch_attack.wav`,
-`pickup.wav`, `menu.ogg`, `game.ogg`, `ambient.ogg`.
+`menu.ogg`, `game.ogg`, `ambient.ogg`: old music/ambience, only used as a fallback when
+`assets/music/music_*.ogg` are missing; release bundles leave them out.
 
-## Synthesised by `tools/gen-sfx.ts` (no external source — GPL-clean by construction)
+## Synthesised by `tools/gen-sfx.ts` — superseded
 
-Deterministic (seeded), so re-running the tool reproduces byte-identical
-files. See docs/ASSET-TODO.md A1/A2/A3/A5/A6/A7/A8/A9 for the intended real
-replacements.
-
-`step_grass{1-4}.wav`, `step_dirt{1-4}.wav`, `step_heavy1.wav`,
-`reload_start.wav`, `reload_end.wav`, `ui_move.wav`, `ui_select.wav`,
-`{rifle,blaster,chain,cannon}_tail.wav`, `ambient_wind.wav` (16 s seamless
-loop), and the SH-052 set: `river_loop.wav` (14 s seamless),
-`skitter_light{1-4}.wav`, `skitter_heavy{1-4}.wav`, `crawl_loop.wav`
-(3.5 s seamless).
+Every file that tool wrote now comes from `tools/gen/sfx.py` (table above). Do not re-run
+`tools/gen-sfx.ts`: it would overwrite them with the synthesised placeholders.

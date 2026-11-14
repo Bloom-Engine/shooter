@@ -6,7 +6,9 @@ Notes for AI coding assistants working on this repo.
 
 The full picture is in `README.md`. This is a Perry-compiled TypeScript
 **third-person shooter** (over-the-shoulder orbit camera — TPS, not
-FPS) built on the Bloom engine. Seven alien kinds (two RANGED), three
+FPS) built on the Bloom engine. Seven alien kinds (two RANGED; an original
+cast since 2026-11: Skitter, Stalker, Ravager, Bruiser, Colossus, Spitter,
+Bombard, against the Trooper), three
 waves, four weapons, TWO playable arenas (`arena_02` Outdoor Plaza and
 `arena_03` Riverbend Ravine — see SH-040; a third is still owed),
 textured arena, skeletal-animated enemies, ambient music, and a live 3D
@@ -47,6 +49,9 @@ see SH-052) — runnable with
 ## Read before changing things
 
 - **`docs/perry-quirks.md`** — five Perry 0.5.x bugs we work around.
+  Since Perry 0.5.16xx the temporal dead zone is enforced for module-level `const`: a
+  function called during module init must not read a `const` declared further down the file
+  (`ReferenceError: Cannot access 'X' before initialization` at boot).
   Never add `throw new Error(...)`, never rely on object-shorthand
   return values, never `JSON.parse(...).arr.length`, and **never
   `split()`/`parseFloat()` an FFI string on a per-frame path** (quirk
@@ -100,6 +105,14 @@ blocking loop on native, rAF on web — so never reintroduce a bare
 `src/input.ts`. Writes via `writeFile` land in localStorage under
 `bloom_fs:`. Three Perry wasm-codegen fixes this port depends on live on
 perry branch `fix/wasm-new-array-sized`; the engine side is EN-063.
+
+### TestFlight (iOS, tvOS, macOS)
+
+`python3 tools/release/release.py` builds all three, signs for the App Store and uploads
+(`--only ios`, `--no-upload --no-commit` for a dry run). Details, one-time setup and the Perry
+patches the build depends on: `docs/RELEASE.md`. The compiler and runtimes come from the Perry
+checkout in `PERRY_HOME` (default `~/projects/perry/worktrees/perry-0.5.1665`), not from the
+`perry` on PATH; rebuild them with `tools/release/build_toolchain.sh`.
 
 ### iOS
 
@@ -158,6 +171,70 @@ the view moves, and the phone has no headroom to absorb the stall.
 - The game runs borderless-fullscreen at native res — test runs are
   batch runs (launch with stdout/stderr redirected; the screen is
   gone while it runs).
+
+## Asset pipeline (photoreal models, since 2026-11)
+
+Characters, weapons and props are generated, not converted: a photoreal concept image, Tripo Studio
+(Ralph's account, through his Chrome with the Claude in Chrome extension), then Blender. The older
+Unvanquished-derived GLBs and their converters (`tools/convert-*.ts`) are being retired; do not run
+`npm run assets` or `bun tools/convert-aliens-anim.ts` without reading what they overwrite.
+
+1. **Concept**: `art/style/photoreal/<name>/prompt.txt` -> `front-1.png` with
+   `tools/gen/codex_image.sh <out.png> <WxH> <prompt.txt> [reference images]` (Codex CLI image
+   generation). All creature prompts share one species paragraph and all gear prompts one hardware
+   paragraph, so the cast matches. Weapon prompts must read as inert film props or the image model
+   refuses them.
+2. **Tripo Studio**: workspace ids, settings and credit costs are in `art/source/README.md`.
+   Say what a step costs before spending; ask Ralph before anything over a few hundred credits.
+   Each download needs his yes. Chrome may block the site's later downloads ("download multiple
+   files"): Tripo then reports success and nothing arrives; Ralph has to click Allow.
+3. **Characters**: `tools/gen/collect_tripo.sh <name>` files the two first downloads
+   (`collect_rig.sh` a later re-export with added clips); `tools/gen/build_cast.sh [name]` holds the
+   whole recipe for all eight and rebuilds them through `make_character.sh`: scale, turn to face
+   glTF +X, name and sort the clips, cut each generated run to its most seamless stride loop
+   (`studio_import.py --loop`), trim attack/death, bake a 4K normal map from the 2M-triangle original.
+4. **Weapons and props**: `blender -b -P tools/blender/process_static.py -- in.glb out.glb --kind
+   weapon|prop --size <m>` (decimate, unwrap, bake base colour / normal / roughness / metallic at 4K).
+   Exact arguments per model: `art/source/README.md`.
+5. **Trees**: `tools/blender/build_tree.py` GROWS them (one trunk tapering to the crown top, limbs,
+   branches, twigs as bark tubes; bark is the Poly Haven `bark_willow_02` scan;
+   two crossed leaf-cluster cards on every twig). Leaf cards are photographed-style branch tips
+   generated on magenta (`art/style/foliage/`) and keyed by `tools/gen/key_foliage.py`; bark is the
+   Poly Haven 2K scan. It prints the CANOPY numbers for `src/camera.ts`.
+6. **Surfaces**: terrain and building layers are the Poly Haven 2K scans at full resolution
+   (`tools/build-terrain-textures.ts`, `build-building-textures.ts`). Smoke, dust, muzzle flash and
+   the decals are generated photographs converted by `tools/gen/vfx_from_image.py`
+   (`art/style/vfx/`); spark, droplet and shell are still procedural (`build-vfx-textures.ts`,
+   which would overwrite the photographic ones if re-run, so re-run the converter after it).
+   **Grass**: one instance is a seven-blade TUFT built in `src/environment.ts` (80k on desktop, 36k
+   on mobile). **House**: the wall boxes of a world get drawn-only dressing (concrete frame, steel
+   window linings, sills, awnings) from `tools/gen/house_trim.py <world.json>` as `building_trim`
+   entities; re-run it after editing the walls. Brick / concrete / steel are slices 0/1/2 of the
+   building texture arrays, chosen per box through vertex colour (see `building.wgsl`).
+   The SCENESHOT harness in `src/main.ts` captures fixed views of house, grass and trees.
+7. **Sounds**: `tools/gen/sfx.py` (ElevenLabs). **UI type**: `assets/fonts/` via `src/ui-text.ts`.
+8. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
+   bundles ship those under the plain names.
+Check anything visually with `tools/blender/model_sheet.py` (four views with axes) and
+`tools/blender/clip_sheet.py` (frames of one clip), and in-game with the COMBATSHOT harness, which
+ends on a shoulder-aim close-up.
+
+What the code expects of a model (all measured tables live in `src/enemies.ts`, `src/main.ts`):
+- Characters face glTF **+X**, +Y up, feet at the origin, authored in metres (scale tables are 1).
+- Clips are addressed **by index**. Every creature carries the same nine in sorted order:
+  0 c_attack, 1 c_run, 2 death, 3 fall, 4 hit_to_body_01, 5 idle, 6 run, 7 slash, 8 walk
+  (c_* are that creature's own motion). Trooper: 0 crouch_idle, 1 crouch_walk, 2 idle, 3 run, 4 walk.
+- Trees are two primitives, bark then leaves (`TREE_GLB_PARTS`); leaves are alpha MASK, double sided.
+- Mixamo skeleton under a static `Root` bone that the importer adds: 66 joints (67 on the Trooper
+  with `tag_weapon`). `Root` must stay joint 0: with root motion off the engine pins joint 0's
+  translation, and if that were the hips a death would lie down in mid-air and a crouch would not
+  lower the body. The engine has 1024 joint matrices per frame for ALL skinned draws:
+  67 + 7 kinds x 2 pool slots x 66 = 991, so there is no room for a third pool slot.
+- Enemies die by their authored clip; the engine's auto-ragdoll is switched off (`DEATH_RAGDOLL` in
+  `src/main.ts`) because it mangles this skeleton.
+- Developer overlays (render-pass line, diagnostics bar) are hidden; F1 or `--debughud 1` shows them.
+- No vertex colours (the engine multiplies `COLOR_0` into albedo).
+- Weapons: barrel along +Z, rear at z = 0, metres. Props: origin at the base centre, drawn unrotated.
 
 ## World pipeline
 
@@ -235,4 +312,6 @@ editor, hit Play, and it is there — no bake step.
 
 ## License
 
-GPLv3 — required because we bundle Unvanquished's GPLv3 assets.
+The repository is MIT (`LICENSE`, since 2026-11-14). Release builds contain no Unvanquished-derived
+assets; the legacy GLBs still in `assets/models/` stay GPLv3, are not covered by the MIT licence and
+must not ship (see `assets/LICENSE.md`).

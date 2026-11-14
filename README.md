@@ -2,9 +2,8 @@
 
 A third-person arena wave shooter built in TypeScript on the
 [Bloom engine](https://github.com/Bloom-Engine/engine) and compiled with
-[Perry](https://github.com/PerryTS/perry). Art and audio converted from
-the open-source [Unvanquished](https://github.com/UnvanquishedAssets)
-game (GPLv3).
+[Perry](https://github.com/PerryTS/perry). MIT licensed; the art and
+audio are original to this game (see [assets/LICENSE.md](assets/LICENSE.md)).
 
 Built as an end-to-end stress test of the engine — exercising the
 character controller, physics raycasts, spatial audio, skeletal
@@ -170,7 +169,8 @@ Short version of findings accumulated while building this:
 
 ## Licence
 
-GPLv3. Bloom engine is MIT, Perry is Apache-2.0, but the Unvanquished
-assets this game ships are GPLv3 — so this repo must be too. See
-[LICENSE](LICENSE) and [assets/LICENSE.md](assets/LICENSE.md) for
-attribution.
+MIT — see [LICENSE](LICENSE). That covers the code and the assets made
+for this game. Third-party assets keep their own terms, listed in
+[assets/LICENSE.md](assets/LICENSE.md); in particular the legacy
+Unvanquished-derived models still in the repository (unused, unshipped)
+remain GPLv3 and are not covered by the MIT licence.

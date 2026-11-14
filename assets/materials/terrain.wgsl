@@ -114,11 +114,22 @@ fn triplanar_weights(n: vec3<f32>) -> vec3<f32> {
 /// Sample one array layer triplanar-projected in world space. Three taps; the
 /// alternative (plain XZ) collapses to a smear of stretched pixels on every
 /// vertical face, which is where the rock is.
-fn tri_albedo(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32) -> vec3<f32> {
+///
+/// `far` (0 near the camera .. ~0.8 in the distance) cross-fades the ground plane toward the
+/// SAME scan sampled 2.7x larger, turned 37 degrees and BLURRED four mips down. A 2 m scan
+/// repeats 30 times across a 60 m field and that period reads as a woven grid from the
+/// third-person camera. The blurred copy keeps only the scan's broad colour patches, at a
+/// period and angle that do not line up with the first. The near tap takes a small negative
+/// mip bias: at this camera's grazing angle trilinear filtering alone softens the ground a few
+/// metres from the player. (Until 2026-11 the engine built array mips by CROPPING, so every
+/// lower mip was the scan magnified; the streaks and planks that caused are gone with it.)
+fn tri_albedo(layer: i32, p: vec3<f32>, w: vec3<f32>, s: f32, far: f32) -> vec3<f32> {
   let cx = textureSample(albedo_array, albedo_array_samp, p.zy * s, layer).rgb;
-  let cy = textureSample(albedo_array, albedo_array_samp, p.xz * s, layer).rgb;
+  let cy = textureSampleBias(albedo_array, albedo_array_samp, p.xz * s, layer, -0.4).rgb;
   let cz = textureSample(albedo_array, albedo_array_samp, p.xy * s, layer).rgb;
-  return cx * w.x + cy * w.y + cz * w.z;
+  let q  = vec2<f32>(p.x * 0.7986 - p.z * 0.6018, p.x * 0.6018 + p.z * 0.7986) * (s * 0.37);
+  let cf = textureSampleBias(albedo_array, albedo_array_samp, q, layer, 4.0).rgb;
+  return cx * w.x + mix(cy, cf, far) * w.y + cz * w.z;
 }
 
 /// Triplanar normal, whiteout-blended: sample each plane's tangent normal,
@@ -219,10 +230,16 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   }
 
   // ---- albedo -------------------------------------------------------------
-  var albedo = tri_albedo(0, p, w, s_lush) * tp.tint_lush.rgb * w_lush
-             + tri_albedo(1, p, w, s_dry)  * tp.tint_dry.rgb  * w_dry
-             + tri_albedo(2, p, w, s_dirt) * tp.tint_dirt.rgb * w_dirt
-             + tri_albedo(3, p, w, s_rock) * tp.tint_rock.rgb * w_rock;
+  let far = smoothstep(10.0, 45.0, distance(view.camera_pos.xyz, p)) * 0.8;
+  var albedo = tri_albedo(0, p, w, s_lush, far) * tp.tint_lush.rgb * w_lush
+             + tri_albedo(1, p, w, s_dry, far)  * tp.tint_dry.rgb  * w_dry
+             + tri_albedo(2, p, w, s_dirt, far) * tp.tint_dirt.rgb * w_dirt
+             + tri_albedo(3, p, w, s_rock, far) * tp.tint_rock.rgb * w_rock;
+
+  // Far field: beyond the scattered grass the bare scan has to stand in for a meadow, so the
+  // two grass layers lean toward the blades' own green with distance.
+  let meadow_far = smoothstep(18.0, 60.0, distance(view.camera_pos.xyz, p)) * (w_lush + w_dry);
+  albedo = mix(albedo, albedo * vec3<f32>(0.80, 1.00, 0.56) + vec3<f32>(0.0, 0.02, 0.0), meadow_far);
 
   // Macro variation — a low-frequency multiply so the tiling doesn't read as a
   // grid from the air. Without this, any tileable texture announces its period
@@ -252,7 +269,7 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   } else {
     nrm = tri_normal(0, p, w, s_lush, n, tn_dpx, tn_dpy);
   }
-  nrm = normalize(mix(n, nrm, tp.scales.w));
+  nrm = normalize(mix(n, nrm, tp.scales.w * (1.0 - far)));
 
   // SH-010 — detail normal at ~40x the macro scale, covering the last order of
   // magnitude (blade roots, grit) that a 512px macro texture cannot.
@@ -263,7 +280,7 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // are only three (EN-014), and the splat needs one.
   let ds = tp.scales.y;
   let dt = textureSample(normal_array, albedo_array_samp, p.xz * ds, 4).rgb * 2.0 - 1.0;
-  nrm = normalize(nrm + vec3<f32>(dt.x, 0.0, dt.y) * tp.scales.z);
+  nrm = normalize(nrm + vec3<f32>(dt.x, 0.0, dt.y) * tp.scales.z * (1.0 - far * 1.25));
 
   // ---- lighting -----------------------------------------------------------
   let sun_dir = normalize(view.sun_dir.xyz);

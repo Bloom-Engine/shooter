@@ -52,14 +52,16 @@ export const TP_FOVY = 70;
 // third-person camera must never be. The canopy is not physics, so the camera
 // tests it analytically (below, in the orbit block).
 //
-// Leaf-card bounds MEASURED from the GLBs — mesh primitive 3 of each
+// Leaf-card bounds MEASURED from the GLBs — the last mesh primitive of each
 // prop_tree*.glb IS the leaf-card set, and glTF stores each accessor's min/max,
 // so these are the asset's own numbers, not a guess. Model units: multiply by
 // FOREST_SCALE. Indexed by FOREST_VAR (same order as treeVariants).
 // Re-measure if the tree art changes.
-const CANOPY_Y0 = [1.70, 2.33, 0.66];   // leaves start (tree3's hang near the ground)
-const CANOPY_Y1 = [5.64, 6.06, 5.02];   // ...and end
-const CANOPY_R  = [2.69, 2.44, 3.23];   // leaf-tip horizontal extent
+// 2026-11: the grown trees of tools/blender/build_tree.py (oak, ash, beech); the builder prints
+// these numbers ("CANOPY y0 / y1 / r") for each model.
+const CANOPY_Y0 = [2.97, 3.12, 3.36];   // leaves start
+const CANOPY_Y1 = [8.51, 9.13, 7.99];   // ...and end
+const CANOPY_R  = [3.68, 3.64, 3.09];   // leaf-tip horizontal extent
 // How much of that measured radius actually counts as "in the way".
 //
 // This started at 0.70, on the theory that the bounds reach the outermost leaf

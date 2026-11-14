@@ -11,11 +11,12 @@
 // pause button is not worth blocking on a UI framework.)
 
 import {
-  drawText, drawRect, measureText,
+  drawRect,
   isKeyPressed, Key,
   isMouseButtonPressed, getMouseX, getMouseY,
   isGamepadAvailable, isGamepadButtonPressed, getGamepadAxis,
 } from 'bloom';
+import { drawText, measureText } from './ui-text';
 import {
   setOutputScale, setRenderScale, setShadowsEnabled,
   setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,

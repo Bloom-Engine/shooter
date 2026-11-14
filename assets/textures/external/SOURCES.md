@@ -10,7 +10,8 @@ Provenance recorded for hygiene:
 | `forrest_ground_01/` | Forest Ground 01 (diff / nor_gl / rough, 2K JPG) | https://polyhaven.com/a/forrest_ground_01 | CC0 |
 | `leafset/LeafSet004/` | Leaf Set 004 (Color + Opacity, 2K PNG) | https://ambientcg.com/view?id=LeafSet004 | CC0 |
 | `withered_grass/` | Withered Grass (diff / nor_gl, 2K JPG) | https://polyhaven.com/a/withered_grass | CC0 |
-| `brown_mud_dry/` | Brown Mud Dry (diff / nor_gl, 2K JPG) | https://polyhaven.com/a/brown_mud_dry | CC0 |
+| `brown_mud_dry/` | Brown Mud Dry (diff / nor_gl, 2K JPG) — no longer consumed | https://polyhaven.com/a/brown_mud_dry | CC0 |
+| `mud_forest/` | Mud Forest (diff / nor_gl, 2K JPG) | https://polyhaven.com/a/mud_forest | CC0 |
 | `cliff_side/` | Cliff Side (diff / nor_gl, 2K JPG) | https://polyhaven.com/a/cliff_side | CC0 |
 | `concrete_wall_008/` | Concrete Wall 008 (diff / nor_gl / rough, 2K JPG) | https://polyhaven.com/a/concrete_wall_008 | CC0 |
 | `concrete_floor_02/` | Concrete Floor 02 (diff / nor_gl / rough, 2K JPG) | https://polyhaven.com/a/concrete_floor_02 | CC0 |
@@ -61,7 +62,7 @@ checkout still rebuilds every prop.
 day it landed until SH-050:
 - layer 0 `grass_lush` ← `forrest_ground_01`
 - layer 1 `grass_dry`  ← `withered_grass`
-- layer 2 `dirt`       ← `brown_mud_dry` (the riverbank)
+- layer 2 `dirt`       ← `mud_forest` (the riverbank; 2.35 m)
 - layer 3 `rock`       ← `cliff_side`
 
 `tools/build-building-textures.ts` (SH-050) — the building's two slices:

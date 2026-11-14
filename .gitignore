@@ -77,3 +77,22 @@ dxil.dll
 # re-fetches it; the CDN fallback covers the offline case)
 tools/web/
 
+
+# Release credentials (App Store Connect API key ids) — never commit
+.env
+
+# Tripo Studio raw exports (large; re-exportable, see art/source/README.md) and generated ASTC copies
+art/source/**/*.glb
+assets/models/*.astc.glb
+
+# Local native builds (Android/Linux experiments) left in the repo root
+/bloom_shooter*
+
+# Android: Gradle/Kotlin state and everything build-android.sh copies in
+# (the .so and a full copy of assets/)
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/app/build/
+android/app/src/main/assets/
+android/app/src/main/jniLibs/

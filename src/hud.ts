@@ -13,7 +13,8 @@
 // Perry rules as in the other SH-025 modules: top-level functions only, no
 // exported let, no module-scope engine calls.
 
-import { drawRect, drawText, drawCircle, measureText, getTime } from 'bloom';
+import { drawRect, drawCircle, getTime } from 'bloom';
+import { drawText, measureText } from './ui-text';
 import { GS } from './gamestate';
 import { ARENA_INDEX } from './world-runtime';
 import { DIR, wavePlan, countAlive } from './director';
@@ -192,7 +193,7 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
 
   // Render-pass debug status line. Top-left, always on — but there are no
   // function keys on a phone, so it's just clutter over the play area there.
-  if (!MOBILE) {
+  if (!MOBILE && GS.debugHud) {
     const dbgLine = 'F5 SSGI ' + (dbgSsgi ? 'ON ' : 'off')
       + '   F6 SSAO ' + (dbgSsao ? 'ON ' : 'off')
       + '   F7 SSR ' + (dbgSsr ? 'ON ' : 'off')

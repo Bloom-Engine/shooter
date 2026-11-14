@@ -27,10 +27,11 @@
 
 import {
   beginDrawing, endDrawing, clearBackground,
-  drawText, drawRect, measureText,
+  drawRect,
   getScreenWidth, getScreenHeight, getTime,
   isAnyInputPressed,
 } from 'bloom';
+import { drawText, measureText } from './ui-text';
 import { writeFile } from 'bloom/core';
 import { WEB } from './input';
 

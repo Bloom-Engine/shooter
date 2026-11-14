@@ -1,0 +1,22 @@
+diff --git a/crates/perry-runtime/src/process/exec_env.rs b/crates/perry-runtime/src/process/exec_env.rs
+index aaa805a0e4..64730a6526 100644
+--- a/crates/perry-runtime/src/process/exec_env.rs
++++ b/crates/perry-runtime/src/process/exec_env.rs
+@@ -266,7 +266,7 @@ pub extern "C" fn js_process_execve(exec_path: f64, args: f64, env: f64) -> f64
+     let argv = execve_parse_args(args);
+     let env_pairs = execve_parse_env(env);
+ 
+-    #[cfg(unix)]
++    #[cfg(all(unix, not(any(target_os = "tvos", target_os = "watchos"))))]
+     {
+         let path_c = match std::ffi::CString::new(path.as_str()) {
+             Ok(path_c) => path_c,
+@@ -292,7 +292,7 @@ pub extern "C" fn js_process_execve(exec_path: f64, args: f64, env: f64) -> f64
+         }
+     }
+ 
+-    #[cfg(not(unix))]
++    #[cfg(not(all(unix, not(any(target_os = "tvos", target_os = "watchos")))))]
+     {
+         let _ = (path, argv, env_pairs);
+         crate::fs::validate::throw_type_error_with_code(

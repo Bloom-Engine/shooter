@@ -19,7 +19,9 @@ import { writeFileSync, mkdirSync } from 'fs';
 // the plain 2D slots), and an array layer per effect is strictly better than
 // an atlas cell anyway: no UV mapping, no bilinear bleed between neighbours,
 // and mips that don't smear one effect into the next.
-const CELL = 256;
+// 256 -> 512 (2026-11, photoreal pass). Smoke, dust, flash and the four decals are then replaced by
+// photographic sprites (tools/gen/vfx_from_image.py); spark, droplet and shell stay procedural.
+const CELL = 512;
 const GRID = 1;
 const SIZE = CELL;
 

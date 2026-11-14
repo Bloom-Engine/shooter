@@ -33,8 +33,11 @@ import { findJoint, createRagdoll } from 'bloom/models';
 // up, and these two cannot, so cover and repositioning start to matter and the
 // whole encounter re-weights around them.
 export const KIND_COUNT = 7;
-export const KIND_NAME  = ['DRETCH', 'MANTIS', 'MARAUDER', 'DRAGOON', 'TYRANT',
-                    'ADV MARAUDER', 'ADV DRAGOON'];
+// Display names of the original creature cast (art/style/photoreal/enemy_*).
+// The kind ORDER and the internal ids in the world files (dretch, mantis, ...)
+// are unchanged: they are gameplay roles, and the levels reference them.
+export const KIND_NAME  = ['SKITTER', 'STALKER', 'RAVAGER', 'BRUISER', 'COLOSSUS',
+                    'SPITTER', 'BOMBARD'];
 // Filled by initEnemyPool(), NOT here. An imported module's body runs BEFORE the
 // importer's, so a loadModel() at module scope would fire before main.ts has
 // called initWindow() — and the engine panics with "Engine not initialized".
@@ -52,17 +55,13 @@ export const mdlAliens: Model[] = new Array<Model>(KIND_COUNT);
 // not another parse of the same GLB. Independence guarantee unchanged;
 // the ~5 s of duplicate GLB parsing at boot is gone.
 export const ALIEN_GLB = [
-  'assets/models/enemy_dretch.glb',
-  'assets/models/enemy_mantis.glb',
-  'assets/models/enemy_marauder.glb',
-  'assets/models/enemy_dragoon.glb',
-  'assets/models/enemy_tyrant.glb',
-  'assets/models/enemy_adv_marauder.glb',
-  // The adv dragoon deliberately loads the BASE dragoon GLB: upstream level3
-  // has no adv art (`body_adv.skin` maps to the same textures as default), so
-  // enemy_adv_dragoon.glb was a byte-identical 4.9 MB copy. Its identity comes
-  // from KIND_TINTO below instead.
-  'assets/models/enemy_dragoon.glb',
+  'assets/models/enemy_skitter.glb',
+  'assets/models/enemy_stalker.glb',
+  'assets/models/enemy_ravager.glb',
+  'assets/models/enemy_bruiser.glb',
+  'assets/models/enemy_colossus.glb',
+  'assets/models/enemy_spitter.glb',
+  'assets/models/enemy_bombard.glb',
 ];
 
 // 2026-07-16 audit — per-kind base tint (an albedo multiplier; shading and
@@ -73,8 +72,8 @@ export const ALIEN_GLB = [
 // matches the "upgrade classes run cooler" language the adv marauder's real
 // recolour already speaks. Everyone else stays white (multiplier of 1).
 export const KIND_TINT_R = [255, 255, 255, 255, 255, 255, 255];
-export const KIND_TINT_G = [255, 255, 255, 255, 255, 255, 150];
-export const KIND_TINT_B = [255, 255, 255, 255, 255, 255, 235];
+export const KIND_TINT_G = [255, 255, 255, 255, 255, 255, 255];
+export const KIND_TINT_B = [255, 255, 255, 255, 255, 255, 255];
 export const KIND_TINTO = new Array<any>(KIND_COUNT);
 for (let k = 0; k < KIND_COUNT; k++) {
   KIND_TINTO[k] = { r: KIND_TINT_R[k], g: KIND_TINT_G[k], b: KIND_TINT_B[k], a: 255 };
@@ -82,6 +81,15 @@ for (let k = 0; k < KIND_COUNT; k++) {
 // Per-kind handle, kept only for the load-time joint lookups below.
 // Also deferred to initEnemyPool() — same reason.
 export const animAliens = new Array<number>(KIND_COUNT);
+// NEW CAST (Tripo Studio rigs, tools/gen/build_cast.sh): every creature carries
+// the same nine clips in sorted order —
+//   0 c_attack  1 c_run  2 death  3 fall  4 hit_to_body_01  5 idle  6 run  7 slash  8 walk
+// c_run and c_attack are that creature's OWN motion (the Skitter scuttles, the
+// Colossus lumbers, the Spitter spits, the Bombard fires from its back); 6 and 7
+// are the shared human presets they replaced, kept as fallbacks. Everything is
+// authored in metres at real height, so KIND_SCALE is 1.
+// The Bombard (the ranged heavy) has its own model, so the violet tint that used
+// to tell it from the melee heavy is gone (KIND_TINT_* are all white).
 // Animation indices — IQE declaration order. Dretch (and most others):
 // 0 stand, 1 attack, 4 die, 14 run, 20 walk. We map gameplay -> anim idx.
 // Per-kind animation indices, in kind order [dretch, mantis, marauder,
@@ -92,23 +100,26 @@ export const animAliens = new Array<number>(KIND_COUNT);
 // The upgrade classes share their BASE class's rig and clip layout — that is
 // what makes them upgrades rather than new models — so adv marauder reuses the
 // marauder's indices (col 2) and adv dragoon the dragoon's (col 3).
-export const ANIM_WALK_IDX   = [14, 18, 14, 12, 15, 14, 12];   // 'run'
-export const ANIM_ATTACK_IDX = [ 1,  4,  1,  6,  1,  1,  6];   // 'attack'
-export const ANIM_DIE_IDX    = [ 4,  7,  4,  7,  5,  4,  7];   // 'die'
+export const ANIM_WALK_IDX   = [ 1,  1,  1,  1,  1,  1,  1];   // 'run'
+// Every creature attacks with its own clip. (Skitter and Bruiser needed a second, more forceful
+// take; their first came out as a near-static guard pose. Review any new take on a
+// tools/blender/clip_sheet.py sheet before trusting it.)
+export const ANIM_ATTACK_IDX = [ 0,  0,  0,  0,  0,  0,  0];   // 'attack'
+export const ANIM_DIE_IDX    = [ 2,  2,  2,  2,  2,  2,  2];   // 'die'
 // SH-030 — pain clips, for the flinch state. The IQE sources carry them and the
 // converter extracts every clip; indices verified per GLB with
 // tools/inspect-glb.ts. Falls back to the attack clip's neighbour if a kind
 // turns out not to have one, which is harmless (a short twitch).
-export const ANIM_PAIN_IDX   = [ 2,  5,  2,  8,  3,  2,  8];
+export const ANIM_PAIN_IDX   = [ 4,  4,  4,  4,  4,  4,  4];
 // EN-028 upper-body mask root, so an alien can bite WHILE closing instead of
 // stopping to bite. -1 = no such joint, and the attack stays full-body (i.e.
 // exactly today's behaviour) rather than breaking.
 export const KIND_SPINE_JOINT = new Array<number>(KIND_COUNT);
-export const KIND_IDLE_IDX    = [ 0,  0,  0,  0,  0,  0,  0];
+export const KIND_IDLE_IDX    = [ 5,  5,  5,  5,  5,  5,  5];
 // Die-anim durations (max keyframe time per GLB). The engine WRAPS anim
 // time (t % duration), so death playback clamps just short of these to
 // freeze on the final collapsed pose instead of re-looping the fall.
-export const ANIM_DIE_DUR    = [1.55, 1.567, 0.883, 1.8, 2.567, 0.883, 1.8];
+export const ANIM_DIE_DUR    = [2.35, 2.35, 2.35, 2.35, 2.35, 2.35, 2.35];
 // Procedural motion parameters (cheap substitute for skeletal animation).
 // Each enemy has a phase accumulator — sinusoids on top give a bob + side-
 // sway while walking, and a forward-lunge while attacking.
@@ -125,7 +136,7 @@ export const ATTACK_LUNGE_AMP = 0.25; // m forward during attack
 // world heights ≈ 0.65 / 1.4 / 1.8 / 2.1 / 3.0 m. Colliders unchanged
 // (they were deliberately generous).
 //                 dretch mantis maraud dragoon tyrant  ADV.MAR  ADV.DRAGOON
-export const KIND_SCALE = [0.88, 0.55, 0.39, 0.14, 0.57,  0.41,    0.15];
+export const KIND_SCALE = [1.00, 1.00, 1.00, 1.00, 1.00,  1.00,    1.00];
 export const KIND_HX    = [1.0,  0.9,  1.2,  1.4,  1.8,   1.2,     1.4];
 export const KIND_HY    = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5];
 export const KIND_HZ    = [1.1,  1.0,  1.3,  1.6,  2.0,   1.3,     1.6];

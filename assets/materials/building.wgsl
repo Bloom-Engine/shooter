@@ -8,8 +8,12 @@
 //
 // Now it samples two CC0 photoscan slices, picked by which way the face points:
 //
-//   slice 0  WALL  concrete_wall_008 — board-formed concrete
-//   slice 1  SLAB  concrete_floor_02     — floors and the roof terrace
+//   slice 0  WALL   brick_wall_006    — brick infill (2026-11; was board-formed concrete)
+//   slice 1  SLAB   concrete_floor_02 — floors, roof terrace, and the concrete frame and trim
+//   slice 2  METAL  metal_plate_02    — steel window linings, awnings, downpipes
+//
+// Which one a box wears comes in on vertex colour .r (environment.ts, bakeBox): 1 = by face
+// direction as described below, 0 = concrete on every face, 0.5 = steel.
 //
 // The wall/slab split is the reason to bother. Every face used to get identical
 // beige noise, so the roof terrace read as a wall lying down. Face direction
@@ -31,6 +35,7 @@
 // facade and plaster floors.
 const SLICE_WALL: i32 = 0;
 const SLICE_SLAB: i32 = 1;
+const SLICE_METAL: i32 = 2;
 
 struct BldgParams {
   // xyz = base TINT, multiplied into the sampled albedo (the scan carries the
@@ -55,6 +60,7 @@ struct VsOut {
   // EN-022 — clip positions for motion vectors.
   @location(2)       curr_clip:    vec4<f32>,
   @location(3)       prev_clip:    vec4<f32>,
+  @location(4)       code:         f32,
 };
 
 @vertex
@@ -67,6 +73,7 @@ fn vs_main(in: VertexInput) -> VsOut {
   // EN-022 — static geometry: camera-reprojection motion vector.
   out.curr_clip    = out.clip_pos;
   out.prev_clip    = view.prev_view_proj * world;
+  out.code         = in.color.r;
   return out;
 }
 
@@ -117,11 +124,33 @@ fn fs_main(in: VsOut) -> OpaqueOut {
     is_slab   = false;
   }
 
+  // Material override for trim boxes. The PROJECTION stays the face's own; `is_slab` keeps
+  // meaning "horizontal face" for the weathering and the tangent mapping below.
+  let is_metal = in.code > 0.25 && in.code < 0.75;
+  let is_trim  = in.code < 0.75;
+  if (is_metal) {
+    slice  = SLICE_METAL;
+    size_m = 2.0;
+  } else if (is_trim) {
+    slice  = SLICE_SLAB;
+    size_m = bp.knobs.w;
+  }
+
   // Tiles-per-metre from the slice's real scan size — 1:1 physical scale.
   let s  = 1.0 / max(size_m, 0.01);
   let uv = sample_uv * s;
 
-  let tex = textureSample(albedo_array, albedo_array_samp, uv, slice).rgb;
+  let tex_near = textureSample(albedo_array, albedo_array_samp, uv, slice).rgb;
+  // Distance anti-tiling (2026-11, photoreal pass), as in terrain.wgsl: a 24 m facade shows the
+  // 2 m scan twelve times, and from across the plaza that reads as wallpaper. Far away the same
+  // scan is cross-faded with a copy 4.3 times larger, offset so its seams never line up.
+  // Blurred six mips down: only the scan's broad tone patches survive. A SHARP enlargement
+  // turned every brick into a metre-long block from across the plaza.
+  let tex_far  = textureSampleBias(albedo_array, albedo_array_samp, uv * 0.37 + vec2<f32>(0.37, 0.61), slice, 3.0).rgb;
+  let far_t    = smoothstep(10.0, 45.0, distance(view.camera_pos.xyz, p)) * 0.8;
+  // Brick and steel take the near tap alone (a regular bond enlarged is a different wall);
+  // concrete keeps the cross-fade.
+  let tex      = select(tex_near, mix(tex_near, tex_far, far_t), slice == SLICE_SLAB);
 
   // Macro tone break-up. The scan tiles every ~2 m; without a low-frequency
   // multiply on top, a 24 m facade announces that period as a grid. Same trick
@@ -133,7 +162,12 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // parser rejects the module outright (terrain.wgsl names it the same way for
   // the same reason).
   let macro_v  = mix(1.0 - bp.base.w * 0.18, 1.0 + bp.base.w * 0.18, nz);
-  let speckled = tex * bp.base.rgb * macro_v;
+  // Steel is painted dark and takes no warm wall tint; the concrete frame is a shade lighter
+  // than the floor scan so it reads against the brick.
+  var mat_tint = bp.base.rgb;
+  if (is_metal) { mat_tint = vec3<f32>(0.42, 0.45, 0.46); }
+  else if (is_trim) { mat_tint = vec3<f32>(1.12, 1.10, 1.04); }
+  let speckled = tex * mat_tint * macro_v;
 
   // Horizontal mortar lines every `band_period` metres, analytically
   // antialiased. The old form — pow(max(cos(y·f),0), band.w·8) — was a
@@ -158,11 +192,48 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // period and the entire slab tints uniformly (or not) depending on where its
   // height happens to fall. That was live before SH-050 and read as an
   // inexplicably darker roof. A mortar line is a wall feature; scope it to walls.
-  let band_t     = select(band_edge * band_cov, 0.0, is_slab);
+  // 2026-11: off. The concrete courses at each slab are real geometry now, and a painted line
+  // across brickwork is wrong.
+  let band_t     = select(band_edge * band_cov, 0.0, is_slab) * 0.0;
   // 0.6 -> 0.35: the band used to be drawn over flat colour and was the only
   // thing on the wall. Over a real plaster scan it competes with the material,
   // and a hard painted stripe is exactly the "simple" read we are removing.
-  let albedo     = mix(speckled, bp.band.rgb, band_t * 0.35);
+  let banded     = mix(speckled, bp.band.rgb, band_t * 0.35);
+
+  // ---- weathering (2026-11, photoreal pass) --------------------------------
+  // A clean scan on a box reads as a model of a building. What makes concrete read as a
+  // building that has stood outside is where the dirt is: splash-back and damp at the foot of
+  // every wall, and dark run-off streaks hanging from the top of each storey where water
+  // sheets off the slab edge. Both are functions of world position only, so they are stable
+  // under TAA and cost three noise taps. WALLS ONLY; slabs get a faint pooled-water mottle.
+  let along   = sample_uv.x;                      // metres along the wall (p.z or p.x)
+  var weathered = banded;
+  if (is_metal) {
+    // Rust bleeding down from the top edge of each piece is in the scan; leave it alone.
+  } else if (!is_slab) {
+    // Ground grime: strongest at the footing (floor level is y = 0.2), gone by about 1.4 m,
+    // with a ragged upper edge.
+    let foot_n  = value_noise(vec2<f32>(along * 0.9, p.y * 2.3));
+    let foot    = 1.0 - smoothstep(0.15, 1.1 + foot_n * 0.6, p.y - 0.2);
+    let grime   = vec3<f32>(0.30, 0.27, 0.20);    // damp earth, slightly green-brown
+    weathered   = mix(weathered, weathered * grime * 1.9, foot * 0.55);
+
+    // Run-off streaks: narrow vertical bands (high frequency along the wall, very low
+    // vertically) that start at each storey's slab edge (every 3.7 m) and fade downward.
+    let storey  = fract((p.y - 0.2) / 3.7);       // 0 at a floor, 1 just under the next slab
+    let from_top = 1.0 - storey;                  // 0 right under the slab edge
+    let streak_n = value_noise(vec2<f32>(along * 5.5, p.y * 0.22))
+                 * value_noise(vec2<f32>(along * 1.3 + 7.1, p.y * 0.08));
+    let streak  = smoothstep(0.22, 0.55, streak_n) * (1.0 - smoothstep(0.0, 0.75, from_top));
+    weathered   = weathered * (1.0 - streak * 0.38);
+    // A thin dark line directly under each slab edge, where dirt collects.
+    let lip     = 1.0 - smoothstep(0.0, 0.035, from_top);
+    weathered   = weathered * (1.0 - lip * 0.25);
+  } else {
+    let pool_n  = value_noise(p.xz * 0.45) * value_noise(p.xz * 1.7 + 3.3);
+    weathered   = weathered * (1.0 - smoothstep(0.25, 0.6, pool_n) * 0.16);
+  }
+  let albedo     = weathered;
 
   // ---- normal -------------------------------------------------------------
   // Tangent -> world by the same swizzle the face plane chose, matching
@@ -210,7 +281,7 @@ fn fs_main(in: VsOut) -> OpaqueOut {
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
-  out.material = vec2<f32>(0.0, clamp(rough, 0.15, 1.0));  // non-metal
+  out.material = vec2<f32>(select(0.0, 0.55, is_metal), clamp(rough, 0.15, 1.0));
   // EN-022 — real motion vectors (see terrain.wgsl).
   out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);
   out.albedo   = vec4<f32>(albedo, 1.0);

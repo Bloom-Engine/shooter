@@ -24010,6 +24010,6790 @@
       "userData": {
         "kind": "prop_tree"
       }
+    },
+    {
+      "id": "ht_000",
+      "name": "ht_000",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -27.68,
+          0.3,
+          -4.965
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "5.390, 0.320, 0.045",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_001",
+      "name": "ht_001",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.32,
+          0.3,
+          -4.965
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "5.390, 0.320, 0.045",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_002",
+      "name": "ht_002",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -30.18,
+          0.3,
+          -21.035
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "2.890, 0.320, 0.045",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_003",
+      "name": "ht_003",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -16.82,
+          0.3,
+          -21.035
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "7.890, 0.320, 0.045",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_004",
+      "name": "ht_004",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.965,
+          0.3,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.320, 8.070",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_005",
+      "name": "ht_005",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.035,
+          0.3,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.320, 8.070",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_006",
+      "name": "ht_006",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          3.65,
+          -4.955
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "12.100, 0.290, 0.055",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_007",
+      "name": "ht_007",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          3.65,
+          -21.045
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "12.100, 0.290, 0.055",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_008",
+      "name": "ht_008",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.955,
+          3.65,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.055, 0.290, 8.100",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_009",
+      "name": "ht_009",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.045,
+          3.65,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.055, 0.290, 8.100",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_010",
+      "name": "ht_010",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          7.35,
+          -4.955
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "12.100, 0.290, 0.055",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_011",
+      "name": "ht_011",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          7.35,
+          -21.045
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "12.100, 0.290, 0.055",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_012",
+      "name": "ht_012",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.955,
+          7.35,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.055, 0.290, 8.100",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_013",
+      "name": "ht_013",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.045,
+          7.35,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.055, 0.290, 8.100",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_014",
+      "name": "ht_014",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          8.74,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "12.080, 0.050, 0.300",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_015",
+      "name": "ht_015",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          8.74,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "12.080, 0.050, 0.300",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_016",
+      "name": "ht_016",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          8.74,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.300, 0.050, 8.080",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_017",
+      "name": "ht_017",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          8.74,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.300, 0.050, 8.080",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_018",
+      "name": "ht_018",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.8,
+          4.35,
+          -4.97
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_019",
+      "name": "ht_019",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.2,
+          4.35,
+          -4.97
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_020",
+      "name": "ht_020",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -25.0,
+          4.35,
+          -4.97
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_021",
+      "name": "ht_021",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -17.0,
+          4.35,
+          -4.97
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_022",
+      "name": "ht_022",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.8,
+          4.35,
+          -21.03
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_023",
+      "name": "ht_023",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.2,
+          4.35,
+          -21.03
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_024",
+      "name": "ht_024",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -24.25,
+          4.35,
+          -21.03
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_025",
+      "name": "ht_025",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -17.0,
+          4.35,
+          -21.03
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.260, 4.350, 0.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_026",
+      "name": "ht_026",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.97,
+          4.35,
+          -20.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.040, 4.350, 0.260",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_027",
+      "name": "ht_027",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.97,
+          4.35,
+          -5.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.040, 4.350, 0.260",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_028",
+      "name": "ht_028",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.97,
+          4.35,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.040, 4.350, 0.260",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_029",
+      "name": "ht_029",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.03,
+          4.35,
+          -20.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.040, 4.350, 0.260",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_030",
+      "name": "ht_030",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.03,
+          4.35,
+          -5.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.040, 4.350, 0.260",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_031",
+      "name": "ht_031",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.03,
+          4.35,
+          -13.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.040, 4.350, 0.260",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_032",
+      "name": "ht_032",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.855,
+          2.05,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_033",
+      "name": "ht_033",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -27.145,
+          2.05,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_034",
+      "name": "ht_034",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          2.655,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_035",
+      "name": "ht_035",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          1.445,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_036",
+      "name": "ht_036",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          1.355,
+          -4.98
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_037",
+      "name": "ht_037",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          2.05,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.650, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_038",
+      "name": "ht_038",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          1.868,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_039",
+      "name": "ht_039",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          2.284,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_040",
+      "name": "ht_040",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -22.155,
+          1.5,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 1.300, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_041",
+      "name": "ht_041",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.845,
+          1.5,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 1.300, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_042",
+      "name": "ht_042",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          2.755,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.200, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_043",
+      "name": "ht_043",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          3.22,
+          -4.45
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.650, 0.025, 0.570",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_044",
+      "name": "ht_044",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -22.5,
+          3.02,
+          -4.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.180, 0.300",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_045",
+      "name": "ht_045",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.5,
+          3.02,
+          -4.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.180, 0.300",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_046",
+      "name": "ht_046",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.855,
+          2.05,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_047",
+      "name": "ht_047",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.145,
+          2.05,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_048",
+      "name": "ht_048",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          2.655,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_049",
+      "name": "ht_049",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          1.445,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_050",
+      "name": "ht_050",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          1.355,
+          -4.98
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_051",
+      "name": "ht_051",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          2.05,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.650, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_052",
+      "name": "ht_052",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          1.868,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_053",
+      "name": "ht_053",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          2.284,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_054",
+      "name": "ht_054",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.855,
+          5.3,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_055",
+      "name": "ht_055",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -27.145,
+          5.3,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_056",
+      "name": "ht_056",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.955,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_057",
+      "name": "ht_057",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          4.645,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_058",
+      "name": "ht_058",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          4.555,
+          -4.98
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_059",
+      "name": "ht_059",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.3,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.700, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_060",
+      "name": "ht_060",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.104,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_061",
+      "name": "ht_061",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.552,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_062",
+      "name": "ht_062",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.855,
+          5.3,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_063",
+      "name": "ht_063",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -20.145,
+          5.3,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_064",
+      "name": "ht_064",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.955,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_065",
+      "name": "ht_065",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          4.645,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_066",
+      "name": "ht_066",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          4.555,
+          -4.98
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_067",
+      "name": "ht_067",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.3,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.700, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_068",
+      "name": "ht_068",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.104,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_069",
+      "name": "ht_069",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.552,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_070",
+      "name": "ht_070",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.855,
+          5.3,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_071",
+      "name": "ht_071",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.145,
+          5.3,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_072",
+      "name": "ht_072",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.955,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_073",
+      "name": "ht_073",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          4.645,
+          -5.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_074",
+      "name": "ht_074",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          4.555,
+          -4.98
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_075",
+      "name": "ht_075",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.3,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.700, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_076",
+      "name": "ht_076",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.104,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_077",
+      "name": "ht_077",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.552,
+          -5.16
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_078",
+      "name": "ht_078",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -27.155,
+          1.5,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 1.300, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_079",
+      "name": "ht_079",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -24.845,
+          1.5,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 1.300, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_080",
+      "name": "ht_080",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -26.0,
+          2.755,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.200, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_081",
+      "name": "ht_081",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -26.0,
+          3.22,
+          -21.55
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.650, 0.025, 0.570",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_082",
+      "name": "ht_082",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -27.5,
+          3.02,
+          -21.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.180, 0.300",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_083",
+      "name": "ht_083",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -24.5,
+          3.02,
+          -21.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.180, 0.300",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_084",
+      "name": "ht_084",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.855,
+          2.05,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_085",
+      "name": "ht_085",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -18.145,
+          2.05,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_086",
+      "name": "ht_086",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.0,
+          2.655,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_087",
+      "name": "ht_087",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.0,
+          1.445,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_088",
+      "name": "ht_088",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.0,
+          1.355,
+          -21.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_089",
+      "name": "ht_089",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.0,
+          2.05,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.650, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_090",
+      "name": "ht_090",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.0,
+          1.868,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_091",
+      "name": "ht_091",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -19.0,
+          2.284,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_092",
+      "name": "ht_092",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.355,
+          2.05,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_093",
+      "name": "ht_093",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -11.645,
+          2.05,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.650, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_094",
+      "name": "ht_094",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.5,
+          2.655,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_095",
+      "name": "ht_095",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.5,
+          1.445,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_096",
+      "name": "ht_096",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.5,
+          1.355,
+          -21.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_097",
+      "name": "ht_097",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.5,
+          2.05,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.650, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_098",
+      "name": "ht_098",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.5,
+          1.868,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_099",
+      "name": "ht_099",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -12.5,
+          2.284,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_100",
+      "name": "ht_100",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.855,
+          5.3,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_101",
+      "name": "ht_101",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -27.145,
+          5.3,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_102",
+      "name": "ht_102",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.955,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_103",
+      "name": "ht_103",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          4.645,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_104",
+      "name": "ht_104",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          4.555,
+          -21.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_105",
+      "name": "ht_105",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.3,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.700, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_106",
+      "name": "ht_106",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.104,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_107",
+      "name": "ht_107",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -28.0,
+          5.552,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_108",
+      "name": "ht_108",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.855,
+          5.3,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_109",
+      "name": "ht_109",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -20.145,
+          5.3,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_110",
+      "name": "ht_110",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.955,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_111",
+      "name": "ht_111",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          4.645,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_112",
+      "name": "ht_112",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          4.555,
+          -21.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_113",
+      "name": "ht_113",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.3,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.700, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_114",
+      "name": "ht_114",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.104,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_115",
+      "name": "ht_115",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -21.0,
+          5.552,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_116",
+      "name": "ht_116",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.855,
+          5.3,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_117",
+      "name": "ht_117",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -13.145,
+          5.3,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.045, 0.700, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_118",
+      "name": "ht_118",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.955,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_119",
+      "name": "ht_119",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          4.645,
+          -20.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.045, 0.335",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_120",
+      "name": "ht_120",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          4.555,
+          -21.02
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "1.040, 0.050, 0.130",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_121",
+      "name": "ht_121",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.3,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.022, 0.700, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_122",
+      "name": "ht_122",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.104,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_123",
+      "name": "ht_123",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -14.0,
+          5.552,
+          -20.84
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.900, 0.020, 0.025",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_124",
+      "name": "ht_124",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          2.05,
+          -17.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_125",
+      "name": "ht_125",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          2.05,
+          -16.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_126",
+      "name": "ht_126",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          2.655,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_127",
+      "name": "ht_127",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          1.445,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_128",
+      "name": "ht_128",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.98,
+          1.355,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_129",
+      "name": "ht_129",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          2.05,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.650, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_130",
+      "name": "ht_130",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          1.868,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_131",
+      "name": "ht_131",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          2.284,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_132",
+      "name": "ht_132",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          2.05,
+          -9.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_133",
+      "name": "ht_133",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          2.05,
+          -8.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_134",
+      "name": "ht_134",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          2.655,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_135",
+      "name": "ht_135",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          1.445,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_136",
+      "name": "ht_136",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.98,
+          1.355,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_137",
+      "name": "ht_137",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          2.05,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.650, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_138",
+      "name": "ht_138",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          1.868,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_139",
+      "name": "ht_139",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          2.284,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_140",
+      "name": "ht_140",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          5.3,
+          -17.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_141",
+      "name": "ht_141",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          5.3,
+          -16.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_142",
+      "name": "ht_142",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          5.955,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_143",
+      "name": "ht_143",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          4.645,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_144",
+      "name": "ht_144",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.98,
+          4.555,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_145",
+      "name": "ht_145",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          5.3,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.700, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_146",
+      "name": "ht_146",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          5.104,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_147",
+      "name": "ht_147",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          5.552,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_148",
+      "name": "ht_148",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          5.3,
+          -9.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_149",
+      "name": "ht_149",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          5.3,
+          -8.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_150",
+      "name": "ht_150",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          5.955,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_151",
+      "name": "ht_151",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.3,
+          4.645,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_152",
+      "name": "ht_152",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -8.98,
+          4.555,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_153",
+      "name": "ht_153",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          5.3,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.700, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_154",
+      "name": "ht_154",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          5.104,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_155",
+      "name": "ht_155",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -9.16,
+          5.552,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_156",
+      "name": "ht_156",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          2.05,
+          -17.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_157",
+      "name": "ht_157",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          2.05,
+          -16.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_158",
+      "name": "ht_158",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          2.655,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_159",
+      "name": "ht_159",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          1.445,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_160",
+      "name": "ht_160",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.02,
+          1.355,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_161",
+      "name": "ht_161",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          2.05,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.650, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_162",
+      "name": "ht_162",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          1.868,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_163",
+      "name": "ht_163",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          2.284,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_164",
+      "name": "ht_164",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          2.05,
+          -9.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_165",
+      "name": "ht_165",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          2.05,
+          -8.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.650, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_166",
+      "name": "ht_166",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          2.655,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_167",
+      "name": "ht_167",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          1.445,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_168",
+      "name": "ht_168",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.02,
+          1.355,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_169",
+      "name": "ht_169",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          2.05,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.650, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_170",
+      "name": "ht_170",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          1.868,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_171",
+      "name": "ht_171",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          2.284,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_172",
+      "name": "ht_172",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          5.3,
+          -17.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_173",
+      "name": "ht_173",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          5.3,
+          -16.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_174",
+      "name": "ht_174",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          5.955,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_175",
+      "name": "ht_175",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          4.645,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_176",
+      "name": "ht_176",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.02,
+          4.555,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_177",
+      "name": "ht_177",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          5.3,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.700, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_178",
+      "name": "ht_178",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          5.104,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_179",
+      "name": "ht_179",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          5.552,
+          -17.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_180",
+      "name": "ht_180",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          5.3,
+          -9.855
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_181",
+      "name": "ht_181",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          5.3,
+          -8.145
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.700, 0.045",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_182",
+      "name": "ht_182",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          5.955,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_183",
+      "name": "ht_183",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.7,
+          4.645,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.335, 0.045, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_184",
+      "name": "ht_184",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -33.02,
+          4.555,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.130, 0.050, 1.040",
+        "slice": "concrete"
+      }
+    },
+    {
+      "id": "ht_185",
+      "name": "ht_185",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          5.3,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.700, 0.022",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_186",
+      "name": "ht_186",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          5.104,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_187",
+      "name": "ht_187",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -32.84,
+          5.552,
+          -9.0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.025, 0.020, 0.900",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_188",
+      "name": "ht_188",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          3.85,
+          -4.87
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.050, 3.750, 0.050",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_189",
+      "name": "ht_189",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          1.2,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_190",
+      "name": "ht_190",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          3.0,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_191",
+      "name": "ht_191",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          5.2,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_192",
+      "name": "ht_192",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          7.3,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_193",
+      "name": "ht_193",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          3.85,
+          -4.87
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.050, 3.750, 0.050",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_194",
+      "name": "ht_194",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          1.2,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_195",
+      "name": "ht_195",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          3.0,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_196",
+      "name": "ht_196",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          5.2,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_197",
+      "name": "ht_197",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          7.3,
+          -4.91
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_198",
+      "name": "ht_198",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          3.85,
+          -21.13
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.050, 3.750, 0.050",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_199",
+      "name": "ht_199",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          1.2,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_200",
+      "name": "ht_200",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          3.0,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_201",
+      "name": "ht_201",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          5.2,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_202",
+      "name": "ht_202",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.95,
+          7.3,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_203",
+      "name": "ht_203",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          3.85,
+          -21.13
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.050, 3.750, 0.050",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_204",
+      "name": "ht_204",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          1.2,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_205",
+      "name": "ht_205",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          3.0,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_206",
+      "name": "ht_206",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          5.2,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_207",
+      "name": "ht_207",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -10.05,
+          7.3,
+          -21.09
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.075, 0.030, 0.090",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_208",
+      "name": "ht_208",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.4,
+          10.0,
+          -19.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.035, 2.400, 0.035",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_209",
+      "name": "ht_209",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.4,
+          7.66,
+          -19.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.220, 0.060, 0.220",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_210",
+      "name": "ht_210",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.4,
+          11.9,
+          -19.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.450, 0.020, 0.020",
+        "slice": "metal"
+      }
+    },
+    {
+      "id": "ht_211",
+      "name": "ht_211",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -31.4,
+          11.5,
+          -19.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "trim"
+      ],
+      "userData": {
+        "kind": "building_trim",
+        "halfExtents": "0.020, 0.020, 0.320",
+        "slice": "metal"
+      }
     }
   ],
   "lights": [

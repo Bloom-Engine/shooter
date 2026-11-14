@@ -5,11 +5,12 @@ import {
   isMobile, getPlatform,
   getTouchX, getTouchY, isTouchActive, getMaxTouchPoints,
   getScreenWidth, getScreenHeight,
-  drawCircle, drawCircleLines, drawText, measureText,
+  drawCircle, drawCircleLines,
   isGamepadAvailable, getGamepadAxis,
   isGamepadButtonDown, isGamepadButtonPressed,
   Key,
 } from 'bloom';
+import { drawText, measureText } from './ui-text';
 import {
   get, SET_SENS, SET_PAD_SENS, SET_INVERT_Y,
   SET_AIM_TOGGLE, SET_SPRINT_TOGGLE,
@@ -77,6 +78,12 @@ const TOUCH_PITCH_PER_SCREEN = 2.4;
 const JOY_DEADZONE = 0.14;
 
 export const MOBILE = isMobile();
+
+// SH-055 — Android (Perry --target android, engine on Vulkan). MOBILE is true
+// here too, but the shared mobile profile was measured on an iPhone 16 Pro
+// (~50fps); a 2020-era Adreno (e.g. Pixel 4a) is ~10x weaker and needs a much
+// leaner budget, so Android gets its own overrides on top of the mobile base.
+export const ANDROID = getPlatform() === 5;
 
 // SH-054 — running in a browser (Perry --target web, engine on WebGPU).
 // Deliberately distinct from MOBILE: desktop web is keyboard+mouse and full

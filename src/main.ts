@@ -3,7 +3,7 @@ import {
   beginDrawing, endDrawing, clearBackground,
   setTargetFPS, getDeltaTime, getFPS, getTime,
   beginMode3D, endMode3D,
-  drawCube, drawText, drawRect,
+  drawCube, drawRect,
   setAmbientLight, setDirectionalLight, setEnvClearFromHdr,
   getScreenWidth, getScreenHeight,
   vec3,
@@ -21,6 +21,7 @@ import {
   splatImpulse, setMaterialParams,
   compileMaterialFromFile, loadMaterial,
 } from 'bloom';
+import { drawText, measureText } from './ui-text';
 import {
   // Raw-primitive variant of beginMode2D: the object-taking one isn't worth the
   // risk on a per-frame FFI path (perry-quirks #2), and only this one is
@@ -29,7 +30,7 @@ import {
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setCloudShadows,
-  setTaaEnabled, setRenderScale,
+  setTaaEnabled, setRenderScale, setCasStrength,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled,
@@ -50,7 +51,7 @@ import {
   TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
   createRagdoll, activateRagdoll, pushRagdoll, updateRagdoll, releaseRagdoll,
 } from 'bloom/models';
-import { initInput, readInput, drawTouchControls, MOBILE, WEB } from './input';
+import { initInput, readInput, drawTouchControls, MOBILE, ANDROID, WEB } from './input';
 import {
   createPlayer, updatePlayerController, playerPosition,
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting, isCrouching,
@@ -162,6 +163,8 @@ else if (cliPt === 'rt' || cliPt === '2') SET.set(SET.SET_PT, 2);
 // snow-dots (GTAO, engine #95) and the house-interior shadow leak were
 // isolated. Debug aid — costs nothing when absent.
 const cliDbgOff = cliArg('--dbg-off');
+// `--debughud 1` starts with the developer overlays showing (F1 toggles them in a run).
+if (cliArg('--debughud') === '1') GS.debugHud = true;
 
 // SH-052d — `--audiotest orbit|flyby|river` starts a quiet scene (waves
 // suppressed) so the 3D audio can be judged directly. orbit = a voice circles
@@ -409,6 +412,12 @@ setCloudShadows(0.45, 150, 0.008, 6);
 // multiply the ray cost.
 setTaaEnabled(true);
 setRenderScale(0.75);
+// Contrast-adaptive sharpening on top of the TSR reconstruction (2026-11, photoreal pass): the
+// 4K character and ground textures resolve finer detail than a 0.75-scale reconstruction
+// returns on its own, and the image read soft. 0.45 is between the engine's "subtle" and
+// "punchy"; it is one cheap full-screen pass. Desktop only: the phone profile has no headroom
+// to spare and its smaller screen hides the softness.
+if (!MOBILE) setCasStrength(0.45);
 // 2026-07-06 fullscreen-lag investigation: the Lumen SW-GI camera-follow
 // bakes (SDF clipmap + WSRC) used to re-run as single full-volume
 // dispatches whenever the view moved — a 1-2.4 s GPU stall every ~5 s of
@@ -454,6 +463,24 @@ if (MOBILE) {
   setRenderScale(0.5);
   // Sun shafts are a full-screen radial blur — pure cost for a pass the player
   // only sees when looking near the sun. Strength 0 is off.
+  setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
+}
+
+// SH-055 — Android low-tier override. The mobile base above is an iPhone-class
+// budget; a 2020 Adreno (Pixel 4a) can't afford the shadow-map re-render, SSAO,
+// or bloom on top of the plaza's 88 trees + 20k grass, and shipped at ~1 fps.
+// Cut the heaviest full-scene / full-screen passes and drop the internal buffer
+// harder (TAA/TSR still reconstruct toward native). This is deliberately a
+// separate, blunt tier — the seed of the hardware-tier auto-detect (SH-056).
+if (ANDROID) {
+  setShadowsEnabled(false);   // second full-scene pass — the biggest single win
+  setSsaoEnabled(false);
+  setBloomEnabled(false);
+  setTaaEnabled(true);        // needed to reconstruct the low-res buffer
+  // SH-055 — user requires >=0.5 for visual quality; measuring what actually
+  // costs main_hdr_pass's GPU time at this fixed scale before touching any
+  // shared shader/ABI code.
+  setRenderScale(0.5);
   setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
 }
 
@@ -565,14 +592,16 @@ const treeVariants = [
 // with twitching hair. The wind is hierarchical now: the trunk leans slowly
 // (the motion you read at 30 m), the branches swing at their own rate, and the
 // leaves flutter fast at the tips.
-for (let i = 0; i < treeVariants.length; i++) setModelFoliageWind(treeVariants[i], 1.0);
+// 0.5 since the grown trees (2026-11): they are about half again as tall and wide as the old
+// ones, and the bend grows with height squared.
+for (let i = 0; i < treeVariants.length; i++) setModelFoliageWind(treeVariants[i], 0.5);
 // Swaying SHADOWS are a separate, paid-for decision: a caster that moves cannot
 // reuse the cached static shadow depth, so all 88 trees would re-render into
 // every cascade every frame. Measured before switching on - see docs/tickets.md
 // SH-013.
 setFoliageShadowMotion(FOLIAGE_SHADOW_MOTION);
-// All tree GLBs are 4 primitives: trunk + 2 branch stubs + leaf cards.
-const TREE_GLB_PARTS = 4;
+// All tree GLBs are 2 primitives: bark (trunk and every branch), then the leaf cards.
+const TREE_GLB_PARTS = 2;   // bark, leaves (tools/blender/build_tree.py)
 // Front-to-back draw order for the forest (see the draw loop). Flat arrays,
 // Perry convention — allocated once, rewritten each frame.
 const FOREST_D = new Array<number>(W.FOREST_COUNT);
@@ -802,9 +831,9 @@ const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opa
   // the MR slot, which the splat map now needs — there are only three (EN-014).
   normalPaths[4] = 'assets/textures/terrain_detail_normal.png';
 
-  const albedoArr = createTextureArrayFromFiles(albedoPaths, TEX_ARRAY_FORMAT_SRGB, 4);
+  const albedoArr = createTextureArrayFromFiles(albedoPaths, TEX_ARRAY_FORMAT_SRGB, 11);   // full chain for 2048 (4 aliased at range)
   // Normals MUST be linear — sRGB-decoding an encoded normal corrupts it.
-  const normalArr = createTextureArrayFromFiles(normalPaths, TEX_ARRAY_FORMAT_LINEAR, 4);
+  const normalArr = createTextureArrayFromFiles(normalPaths, TEX_ARRAY_FORMAT_LINEAR, 11);
 
   // The splat map: one RGBA8 texel per terrain cell, built once at load from the
   // painted weights. Linear, no mips — it is data, not a picture, and a mip
@@ -842,9 +871,9 @@ const TERRAIN_PARAMS = [
   // the field was unused; a 0 now would divide by zero (the shader clamps, and
   // you would get one texel smeared over the arena). If you swap a layer's
   // texture, put its real size here.
-  0.92, 0.96, 0.84,  2.0,    // lush — forrest_ground_01,     2.0 m
-  0.98, 0.94, 0.80,  2.0,    // dry  — withered_grass,        2.0 m
-  1.00, 0.94, 0.82,  1.3,    // dirt — brown_mud_dry,         1.3 m (warmed to brown)
+  0.80, 0.98, 0.70,  2.0,    // lush — leafy_grass,           2.0 m (2026-11: a real grass scan)
+  0.86, 0.96, 0.74,  2.0,    // dry  — forrest_ground_01,     2.0 m (was withered_grass: beige straw hills)
+  1.00, 0.97, 0.92,  2.35,   // dirt — mud_forest,            2.35 m (dark wet forest mud)
   0.88, 0.90, 0.96,  1.83,   // rock — cliff_side,            1.83 m (cooled — the
                              //        scan is a warm orange sandstone)
   // macro noise freq, slope threshold (cos), ridge height, pale strength
@@ -928,7 +957,7 @@ bootStage(BOOT_PLAYER);
 // EN-055 engine PR; without them this swap would have silently stripped the
 // SH-046 character maps.
 const CHARACTER_GLBS = new Array<string>(1 + KIND_COUNT);
-CHARACTER_GLBS[0] = 'assets/models/player_bsuit.glb';
+CHARACTER_GLBS[0] = 'assets/models/player_trooper.glb';
 for (let k = 0; k < KIND_COUNT; k++) CHARACTER_GLBS[1 + k] = ALIEN_GLB[k];
 // Web: Perry's parallelMap workers each get their own WASM instance, but the
 // engine lives on the main thread — a worker-side stageModel reaches nothing.
@@ -940,28 +969,29 @@ const stagedAliens = new Array<number>(KIND_COUNT);
 for (let k = 0; k < KIND_COUNT; k++) stagedAliens[k] = stagedCharacters[1 + k];
 
 const mdlPlayer  = commitModel(stagedCharacters[0]);
-const animPlayer = loadModelAnimation('assets/models/player_bsuit.glb');
-// human_bsuit animation indices (IQE declaration order):
-//   0 idle, 7 attack, 8 run, 12 walk.
+const animPlayer = loadModelAnimation('assets/models/player_trooper.glb');
+// player_trooper clips (Tripo Studio Text2Motion, rifle held at the shoulder in every one;
+// tools/gen/make_character.sh sorts them by name):
+//   0 crouch_idle, 1 crouch_walk, 2 idle, 3 run, 4 walk.
 // The ground speed each locomotion clip was AUTHORED to travel at. The playback
 // rate is (actual speed / this), which is what plants the feet — get these wrong
 // and the character skates.
-const ANIM_WALK_SPEED = 2.6;
-const ANIM_RUN_SPEED  = 6.5;
+const ANIM_WALK_SPEED = 1.6;   // a steady tactical walk
+const ANIM_RUN_SPEED  = 5.5;   // a sprint
 
-const PLAYER_ANIM_IDLE   = 0;
-const PLAYER_ANIM_WALK   = 12;
-const PLAYER_ANIM_RUN    = 8;
-const PLAYER_ANIM_ATTACK = 7;
+const PLAYER_ANIM_IDLE   = 2;
+const PLAYER_ANIM_WALK   = 4;
+const PLAYER_ANIM_RUN    = 3;
+const PLAYER_ANIM_ATTACK = 2;   // unused; the aim pose is part of every clip
 // SH-048 — crouch clips (bsuit indices). Because the body turns to face its
 // movement direction (SH-047), the character always crouch-walks "forward"
 // relative to itself, so the single crouch_forward clip covers every heading —
 // the directional crouch_left/right/back clips (20/21/19) are not needed.
-const PLAYER_ANIM_CROUCH     = 17;   // crouch idle
-const PLAYER_ANIM_CROUCH_FWD = 18;   // crouch walk
+const PLAYER_ANIM_CROUCH     = 0;    // crouch idle
+const PLAYER_ANIM_CROUCH_FWD = 1;    // crouch walk
 // Authored ground speed of the crouch_forward clip, for foot-planting (see the
 // note on ANIM_WALK_SPEED). A guess until measured; tune if the feet slide.
-const ANIM_CROUCH_SPEED = 1.6;
+const ANIM_CROUCH_SPEED = 1.0;
 const PLAYER_SCALE = 1.0;
 const PLAYER_MODEL_Y_OFFSET = -0.95;    // character capsule center -> feet
 let playerAnimT = 0;
@@ -998,7 +1028,9 @@ const mdlWeapons = [
 // Muzzle distance down the barrel, metres. These pair with the `length` column
 // in tools/convert-weapons.ts, which normalises each model to that length
 // precisely so these constants survive an art change.
-const WEAPON_MUZZLE_Z = [0.87, 0.59, 1.00, 0.95];
+// New photoreal weapons (tools/blender/process_static.py): lengths 0.92 / 0.45 / 1.05 / 1.00 m,
+// rear of the gun at z = 0, so the muzzle is just short of the full length.
+const WEAPON_MUZZLE_Z = [0.90, 0.44, 1.03, 0.98];
 const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 
 // EN-033 — the hand joint, so the weapon rides the animation instead of
@@ -1216,6 +1248,21 @@ const AD = [0, 0, 0, 0, 1e9, -1e9];
 // a few points. Same dormancy contract as the other harnesses: MUST be false in
 // shipped builds.
 const COMBATSHOT = false;
+
+// ---- SCENESHOT harness ------------------------------------------------------
+// Stills of the level art (house, grass, trees) from fixed viewpoints, no enemies.
+// Rows: player x, z, yaw, pitch. Captures shooter_scene_<n>.png. MUST be false in shipped builds.
+const SCENESHOT = false;
+const SCENE_VIEWS = [
+  -21, 8, 0.0, 0.10,        // house, south front
+  -2, 3, -0.85, 0.08,       // house, south-east corner
+  -20, -9, 1.2, 0.15,       // house, inside ground floor
+  -21, -1, 0.0, 0.0,        // house, door close-up
+  8, 22, 0.3, 0.02,         // grass + tree line, low
+  9, 10, 0.5, -0.20,        // tree, looking up into a crown
+  0, 20, 0.0, 0.12,         // spawn view
+  15, 2, 1.2, 0.05,         // trees close
+];
 
 // ---- STAIRTEST harness (temporary diagnostic) -------------------------------
 // SH-051's acceptance test, and the only honest one: it asks whether enemies
@@ -1524,6 +1571,7 @@ function gameFrame(_hostDt: number): void {
   }
   // Render-pass debug toggles. F5 SSGI, F6 SSAO, F7 SSR, F8 shadows — flip
   // each off to see which pass owns a visual artifact. Status line in the HUD.
+  if (isKeyPressed(Key.F1)) GS.debugHud = !GS.debugHud;   // developer overlays on/off
   if (isKeyPressed(Key.F5)) { dbgSsgi = !dbgSsgi; setSsgiEnabled(dbgSsgi); }
   if (isKeyPressed(Key.F6)) { dbgSsao = !dbgSsao; setSsaoEnabled(dbgSsao); }
   if (isKeyPressed(Key.F7)) { dbgSsr = !dbgSsr; setSsrEnabled(dbgSsr); }
@@ -1785,6 +1833,9 @@ function gameFrame(_hostDt: number): void {
   // walk direction. Runs before the player controller update so
   // the override actually reaches updatePlayerController.
   if (SELFTEST && testFrame >= 20) input.moveZ = -1;
+  // COMBATSHOT: shoulder-aim for the last stretch, so the final capture is a close-up of the
+  // player, the weapon in hand and whatever is being shot (the orbit camera pulls in to 2.6 m).
+  if (COMBATSHOT && testFrame >= 160) input.aimDown = true;
   // LOCOPROBE (SH-048) — force a strafe and log the locomotion tier from the
   // REAL keys (Shift / C are left untouched, so a synthetic hold changes them).
   // Logs LAST frame's player state, which is what a 15-frame cadence wants.
@@ -2125,12 +2176,36 @@ function gameFrame(_hostDt: number): void {
         + ' decals=' + VFX.debugDecals()
         + ' mats=' + VFX.debugMats());
     }
+    // Captures (macOS/Linux: takeScreenshot works; on Windows use the external shot tools).
+    if (testFrame === 70 || testFrame === 110 || testFrame === 150 || testFrame === 230) {
+      takeScreenshot('shooter_combat_f' + testFrame + '.png');
+    }
     if (testFrame === 260) {
       console.log('COMBATSHOT done  score=' + SCORE.score()
         + ' kills=' + SCORE.kills()
         + ' shots=' + SCORE.shotsFired()
         + ' hits=' + SCORE.shotsHit()
         + ' fps=' + getFPS().toFixed(1));
+      closeWindow();
+      return;
+    }
+  }
+  if (SCENESHOT) {
+    if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+    GS.playerHP = PLAYER_HP_MAX;
+    DIR.waveBreakTimer = 9999;
+    const nViews = SCENE_VIEWS.length / 4;
+    const vi = Math.floor((testFrame - 30) / 50);
+    if (testFrame >= 30 && vi < nViews) {
+      const ph = (testFrame - 30) % 50;
+      const vx = SCENE_VIEWS[vi * 4], vz = SCENE_VIEWS[vi * 4 + 1];
+      if (ph === 0) setPlayerPosition(vec3(vx, terrainHeightAt(vx, vz) + 1.2, vz));
+      CAM[0] = SCENE_VIEWS[vi * 4 + 2];
+      CAM[1] = SCENE_VIEWS[vi * 4 + 3];
+      if (ph === 45) takeScreenshot('shooter_scene_' + vi + '.png');
+    }
+    if (testFrame >= 30 && vi >= nViews) {
+      console.log('SCENESHOT done fps=' + getFPS().toFixed(1));
       closeWindow();
       return;
     }
@@ -2606,6 +2681,12 @@ function gameFrame(_hostDt: number): void {
   // seeded from that exact pose, so there is nothing to blend - physics simply
   // continues the motion the animator started.
   const RAG_HANDOFF = 0.22;
+  // The photoreal cast (2026-11) dies by its authored clip instead: every creature carries a
+  // purpose-made death (stagger, knees buckle, falls on its back), and the engine's auto-ragdoll
+  // (at most 12 capsules, walked breadth-first from the root) covers only the torso end of the
+  // 65-joint Mixamo skeleton, which stretched the corpse into a rigid plank. Set this back to true
+  // once the ragdoll can be given a per-rig bone list.
+  const DEATH_RAGDOLL = false;
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enDying[i] !== 1) continue;
     enDeathT[i] = enDeathT[i] + dt;
@@ -2622,7 +2703,9 @@ function gameFrame(_hostDt: number): void {
       animUpdate(enAnim[i], dt, KIND_SCALE[k], enX[i], enY[i], enZ[i], yaw);
       drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
 
-      if (enDeathT[i] >= RAG_HANDOFF && enRagdoll[i] > 0) {
+      if (!DEATH_RAGDOLL) {
+        enRagActive[i] = 2;     // play the death clip out, then sink (the branch below)
+      } else if (enDeathT[i] >= RAG_HANDOFF && enRagdoll[i] > 0) {
         // The transform passed here MUST be the one we just drew with: it is the
         // bridge between model space and world space, and the engine freezes it.
         const ok = activateRagdoll(enRagdoll[i], enAnim[i], physics,
@@ -2657,11 +2740,13 @@ function gameFrame(_hostDt: number): void {
     } else {
       // --- fallback: no skeleton, so the old clamp-and-sink corpse.
       const dur = ANIM_DIE_DUR[k];
-      const sink = enDeathT[i] > dur + 0.6 ? (enDeathT[i] - dur - 0.6) * 0.9 : 0;
+      // The body lies where it fell for CORPSE_LINGER seconds, then sinks into the ground.
+      const CORPSE_LINGER = 5.0;
+      const sink = enDeathT[i] > dur + CORPSE_LINGER ? (enDeathT[i] - dur - CORPSE_LINGER) * 0.9 : 0;
       animUpdate(enAnim[i], dt, KIND_SCALE[k],
         enX[i], enY[i] - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
       drawModel(mdlAliens[k], vec3(enX[i], enY[i] - sink, enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
-      if (enDeathT[i] > dur + 2.0) {
+      if (enDeathT[i] > dur + CORPSE_LINGER + 2.5) {
         enDying[i] = 0;
         enRagActive[i] = 0;
         enAnimClip[i] = -1;
@@ -2705,13 +2790,13 @@ function gameFrame(_hostDt: number): void {
   // version is a full-width bar along the bottom, which on a phone lands
   // directly under the thumbs; show just the frame rate up in the corner
   // instead, which is what's actually worth watching on device.
-  if (MOBILE) {
+  if (MOBILE && GS.debugHud) {
     drawText('FPS ' + Math.floor(getFPS()), 14, 12, 20,
              { r: 200, g: 210, b: 230, a: 200 });
   }
   // Diag-bar strings are built inside the gate — MOBILE was paying the
   // per-frame concatenation for two lines it never drew.
-  if (!MOBILE) {
+  if (!MOBILE && GS.debugHud) {
     const pp = ppFrame;
     const diag1 = 'FPS ' + Math.floor(getFPS())
       + '  world: ' + worldStatus

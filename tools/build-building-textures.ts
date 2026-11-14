@@ -40,7 +40,8 @@ import { encodePng, makeTexture } from './png';
 import { loadRgbaExact } from './imgutil';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 
-const SIZE = 1024;
+// 1024 -> 2048 (2026-11, photoreal pass): the 2k scans at full resolution.
+const SIZE = 2048;
 const EXT = 'assets/textures/external';
 
 interface Slice {
@@ -50,8 +51,9 @@ interface Slice {
   what: string;
 }
 const SLICES: Slice[] = [
-  { name: 'building_wall', src: 'concrete_wall_008', sizeM: 2.0, what: 'walls' },
-  { name: 'building_slab', src: 'concrete_floor_02', sizeM: 2.0, what: 'floors + roof terrace' },
+  { name: 'building_wall', src: 'brick_wall_006', sizeM: 3.0, what: 'walls (brick infill)' },
+  { name: 'building_slab', src: 'concrete_floor_02', sizeM: 2.0, what: 'floors, roof terrace, and the concrete frame/trim' },
+  { name: 'building_metal', src: 'metal_plate_02', sizeM: 2.0, what: 'steel window linings, awnings, pipes' },
 ];
 
 function srcMap(id: string, map: string): string | null {

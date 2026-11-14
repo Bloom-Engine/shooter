@@ -13,6 +13,9 @@
 // run without reaching into main.
 
 export const GS: any = {
+  // Developer overlays (render-pass status line, diagnostics bar). Off in a normal run;
+  // F1 toggles them, `--debughud` starts with them on. Test harnesses turn them on.
+  debugHud: false,
   playerHP: 100,
   gameState: 0,
   gameOver: false,

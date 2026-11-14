@@ -59,12 +59,16 @@ interface Set {
 // free.
 const SETS: Set[] = [
   {
+    id: 'leafy_grass', res: '2k', maps: ['diff', 'nor_gl'], sizeM: 2.0,
+    use: 'terrain layer 0 (grass_lush) — short green grass with leaf litter',
+  },
+  {
     id: 'withered_grass', res: '2k', maps: ['diff', 'nor_gl'], sizeM: 2.0,
     use: 'terrain layer 1 (grass_dry) — pale straw, low contrast',
   },
   {
-    id: 'brown_mud_dry', res: '2k', maps: ['diff', 'nor_gl'], sizeM: 1.3,
-    use: 'terrain layer 2 (dirt) — the riverbank + scattered field patches',
+    id: 'mud_forest', res: '2k', maps: ['diff', 'nor_gl'], sizeM: 2.35,
+    use: 'terrain layer 2 (dirt) — the riverbank + scattered field patches (dark wet forest mud; replaced brown_mud_dry, whose cracked pattern read as wicker on the bank)',
   },
   {
     id: 'cliff_side', res: '2k', maps: ['diff', 'nor_gl'], sizeM: 1.83,
@@ -73,6 +77,14 @@ const SETS: Set[] = [
   {
     id: 'concrete_wall_008', res: '2k', maps: ['diff', 'nor_gl', 'rough'], sizeM: 2.0,
     use: 'building walls — board-formed concrete (panel seams + tie-rod holes)',
+  },
+  {
+    id: 'brick_wall_006', res: '2k', maps: ['diff', 'nor_gl', 'rough'], sizeM: 3.0,
+    use: 'building walls — red brick infill between the concrete frame',
+  },
+  {
+    id: 'metal_plate_02', res: '2k', maps: ['diff', 'nor_gl', 'rough'], sizeM: 2.0,
+    use: 'building steel — window linings, awnings, downpipes',
   },
   {
     id: 'concrete_floor_02', res: '2k', maps: ['diff', 'nor_gl', 'rough'], sizeM: 2.0,

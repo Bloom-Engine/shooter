@@ -1,0 +1,24 @@
+#!/bin/sh
+# perry builds Tier-3 (tvOS) native libraries with `cargo +nightly -Zbuild-std`.
+# Bloom's std must come from the same compiler as Perry's prebuilt tvOS runtime,
+# or the allocator-shim symbols (mangled with std's crate hash) don't match at
+# link time. release.py puts this directory first on PATH for tvOS builds and
+# sets PERRY_PINNED_TOOLCHAIN from the Perry checkout's rust-toolchain.toml.
+#
+# Because the hashes then match, Bloom's own allocator shim (system malloc) would
+# shadow Perry's (mimalloc) and the app aborts at launch; after a tvOS build the
+# shim object is stripped from libbloom_tvos.a (see ../strip_alloc_shim.py).
+if [ "$1" = "+nightly" ] && [ -n "$PERRY_PINNED_TOOLCHAIN" ]; then
+  shift
+  set -- "+$PERRY_PINNED_TOOLCHAIN" "$@"
+fi
+"$HOME/.cargo/bin/cargo" "$@"
+rc=$?
+case " $* " in
+  *" build "*aarch64-apple-tvos*)
+    here="$(cd "$(dirname "$0")" && pwd)"
+    root="$(cd "$here/../../.." && pwd)"
+    python3 "$here/../strip_alloc_shim.py" "$root/../engine/native/tvos/target/aarch64-apple-tvos/release/libbloom_tvos.a" >&2
+    ;;
+esac
+exit $rc

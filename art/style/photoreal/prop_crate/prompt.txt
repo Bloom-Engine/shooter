@@ -1,0 +1,7 @@
+Photorealistic reference photograph of ONE object for a 3D scan.
+
+Design: a rugged military supply crate, a cube about 1 m on each side: olive-drab moulded polymer panels with deep reinforcing ribs, steel corner protectors, two heavy latches on the front, a recessed carry handle on each side, scuffs, dust and chipped edges.
+
+Shared look of the human gear: realistic near-future military hardware, plausible engineering, nothing fantastical. Matte olive-drab and dark graphite-grey polymer and anodised aluminium, worn at the edges to bare metal, light dust, small scratches, matte black rubber grips, visible screws and seams. No logos, no text, no glowing lights except where stated.
+
+Framing: a product photograph for a 3D scan. Seen from a slightly raised three-quarter front view so the front, one side and the top are all visible. ONE object, complete and uncropped with a little margin, centred. Flat, even, soft studio lighting with no cast shadows and no rim light. Plain uniform mid-grey background. Photorealistic, sharp focus everywhere, no depth-of-field blur, no text, no labels, no logos, no borders, no hands, no other objects.

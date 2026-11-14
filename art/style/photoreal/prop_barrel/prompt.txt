@@ -1,0 +1,7 @@
+Photorealistic reference photograph of ONE object for a 3D scan.
+
+Design: a 200-litre steel fuel drum, about 90 cm tall, standing upright: two rolled reinforcing hoops, a flat lid with two bung caps, faded dark-red paint chipped down to grey steel and orange rust at the rims and dents, an oily stain running down one side.
+
+Shared look of the human gear: realistic near-future military hardware, plausible engineering, nothing fantastical. Matte olive-drab and dark graphite-grey polymer and anodised aluminium, worn at the edges to bare metal, light dust, small scratches, matte black rubber grips, visible screws and seams. No logos, no text, no glowing lights except where stated.
+
+Framing: a product photograph for a 3D scan. Seen from a slightly raised three-quarter front view so the front, one side and the top are all visible. ONE object, complete and uncropped with a little margin, centred. Flat, even, soft studio lighting with no cast shadows and no rim light. Plain uniform mid-grey background. Photorealistic, sharp focus everywhere, no depth-of-field blur, no text, no labels, no logos, no borders, no hands, no other objects.

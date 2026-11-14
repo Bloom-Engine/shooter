@@ -53,7 +53,9 @@ import { writeFileSync, mkdirSync, existsSync } from 'fs';
 // mips keep the texel:pixel ratio at any given distance unchanged — the bigger
 // texture only supplies detail the near field was already asking for and not
 // getting.
-const SIZE = 1024;
+// 1024 -> 2048 (2026-11, photoreal pass): the 2k scans are used at full resolution, about
+// 1 mm per texel at the 2 m tiling period, to match the 4K characters standing on the ground.
+const SIZE = 2048;
 const EXT = 'assets/textures/external';
 
 // Deterministic RNG so re-running doesn't churn the committed PNGs.
@@ -197,9 +199,9 @@ interface Layer {
   bump: number;                          // fallback heightToNormal strength
 }
 const LAYERS: Layer[] = [
-  { name: 'terrain_grass_lush', src: 'forrest_ground_01', sizeM: 2.0,  fn: grassLush, bump: 2.5 },
-  { name: 'terrain_grass_dry',  src: 'withered_grass',    sizeM: 2.0,  fn: grassDry,  bump: 2.2 },
-  { name: 'terrain_dirt',       src: 'brown_mud_dry',     sizeM: 1.3,  fn: dirt,      bump: 3.5 },
+  { name: 'terrain_grass_lush', src: 'leafy_grass',       sizeM: 2.0,  fn: grassLush, bump: 2.5 },
+  { name: 'terrain_grass_dry',  src: 'forrest_ground_01', sizeM: 2.0,  fn: grassDry,  bump: 2.2 },
+  { name: 'terrain_dirt',       src: 'mud_forest',        sizeM: 2.35, fn: dirt,      bump: 3.5 },
   { name: 'terrain_rock',       src: 'cliff_side',        sizeM: 1.83, fn: rock,      bump: 5.0 },
 ];
 

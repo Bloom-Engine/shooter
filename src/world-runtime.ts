@@ -83,6 +83,15 @@ export const ARENA_INDEX = pickArena();
 /// looking at to a scratch file and launches the game pointed straight at it. A
 /// level you can only test by adding it to a manifest first is a level you will not
 /// test often enough.
+// Computed HERE, not imported from input.ts: this module's body runs at
+// import time, and Perry initializes module bodies in main.ts's import order
+// — input.ts's `WEB` const may not exist yet when worldFromArgs() runs
+// (module-scope cross-module reads are a runtime ReferenceError, SH-025).
+// And it must sit ABOVE worldFromArgs()'s call site: Perry 0.5.16xx enforces
+// the temporal dead zone for module-level consts, so a const declared below
+// the `const ARG_WORLD = worldFromArgs()` line is a ReferenceError at boot.
+const WEB = getPlatform() === 7;
+
 function worldFromArgs(): string {
   if (WEB) return ''; // a browser page has no argv; the manifest decides
   const n = process.argv.length;
@@ -105,12 +114,6 @@ export function selectArena(id: string): void {
 // Small local wrapper so the import list above stays honest about what it uses.
 import { writeFile as writeFileRaw } from 'bloom/core';
 import { getPlatform } from 'bloom';
-
-// Computed HERE, not imported from input.ts: this module's body runs at
-// import time, and Perry initializes module bodies in main.ts's import order
-// — input.ts's `WEB` const may not exist yet when worldFromArgs() runs
-// (module-scope cross-module reads are a runtime ReferenceError, SH-025).
-const WEB = getPlatform() === 7;
 
 // loadWorld throws on a missing file, bad JSON, or failed validation. Catch it
 // here so a broken world file reports itself and yields an empty arena, rather
@@ -226,6 +229,34 @@ for (let i = 0; i < COLLIDER_COUNT; i++) {
   COLLIDER_HALF_X[i] = vec3Part(he, 0, 0.5);
   COLLIDER_HALF_Y[i] = vec3Part(he, 1, 0.5);
   COLLIDER_HALF_Z[i] = vec3Part(he, 2, 0.5);
+}
+
+// ---- building_trim -----------------------------------------------------------
+//
+// Drawn-only dressing of a box-built house (tools/gen/house_trim.py writes them): frame,
+// plinth, window linings, sills, awnings. No collider, no nav, no keep-out — environment.ts
+// bakes them into the building mesh and nothing else reads them.
+// TRIM_SLICE: 0 = concrete, 1 = metal.
+
+const trims = bucket('building_trim');
+export const TRIM_COUNT = trims.length;
+export const TRIM_X = new Array<number>(TRIM_COUNT);
+export const TRIM_Y = new Array<number>(TRIM_COUNT);
+export const TRIM_Z = new Array<number>(TRIM_COUNT);
+export const TRIM_HX = new Array<number>(TRIM_COUNT);
+export const TRIM_HY = new Array<number>(TRIM_COUNT);
+export const TRIM_HZ = new Array<number>(TRIM_COUNT);
+export const TRIM_SLICE = new Array<number>(TRIM_COUNT);
+for (let i = 0; i < TRIM_COUNT; i++) {
+  const e = trims[i];
+  const he = e.userData['halfExtents'];
+  TRIM_X[i] = e.transform.position[0];
+  TRIM_Y[i] = e.transform.position[1];
+  TRIM_Z[i] = e.transform.position[2];
+  TRIM_HX[i] = vec3Part(he, 0, 0.05);
+  TRIM_HY[i] = vec3Part(he, 1, 0.05);
+  TRIM_HZ[i] = vec3Part(he, 2, 0.05);
+  TRIM_SLICE[i] = e.userData['slice'] === 'metal' ? 1 : 0;
 }
 
 // ---- static_mesh -------------------------------------------------------------
