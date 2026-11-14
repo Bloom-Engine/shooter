@@ -2094,3 +2094,53 @@ said forward, and is kept.
 Open: a look at the boss fight by a person; her hit shapes and the two weapons' hand positions
 tuned against pictures; sounds for all of it (Phase 5).
 
+---
+
+## SH-062 — AAA plan, Phase 7: performance and production ◐ *(2026-11-14; measured on one Mac, 60 fps not reached; crash capture, platforms and store forms open)*
+
+Phase 5 (audio and VFX depth) is still skipped. This is what could be done for Phase 7 from
+one macOS machine without touching the engine.
+
+**Harnesses from the command line.** Every `const X = false` harness flag in `src/main.ts` is
+now `HARNESS === 'x'`, set by `./main --harness <name>` (lower-case flag name: `selftest`,
+`aitest`, `menutest`, `uishot`, `sceneshot`, `playershot`, `p2test`, `p2bot`, `combatshot`,
+`fpsprobe`, `perftest`, `perfstages`, and the older probes). No source edit, no second binary.
+Any harness switches off banking and the tutorial (`HARNESS !== ''`).
+
+**`tools/check.sh`.** Static checks, build, boot (SELFTEST leaves by itself), AI (AITEST:
+at least 10 samples, 2 kinds, 3 distinct states), menus (MENUTEST: every `x=N (want M)` line).
+`--bot` adds a whole stand-in run, `--perf` the frame rates, `--static` stops after the first
+step, `--no-build` uses the binary that is there. It copies `settings.json`, `profile.json`
+and `level.txt` aside and restores them on exit. Reads logs only, so a covered window does
+not fail it. Ran clean: static, build, boot in 19 s, AI 42 samples, menus 22 of 22.
+
+**`tools/check_static.py`** (also `.github/workflows/check.yml`, every push and pull request):
+five worlds parse, 1,512 entities have a model reference and drawn ones exist, one primary
+spawn each, 50 waves name known creatures, patterns and types and add up, objective waves have
+their sites, 145 literal asset paths exist, `src/strings.ts` matches its table, 23 `KIND_*`
+tables have eight entries, the player's files and `.env` are untracked, nothing is over 95 MB.
+Checked against a clean export of the repository as well as the working folder.
+
+**Performance.** See the plan for the table. New default: dynamic resolution on for a fresh
+desktop install (`SET_AUTO_RES` 1; off and hidden on phones and web). An existing
+`settings.json` keeps what it has. Measured with the settings file moved aside: a fight went
+from a mean of 36 fps to 45. New measurement aids: `--dbg-off grass|grasshalf|planar|flora|trees`,
+`--autores 1` with `--harness fpsprobe`; the probe now runs uncapped and prints the pixel size.
+Fixed: `perfstages` panicked the engine on Metal (Mailbox present mode).
+
+**Bundle audit.** `tools/release/bundle_audit.py`: 463 MB plain, 1,601 MB with ASTC models.
+
+**Legal.** `assets/TERMS.md`; `tools/release/PrivacyInfo.xcprivacy` (no tracking, nothing
+collected, file-timestamp reason C617.1, boot-time reason 35F9.1, chosen from the symbols the
+macOS binary imports), copied into the iOS, tvOS and macOS bundles by `release.py`.
+
+**Not done / not verified.**
+- 60 fps. About 18 ms of GPU time per frame does not respond to any game setting.
+- The GitHub workflow had not run when this was written; see the Actions tab.
+- No release build was made, so the privacy manifest's place in the bundle is untested, and
+  the reasons were chosen from the macOS binary, not the iOS one.
+- The dynamic-resolution default was judged by frame rate only; nobody looked at the picture
+  it gives at the low end of its range.
+- `--bot` and the web checks are not part of the default check.
+- 7.3 entirely; 7.4 beyond the audit; age rating and store text.
+

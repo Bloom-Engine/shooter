@@ -139,7 +139,7 @@ function defaults(): void {
   V[SET_BLOOM]      = 1;
   V[SET_DOF]        = 1;
   V[SET_MOTION_BLUR] = 0;
-  V[SET_AUTO_RES]   = 0;
+  V[SET_AUTO_RES]   = 1;   // Phase 7.1: on for a fresh desktop install (40 -> 51 fps on the M1 Max)
   // Off by default: Lumen is the default GI everywhere; path tracing is
   // opt-in (it trades ~half the frame rate for traced lighting).
   V[SET_PT]         = 0;
@@ -173,6 +173,7 @@ function platformDefaults(): void {
   const plat = getPlatform();
   const web = plat === 7;
   if (!isMobile() && !web) return;
+  V[SET_AUTO_RES] = 0;           // desktop only: the row is hidden here and the scale is fixed
   V[SET_SSGI] = 0;
   V[SET_SSR] = 0;
   V[SET_PT] = 0;

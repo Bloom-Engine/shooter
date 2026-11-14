@@ -1,0 +1,33 @@
+name: Check
+
+# Phase 7.2. The checks that need no compiler, no engine and no window: world files, asset
+# paths, generated sources, per-kind tables, repository hygiene (tools/check_static.py).
+#
+# What this does NOT do is build or run the game. That needs the Perry compiler, the Bloom
+# engine checkout next to this one and a GPU with a desktop session; `tools/check.sh` on a
+# developer machine runs those (boot, AI, menus, optionally a whole run and frame rates).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Static checks
+        run: python3 tools/check_static.py

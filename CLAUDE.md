@@ -23,11 +23,15 @@ see SH-052) — runnable with
 
 - `src/main.ts` — the boot sequence + frame loop and their wiring
   (~2,100 lines; the SH-025 module split is complete). Flat-array
-  state per Perry convention. The dormant test harnesses
+  state per Perry convention. The test harnesses, started with `./main --harness <name>`
+  (lower-case name; no source edit since Phase 7)
   (SELFTEST/AITEST/ANIMDBG/MENUTEST/FACETEST/LOCOPROBE/KEYPROBE/
   COMBATSHOT/PLAYERSHOT/P2TEST/P2BOT/PERFTEST) and the
   diagnostics (diag bar, profiler overlay) live here too. UISHOT captures every menu screen and
   HUD state; MENUTEST drives the menus with injected keys and logs pass/fail lines.
+  **`tools/check.sh` runs the static checks, a build, boot, AI and menus in about four minutes
+  and restores the player's files; run it before a commit that touches `src/`.** `--bot` adds a
+  whole stand-in run, `--perf` the frame rates. `tools/check_static.py` alone is what CI runs.
 - The game is split by subsystem, one module each: `enemies.ts`
   (kind tables + pool), `director.ts` (waves + per-kind AI + enemy
   projectiles), `combat.ts` (weapons/fire/player projectiles/pickups/grenades/melee),
@@ -57,9 +61,10 @@ see SH-052) — runnable with
   (`tools/gen/`, `tools/blender/`).
 - `docs/aaa-plan.md` — the current plan: what is missing for AAA quality, in
   order. Phases 0 (bugs and hygiene), 1 (the player on screen), 2 (combat), 3 (world art
-  and lighting), 4 (UI and front end) and slices A-C of 6 (encounters, progression, objectives
-  and onboarding) landed 2026-11-14; each phase's header says what it left open. Phase 5 (audio
-  and VFX depth) was skipped, not done.
+  and lighting), 4 (UI and front end) and 6 (encounters, progression, objectives, onboarding,
+  volume) landed 2026-11-14; each phase's header says what it left open. Phase 5 (audio and VFX
+  depth) was skipped, not done. Phase 7 (performance and production) is partly done: measured at
+  40-51 fps on the M1 Max, 60 not reached, see its table.
 
 ## Read before changing things
 
@@ -105,6 +110,9 @@ bun tools/build-building-textures.ts   # rebuild the building wall/slab slices
 ./tools/build-web.sh                   # SH-054: browser build -> dist/web (add --serve to host it)
 bun tools/web-check.ts                 # headless-Edge boot check (console + screenshot)
 bun tools/web-play-check.ts            # drives PLAY, walks, fires, screenshots gameplay
+tools/check.sh                         # static checks + build + boot + AI + menus (--bot, --perf, --static)
+./main --harness uishot                # any harness by name; --wave N / --weapon N for p2bot
+python3 tools/release/bundle_audit.py  # what a bundle's assets weigh, by kind
 ```
 
 Every bundle (TestFlight, web, Android) trims its COPY of `assets/` through one list,

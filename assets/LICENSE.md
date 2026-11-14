@@ -15,6 +15,9 @@ Third-party material listed below keeps the terms of its source.
 - **Terrain, building and tree textures**: CC0 scans (Poly Haven, ambientCG), see `textures/external/SOURCES.md`.
 - **Sky**: `env/outdoor.hdr`, from the Bloom engine's Bistro example assets.
 
+Which provider terms the generated assets depend on, and what has to be confirmed before the game
+is sold: `TERMS.md`.
+
 ## Removed on 2026-11-14
 
 The models converted from [Unvanquished](https://github.com/Unvanquished/Unvanquished) (GPLv3:

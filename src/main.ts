@@ -30,7 +30,7 @@ import {
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setCloudShadows, setTonemap, setColorSaturation, setDepthOfField, setMotionBlurEnabled,
-  setAutoResolution,
+  setAutoResolution, getPhysicalWidth, getPhysicalHeight,
   setTaaEnabled, setRenderScale, setCasStrength,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
@@ -199,6 +199,12 @@ if (cliArg('--debughud') === '1') GS.debugHud = true;
 // your head (pan + rear cue), flyby = a voice flies through you (doppler +
 // front/back), river = free-walk with the river as the only source and a
 // distance-to-bank readout. See the harness block in the frame loop.
+// `--harness <name>` (Phase 7.2) runs one of the scripted test harnesses declared further down
+// (selftest, aitest, menutest, playershot, p2test, p2bot, combatshot, uishot, sceneshot,
+// perftest, perfstages, fpsprobe, ...: the lower-case name of the flag). They used to be
+// `const X = false` and a source edit; tools/check.sh drives them now. A harness run never
+// banks a score or a profile (see `DIR.bank` below).
+const HARNESS = cliArg('--harness');
 const cliAudioTest = cliArg('--audiotest');
 const AUDIOTEST = cliAudioTest === 'orbit' || cliAudioTest === 'flyby' || cliAudioTest === 'river';
 const audioTestMode = cliAudioTest === 'orbit' ? 1 : (cliAudioTest === 'flyby' ? 2 : 0);
@@ -1399,23 +1405,23 @@ initGiProxies(meshModelHandles, treeVariants, terrainPropIdx, TREE_GLB_PARTS);
 // When SELFTEST is true the game auto-fires a shot on frame 30, screenshots
 // the scene on frame 60, and exits on frame 90. Used while investigating the
 // engine's deferred-render green-screen bug — kept dormant for future debug.
-const SELFTEST = false;
+const SELFTEST = HARNESS === 'selftest';
 // FACETEST (SH-047) — see the input-override block. dbgFaceDir: 0=D(right,90°),
 // 1=A(left,90°), 2=W+D(45°). MUST be false in shipped builds.
-const FACETEST = false;
+const FACETEST = HARNESS === 'facetest';
 const dbgFaceDir = 0;
 // KEYPROBE — verify the engine's Windows Shift/Ctrl fix reaches isKeyDown().
 // Latches whether each modifier was EVER seen down and writes it to a file, so a
 // synthetic hardware keypress (SendInput, scancode path) can confirm the real
 // wndproc→map_keycode path — which injectKeyDown bypasses. MUST be false.
-const KEYPROBE = false;
+const KEYPROBE = HARNESS === 'keyprobe';
 // 0 lshift-ever  1 rshift-ever  2 lctrl-ever
 const KP = [0, 0, 0];
 // LOCOPROBE (SH-048) — verify sprint AND crouch through the REAL keys. Auto-
 // starts, forces a strafe so the player is always moving, reads the actual
 // Shift/C keys (does NOT override them), and logs speed + clip so a synthetic
 // Shift / C hold shows the tier change. MUST be false in shipped builds.
-const LOCOPROBE = false;
+const LOCOPROBE = HARNESS === 'locoprobe';
 let locoLog = '';
 let testFrame = 0;
 
@@ -1426,7 +1432,7 @@ let testFrame = 0;
 // input. Wading stops after 20 s of uptime so wake decay can be captured
 // too. Same dormancy contract as SELFTEST/PERFTEST: MUST be false in
 // shipped builds.
-const WATERTEST = false;
+const WATERTEST = HARNESS === 'watertest';
 // Wall-clock anchor for the scripted walk — getTime() at frame 20 already
 // includes several seconds of asset loading, so timings are relative to
 // the moment the harness starts the run.
@@ -1439,7 +1445,7 @@ let waterTestT0 = -1;
 // (dretch weave, mantis orbit→dart→recover, dragoon windup→charge) actually
 // cycle. Same dormancy contract as SELFTEST/WATERTEST/PERFTEST: MUST be
 // false in shipped builds.
-const AITEST = false;
+const AITEST = HARNESS === 'aitest';
 let aitestDone = false;
 
 // ---- ANIMDBG harness (temporary diagnostic) ---------------------------------
@@ -1476,7 +1482,7 @@ let aitestDone = false;
 // fail at RUNTIME, one identifier at a time. Writes a file, because console.log
 // from this game does not survive a redirect on Windows. Dormancy contract as
 // ever: MUST be false in shipped builds.
-const MENUTEST = false;
+const MENUTEST = HARNESS === 'menutest';
 let menuTestLog = '';
 let menuTestDone = false;
 let mtJump = 0;
@@ -1492,12 +1498,12 @@ function mtTap(f: number, at: number, key: number): void {
 // --dbg-off is how the interior shadow-leak stipple was isolated to the
 // shadow pass. Starts a run at frame 20 like the other harnesses. Same
 // dormancy contract: MUST be false in shipped builds.
-const INDOORCAM = false;
-const ANIMDBG = false;
+const INDOORCAM = HARNESS === 'indoorcam';
+const ANIMDBG = HARNESS === 'animdbg' || HARNESS === 'camhold';
 // Sub-mode of ANIMDBG: walk into the tree behind the camera and then stand
 // still, so an external window capture (tools/shot-window.ps1 — takeScreenshot()
 // still writes no file on Windows) gets a stationary, occluded frame to shoot.
-const CAMHOLD = false;
+const CAMHOLD = HARNESS === 'camhold';
 let animDbgDone = false;
 let dbgSprint = 0;
 // (Camera occlusion readback — orbit shortened-to vs. wanted — is CAMDBG,
@@ -1511,7 +1517,7 @@ const AD = [0, 0, 0, 0, 1e9, -1e9];
 // Six numbers per shot: camera pitch, moveZ, moveX, aim, crouch, sprint, view
 // (0 right side, 1 front three-quarter, 2 behind, 3 left side). 50 frames each, captured on the
 // 45th as shooter_player_NN.png. MUST be false in shipped builds.
-const PLAYERSHOT = false;
+const PLAYERSHOT = HARNESS === 'playershot';
 const PSHOT_N = 7;
 const PSHOTS = [
   0.35,  0, 0, 0, 0, 0, 0,     //  0 idle
@@ -1546,7 +1552,7 @@ const PSHOT_FRAMES = 50;
 //   4 VAULT    the Trooper runs at a crate in the house and jumps.
 //   5 a picture of an ammo cache and a field dressing.
 // MUST be false in shipped builds.
-const P2TEST = false;
+const P2TEST = HARNESS === 'p2test';
 //   0 last logged Ravager state  1 time of its last wind-up  2 HP at that wind-up
 //   3 strikes seen  4 most creatures mid-attack at once  5 alive before melee
 //   6 alive before grenade  7 aim settle frames  8 stage-2 shot fired (0/1)
@@ -1555,7 +1561,7 @@ const P2 = [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 // it could see, and holds the trigger. Health is held full. What it proves is flow, not feel:
 // that waves of hunting creatures find the player, fight, die and the arena clears, with the
 // larger pool, in a few minutes, without a stall or a crash. MUST be false in shipped builds.
-const P2BOT = false;
+const P2BOT = HARNESS === 'p2bot';
 //   0 last wave index logged  1 most alive at once  2 most mid-attack at once  3 hits taken
 //   4 HP last frame
 //   5 nest to be put beside this frame (-1 none)   6 last boss picture taken (phase * 10 + special)
@@ -1600,7 +1606,7 @@ function p2Probe(ox: number, oy: number, oz: number, i: number, j: number, side:
 // couple of enemies in front of the player, holds the trigger, and captures at
 // a few points. Same dormancy contract as the other harnesses: MUST be false in
 // shipped builds.
-const COMBATSHOT = false;
+const COMBATSHOT = HARNESS === 'combatshot';
 
 // ---- UISHOT harness (plan Phase 4) -------------------------------------------
 // Captures every screen of the front end and the HUD in its states, by opening them through
@@ -1610,7 +1616,7 @@ const COMBATSHOT = false;
 // the wave card and the unlock banner, pause, and both results screens. Pictures land as
 // shooter_ui_NN_name.png. Changes settings in memory only (never saved). Dormancy contract
 // as ever: MUST be false in shipped builds.
-const UISHOT = false;
+const UISHOT = HARNESS === 'uishot';
 let uiShotPad = false;
 const UISHOT_NAMES = ['main', 'set_game', 'set_controls', 'set_binds', 'set_video', 'set_audio',
                       'set_access', 'levels', 'credits', 'main_de', 'set_video_de', 'levels_fr',
@@ -1619,7 +1625,7 @@ const UISHOT_NAMES = ['main', 'set_game', 'set_controls', 'set_binds', 'set_vide
 // ---- SCENESHOT harness ------------------------------------------------------
 // Stills of the level art (house, grass, trees) from fixed viewpoints, no enemies.
 // Captures shooter_scene_<n>.png from the view table of the arena that is loaded. MUST be false in shipped builds.
-const SCENESHOT = false;
+const SCENESHOT = HARNESS === 'sceneshot';
 // Rows: player x, z, yaw, pitch, floor y (-1 = stand on the terrain). One table per arena.
 const SCENE_VIEWS_02 = [
   -21, 8, 0.0, 0.10, -1,        // house, south front
@@ -1709,7 +1715,7 @@ const SCENE_VIEWS = W.WORLD_ID === 'arena_03' ? SCENE_VIEWS_03
 //
 // The player is held at full HP so the run cannot end mid-measurement.
 // MUST be false in shipped builds.
-const STAIRTEST = false;
+const STAIRTEST = HARNESS === 'stairtest';
 let stairTestT = 0;
 /// Lowest HP the director left before the harness topped it back up. 100 means
 /// nothing ever landed a hit; anything less is damage taken through the floor.
@@ -1730,7 +1736,7 @@ let stairTestHpMin = 100;
 // own averages go stale. Prints one FPSPROBE line to stdout — run batch with
 // output redirected. Same dormancy contract as SELFTEST/PERFTEST: MUST be false
 // in shipped builds.
-const FPSPROBE = false;
+const FPSPROBE = HARNESS === 'fpsprobe';
 const FPSPROBE_SETTLE = 240;   // frames to let boot + TAA + the GI clipmap settle
 const FPSPROBE_MEASURE = 240;  // frames in the measured window
 let fpsProbeT0 = 0;
@@ -1745,13 +1751,13 @@ let fpsProbeDone = false;
 // engine profiler on and dumps the per-pass CPU/GPU table. Prints PERF /
 // PERFPASS lines to stdout — run batch with output redirected. Flip to false
 // (or delete) when the investigation closes.
-const PERFTEST = false;
+const PERFTEST = HARNESS === 'perftest' || HARNESS === 'perfstages';
 // Mode 0 — staged feature bisect on the title screen (deterministic backdrop).
 // Mode 1 — gameplay timeline: injects a keypress to start the run, keeps the
 // player alive, and logs fps / worst-frame / alive-enemy count per 60-frame
 // window; the profiler turns on for the final third to get a combat per-pass
 // table.
-const PERF_MODE = 1;
+const PERF_MODE = HARNESS === 'perfstages' ? 0 : 1;
 // false = stay on the title screen (stationary world backdrop — used for
 // external flicker captures); true = auto-start the run at frame 20.
 const PERF_START_GAME = true;
@@ -1861,7 +1867,8 @@ function perfStageApply(s: number): void {
   setRenderScale(0.5);
   setProfilerEnabled(false);
   if (s === 0) { setPresentMode(0); return; }
-  setPresentMode(1);
+  setTargetFPS(400);   // or the sleep cap is the result
+  setPresentMode(3);   // AutoNoVsync: Mailbox (1) does not exist on Metal and panics the engine
   if (s === 2) setSsgiEnabled(false);
   if (s === 3) setSsaoEnabled(false);
   if (s === 4) setSsrEnabled(false);
@@ -1927,9 +1934,7 @@ OBJ.sfxHit = sfxImpactFlesh;
 OBJ.sfxBurst = sfxExplosion;
 // A scripted run (any harness) must not bank credits, stars or a best score, and must not be
 // stopped by the tutorial.
-if (SELFTEST || FACETEST || KEYPROBE || LOCOPROBE || WATERTEST || AITEST || MENUTEST || ANIMDBG
-    || PLAYERSHOT || P2TEST || P2BOT || COMBATSHOT || UISHOT || SCENESHOT || STAIRTEST
-    || FPSPROBE || PERFTEST || AUDIOTEST) {
+if (HARNESS !== '' || AUDIOTEST) {
   DIR.bank = false;
   TUTOR.setTutorEnabled(false);
 }
@@ -2446,12 +2451,16 @@ function gameFrame(_hostDt: number): void {
   // FPSPROBE stage driver — one wall-clock window on the title screen, printed
   // once. See the harness block above the loop.
   if (FPSPROBE && !fpsProbeDone) {
+    // Uncapped, or the answer is a multiple of the display's refresh interval and says nothing.
+    // `--autores 1` measures with dynamic resolution armed instead (it needs the real cap).
+    if ((testFrame === 2 || testFrame === 120) && cliArg('--autores') !== '1') { setPresentMode(3); setTargetFPS(400); }
+    if (testFrame === 2 && cliArg('--autores') === '1') setAutoResolution(60, true);
     if (testFrame === FPSPROBE_SETTLE) fpsProbeT0 = getTime();
     if (testFrame === FPSPROBE_SETTLE + FPSPROBE_MEASURE) {
       const wall = getTime() - fpsProbeT0;
       console.log('FPSPROBE fps=' + (FPSPROBE_MEASURE / wall).toFixed(2)
         + ' ms=' + (1000 * wall / FPSPROBE_MEASURE).toFixed(2)
-        + ' grass=' + ENV.GRASS_INSTANCE_COUNT);
+        + ' grass=' + ENV.GRASS_INSTANCE_COUNT + ' px=' + getPhysicalWidth() + 'x' + getPhysicalHeight());
       fpsProbeDone = true;
     }
   }
@@ -3460,7 +3469,7 @@ function gameFrame(_hostDt: number): void {
       ENV.matGrassInstances, ENV.GRASS_INSTANCE_COUNT);
   }
   // Phase 3.1 / 3.2: ferns, shrubs, reeds, flowers, weeds, and the far tree line.
-  drawFlora();
+  if (cliDbgOff !== 'flora') drawFlora();
   // Building stone — single drawMeshWithMaterial covers all
   // category-1 boxes; the noise + horizontal-band material in
   // the fragment turns them from flat beige into something that
@@ -3505,7 +3514,7 @@ function gameFrame(_hostDt: number): void {
     }
     FOREST_ORD[b + 1] = key;
   }
-  for (let n = 0; n < FOREST_COUNT; n++) {
+  for (let n = 0; n < FOREST_COUNT && cliDbgOff !== 'trees'; n++) {
     const i = FOREST_ORD[n];
     drawModelRotated(treeVariants[FOREST_VAR[i]], FOREST_POS[i],
                      FOREST_SCALE[i], FOREST_YAW[i], FOREST_TINTO[i]);

@@ -282,6 +282,11 @@ def perry_compile(platform, out_path):
         sys.exit(f"perry compile failed for {platform}:\n{tail}")
 
 
+# The privacy manifest App Store Connect asks for: no tracking, nothing collected, and the two
+# "required reason" API families the binary links (file timestamps, system boot time).
+PRIVACY = Path(__file__).parent / "PrivacyInfo.xcprivacy"
+
+
 def build_apple_mobile(platform, version, build, team):
     d = WORK / platform
     perry_compile(platform, d / APP)
@@ -293,6 +298,7 @@ def build_apple_mobile(platform, version, build, team):
     prune_assets(app / "assets")
     icon_keys = compile_catalog(platform, app)
     finish_plist(app / "Info.plist", platform, version, build, icon_keys)
+    shutil.copy(PRIVACY, app / "PrivacyInfo.xcprivacy")
     shutil.copy(profile_path(platform), app / "embedded.mobileprovision")
     for junk in app.rglob(".DS_Store"):
         junk.unlink()
@@ -329,6 +335,7 @@ def build_macos(version, build, team):
         junk.unlink()
     icon_keys = compile_catalog("macos", res)
     finish_plist(app / "Contents/Info.plist", "macos", version, build, icon_keys)
+    shutil.copy(PRIVACY, res / "PrivacyInfo.xcprivacy")
     shutil.copy(profile_path("macos"), app / "Contents/embedded.provisionprofile")
     ent = entitlements("macos", team, d / "entitlements.plist")
     run(["xattr", "-cr", str(app)])   # codesign rejects Finder info / provenance xattrs

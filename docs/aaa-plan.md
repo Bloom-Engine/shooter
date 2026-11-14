@@ -373,24 +373,72 @@ scope.
 
 ---
 
-## Phase 7 - Performance and production (runs alongside)
+## Phase 7 - Performance and production - PARTLY LANDED 2026-11-14 (ticket SH-062)
 
-7.1 **Re-measure.** Nothing on record postdates the new cast and 80k grass. The harness reported
-38 fps in a two-enemy fight and 47 fps on scenery on an M1 Max at 3456x2168. Run PERFTEST on every
-target and write the numbers down. Target: 60 fps at default settings on the reference machine,
-through dynamic resolution (`setAutoResolution`), grass LOD (EN-060) and character LODs.
+**State.** What one macOS machine and this repository could do is done; what needs the engine,
+another device or a decision is listed as open. `docs/tickets.md` SH-062 has the record.
 
-7.2 **Automated checks.** No CI exists. Make the harnesses run from a command-line flag instead of
-a source edit, then run boot, SELFTEST, AITEST and the two web checks on every push.
+| Item | State |
+|---|---|
+| 7.1 Re-measure | **Measured on the M1 Max only; the 60 fps target is NOT met.** Numbers below. Dynamic resolution is now ON for a fresh desktop install. |
+| 7.2 Automated checks | **Done locally, static part in CI.** Harnesses start with `./main --harness <name>`, no source edit. `tools/check.sh` runs static checks, build, boot, AI and menus (about 4 minutes) and puts the player's files back. GitHub runs the static checks on every push. The build and the windowed checks cannot run on a hosted runner. The two web checks are not wired in. |
+| 7.3 Crash and telemetry | **Not started.** Crash capture is engine work on every platform but Windows. |
+| 7.4 Platforms | **Bundle audit only.** `tools/release/bundle_audit.py`. Nothing else: no Perry patches upstreamed, no Windows packaging, Android and tvOS untouched. |
+| 7.5 Legal | **Recorded, not cleared.** `assets/TERMS.md` names the provider terms and four facts only Ralph can confirm. `PrivacyInfo.xcprivacy` is written and copied into the Apple bundles by `release.py`; no release build has been made with it. Age rating and store text: not written. |
 
-7.3 **Crash and telemetry.** Crash capture on every platform, not just Windows minidumps.
+**7.1 numbers** (M1 Max, 3456 x 2168, arena_02, 80,000 grass tufts, the machine also busy
+with other builds, so read them as plus or minus 3 fps):
 
-7.4 **Platforms.** Release builds depend on an unreleased Perry checkout with local patches;
-upstream them. Windows has no packaging and an open boot crash (EN-058). Android is debug-grade.
-tvOS needs a Siri Remote path. Bundles grew from 320 MB to about 832 MB; audit what ships.
+| Case | Before | Now |
+|---|---|---|
+| Title screen, render scale 0.75 (the old default) | 40 fps | 40 fps |
+| Title screen, render scale 0.5 | 51 fps | 51 fps |
+| Title screen, dynamic resolution (the new default) | - | 51 fps |
+| A fight (waves 1-2, up to six creatures), mean of 35 windows | 36 fps | 45 fps |
+| Same, worst window | 31 fps | 34 fps |
 
-7.5 **Legal.** Record the licence terms for Tripo, ElevenLabs, Suno and the image model output next
-to `assets/LICENSE.md`; add `PrivacyInfo.xcprivacy`, age rating and store metadata.
+What the measuring showed, and what it did not:
+
+- **The frame is limited by the graphics card, not the game code**: 24 ms on the GPU, 3 ms of
+  engine CPU.
+- **No single thing owns it.** With the render scale at 0.5, removing one thing at a time
+  moved the frame from about 20 ms by: shadows 2.3 ms, trees 1.9, grass 1.6, global illumination
+  1.6, ambient occlusion 0.9, water reflection 0.5, flora and bloom nothing. Everything off
+  at a quarter of the resolution is still 18.4 ms. So about 18 ms does not depend on
+  resolution or on any switch the game has. Where it goes is not known: the engine's
+  per-pass GPU times overlap on this GPU (they sum to several times the frame) and cannot
+  be added up.
+- **Lowering the output resolution did not help** (0.75 was slower than 1.0 in two runs).
+  Unexplained.
+- **So 60 fps here needs engine work**, not settings: a per-pass timing that can be trusted
+  on Metal first, then whatever that shows. Grass LOD (EN-060) and character LODs were not
+  tried; the removal test above caps what grass LOD could win at 1.6 ms.
+- **Two bugs found by measuring**: the staged test asked for the Mailbox present mode, which
+  Metal does not have, and the engine panicked (it uses AutoNoVsync now); and the frame-rate
+  probe measured under vsync, so its numbers were multiples of the refresh interval.
+- **Not measured**: any other machine, iOS, tvOS, Android, web, Windows; arenas 03 to 06; the
+  boss wave; memory.
+
+**7.4 bundle audit.** The assets a bundle ships weigh 463 MB with plain models (web, Android)
+and 1,601 MB with ASTC models (the three Apple builds). The whole difference is the ASTC
+copies: a model whose GLB is 5 MB (JPEG and PNG inside) is 68 MB as ASTC 4x4, because each
+carries three 4K maps with mip chains. Ten furniture and weapon models are 690 MB of it. The
+ASTC copies exist so a phone keeps textures compressed in memory; they cost download size.
+Ways down, none taken because each changes how a model looks or loads and needs a device to
+judge: 6x6 blocks for colour (`ASTC=6x6`, about 2.25 times smaller), 2K maps for the furniture
+(four times smaller; `bloom-cook` has no resize option, so it would be done in Blender), plain
+models on macOS. No file is shipped that nothing loads: the 51 files a name search could not
+find are all loaded by constructed names.
+
+**Carried forward:**
+
+- 60 fps on the reference machine (engine: trustworthy per-pass GPU timing on Metal).
+- CI that builds and runs the game needs a self-hosted Mac runner with Perry and the engine.
+- Crash capture off Windows; telemetry.
+- Perry: quirk #6 (`PERRY_LLVM_INPROCESS=0`) and the release patches are still not upstream.
+- The four plan confirmations and the sky's origin in `assets/TERMS.md`.
+- Age rating, store description, screenshots.
+- A release build that proves the privacy manifest is accepted.
 
 ---
 

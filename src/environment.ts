@@ -38,7 +38,15 @@ import * as W from './world-runtime';
 import * as T from './world-runtime';
 import { terrainHeightAt } from './terrain';
 import { bootStage, BOOT_WATER, BOOT_GRASS, BOOT_PROPS } from './boot';
-import { ANDROID, MOBILE } from './input';
+import { ANDROID, MOBILE, WEB } from './input';
+
+/// The value of `--dbg-off` (see main.ts): string equality on argv only, never parsed.
+function envDbgOff(): string {
+  if (WEB) return '';
+  const n = process.argv.length;
+  for (let i = 0; i < n - 1; i++) if (process.argv[i] === '--dbg-off') return process.argv[i + 1];
+  return '';
+}
 
 /// Handles main.ts's frame loop (and later combat/draw modules) read.
 /// Written exactly once, inside initEnvironment(). Mesh entries hold the
@@ -228,7 +236,7 @@ export function initEnvironment(): void {
   // every frame (a full second geometry+material pass). On the Adreno 618 that
   // is unaffordable; skip it on Android and let the water fall back to the
   // analytic sky reflection. (Prime perf suspect now that materials render.)
-  const waterProbe = (matWater > 0 && !ANDROID) ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
+  const waterProbe = (matWater > 0 && !ANDROID && envDbgOff() !== 'planar') ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
   if (waterProbe > 0) setMaterialReflectionProbe(matWater, waterProbe);
   
   // ---- SH-021 instanced grass — canonical blade × N instances -------------
@@ -402,7 +410,9 @@ export function initEnvironment(): void {
   // geometry). Kept at a moderate cap rather than restored to full anyway —
   // draw-call/CPU overhead at 120k was never isolated separately.
   // 2026-11: instances are 7-blade tufts now (3.5x the triangles each), so fewer of them.
-  const GRASS_INSTANCE_COUNT_MAX = ANDROID ? 3000 : (MOBILE ? 36000 : 80000);
+  // `--dbg-off grass|grasshalf` (desktop measurement aid, Phase 7.1).
+  const grassCut = envDbgOff() === 'grass' ? 0.001 : (envDbgOff() === 'grasshalf' ? 0.5 : 1);
+  const GRASS_INSTANCE_COUNT_MAX = Math.floor((ANDROID ? 3000 : (MOBILE ? 36000 : 80000)) * grassCut);
   const GRASS_INSTANCE_FLOATS    = 9;
   const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
   let GRASS_INSTANCE_COUNT = 0;
