@@ -2119,7 +2119,8 @@ five worlds parse, 1,512 entities have a model reference and drawn ones exist, o
 spawn each, 50 waves name known creatures, patterns and types and add up, objective waves have
 their sites, 145 literal asset paths exist, `src/strings.ts` matches its table, 23 `KIND_*`
 tables have eight entries, the player's files and `.env` are untracked, nothing is over 95 MB.
-Checked against a clean export of the repository as well as the working folder.
+Checked against a clean export of the repository as well as the working folder; the first
+run on GitHub passed in 33 s.
 
 **Performance.** See the plan for the table. New default: dynamic resolution on for a fresh
 desktop install (`SET_AUTO_RES` 1; off and hidden on phones and web). An existing
@@ -2136,7 +2137,6 @@ macOS binary imports), copied into the iOS, tvOS and macOS bundles by `release.p
 
 **Not done / not verified.**
 - 60 fps. About 18 ms of GPU time per frame does not respond to any game setting.
-- The GitHub workflow had not run when this was written; see the Actions tab.
 - No release build was made, so the privacy manifest's place in the bundle is untested, and
   the reasons were chosen from the macOS binary, not the iOS one.
 - The dynamic-resolution default was judged by frame rate only; nobody looked at the picture
