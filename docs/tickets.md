@@ -1907,3 +1907,39 @@ now hits 3 of 33 where the old boxes caught most of it, which is the hit shapes 
 Sounds: six new effects from `tools/gen/sfx.py` (swing, crit_hit, melee_hit, grenade_throw,
 grenade_bounce, heal).
 
+
+---
+
+## SH-058 — AAA plan, Phase 3: world art and lighting ✅ *(landed 2026-11-14; judged from stills, not walked)*
+
+Checked with the SCENESHOT harness (fixed views, now one table per arena, indoors and upstairs
+included) and with P2BOT on all three arenas. Stills only: nothing here was judged in motion.
+
+| Plan item | What changed | Checked how |
+|---|---|---|
+| 3.1 Ground | Twelve Tripo models through `process_static.py` (boulder, outcrop, river stone, fallen log, stump, concrete barrier, sandbag wall, shelf, locker, generator, work light, burnt-out truck). `tools/gen/dress_arena.py` places them as world entities with yaw and box colliders measured from the model, and paints `terrain.layers`: forest floor under trees and logs, a mud trail from the spawn round the pickups, worn patches, scree round rocks. `src/flora.ts` scatters five kinds of plant card at load (ferns under trees, reeds where the ground meets the water, flowers in the open, weeds against anything standing, shrubs toward the edge) through one instanced material. Props turn with their yaw, collide as turned boxes, and creatures steer round them. | Captures of all three arenas. Per arena: about 40 placed props, 40-64 river stones, 270-430 ferns, 150 shrubs, 230 reeds, 700 flowers, 520 weeds. The 10 m rule was not measured. |
+| 3.2 Horizon | 2,400 tree cards on the hills outside the arena (an orthographic render of the game's own tree, `tools/blender/tree_impostor.py`), in copses that thin with distance, starting 50 m out. The skirt's ground is shaded as wooded hillside. Haze is per arena. | Captures toward each edge. |
+| 3.3 River | The swell is lower and dies at the banks, so the surface no longer saws through them. Banks are shaped per side (shoreline 1.9-4.3 m from the centre line) and the drawn water overhangs the volume, so the shoreline is where ground meets surface. Lit foam drifts wherever the water is shallow, including round stones standing in it. Wet mud, a pebble line, stones and reeds along the shore. One shader now serves a river along X and one along Z, and the terrain's mud band follows the river of the arena it is in (it was arena 1's position in every arena). | Captures along and across both rivers and the creek. |
+| 3.4 House | Brick takes soot, re-pointed and lime-bloomed areas at scales the 3 m scan cannot line up with. Ceilings are plaster (they were the floor scan smeared at a grazing angle). Shelves, lockers and work lights indoors. The house and the ground are lit by the world's point lights, with indoor faces taking a third of the sky light. A second building type: a single-storey concrete guard post (`wall_slice=1`), dressed by `house_trim.py`, which now handles any number of storeys and any wall thickness. | Captures inside both floors of the house and round the guard post. A debug pass confirmed the lamps reach the shader; their gain was then raised. |
+| 3.5 Light and grade | Each world has a `look` entity (`tools/gen/set_look.py`): sky variant, tonemap, saturation, exposure key, fog, shafts, cloud shadow, vignette. `tools/gen/grade_sky.py` grades the panorama into afternoon, mist and dusk. Arena 1 is late afternoon, arena 2 a grey misty morning, arena 3 dusk. AgX tonemap everywhere. Settings rows for menu background blur, motion blur and dynamic resolution. | Side by side captures of ACES and AgX, and of the three arenas. Depth of field while aiming was captured, found to blur the whole frame, and removed. Motion blur and dynamic resolution were not looked at. |
+| 3.6 Characters | A soft contact disc under every creature and under the Trooper; a darker tint for seven seconds after wading; creatures darken toward red-brown as they lose health. | The combat capture. No emissive work. |
+| 3.7 Third arena | `arena_04` "Checkpoint" (`tools/gen/gen_arena_04.py`): a valley road at dusk, a creek with a ford, the guard post and its yard, the truck, a barrier chicane, five work lights. 42 creatures in three waves. | P2BOT: cleared in 145 s, 42 kills, 12 alive at most, 28 hits taken. |
+
+P2BOT on the final build (M1 Max, 3456x2168): Outdoor Plaza 101 s, 35 kills, 16 hits; Riverbend
+Ravine 119 s, 39 kills, 23 hits; Checkpoint 145 s, 42 kills, 28 hits. 37-43 fps in the scene
+captures, as before the phase (38). STAIRTEST: six creatures still reach the first floor.
+
+The bot found three faults again. The new arena's spawn was under the ground and the player fell
+for ever (spawns are now placed on the terrain). A Skitter and then a Bruiser stood pressed
+against the truck for a whole run: a long prop is a row of obstacle circles, which is a wall, and
+a walker heading straight into a wall had nothing to slide on. Walkers now go round on their own
+side when a circle eats most of a step, and the circles sit close enough that the row has no
+notches to catch in.
+
+Found on the way: the bit-mixing hash `environment.ts` uses for its moisture noise returned
+nearly constant values when compiled by Perry (multiplying past 2^53 and wrapping with `| 0`);
+`flora.ts` uses a Park-Miller hash that stays exact. The grass's moisture patches use the old
+one and are probably flatter than intended: not fixed here.
+
+Tripo: 660 credits (twelve generations at 55), twelve exports downloaded. Concept images and the
+five plant photographs came from the Codex image tool.

@@ -64,7 +64,13 @@ export const SET_PT         = 19;
 // the pad's aim assist (slowdown, rotation, magnetism) as one switch.
 export const SET_ADS_SENS   = 20;
 export const SET_AIM_ASSIST = 21;  // 0/1
-export const SET_COUNT      = 22;
+// Plan 3.5 - depth of field (behind menus and end screens), per-object motion blur, and dynamic resolution
+// toward 60 Hz. The last two ship OFF: motion blur is a taste, and dynamic resolution trades
+// sharpness for frame rate, which is the player's call and not a default.
+export const SET_DOF        = 22;  // 0/1
+export const SET_MOTION_BLUR = 23; // 0/1
+export const SET_AUTO_RES   = 24;  // 0/1
+export const SET_COUNT      = 25;
 
 const V = new Array<number>(SET_COUNT);
 
@@ -106,6 +112,9 @@ function defaults(): void {
   V[SET_SSR]        = 0;
   V[SET_SSGI]       = 1;
   V[SET_BLOOM]      = 1;
+  V[SET_DOF]        = 1;
+  V[SET_MOTION_BLUR] = 0;
+  V[SET_AUTO_RES]   = 0;
   // Off by default: Lumen is the default GI everywhere; path tracing is
   // opt-in (it trades ~half the frame rate for traced lighting).
   V[SET_PT]         = 0;
@@ -201,6 +210,9 @@ export function loadSettings(): void {
   V[SET_SSR]     = num(vd, 'ssr', V[SET_SSR]);
   V[SET_SSGI]    = num(vd, 'ssgi', V[SET_SSGI]);
   V[SET_BLOOM]   = num(vd, 'bloom', V[SET_BLOOM]);
+  V[SET_DOF]     = num(vd, 'dof', V[SET_DOF]);
+  V[SET_MOTION_BLUR] = num(vd, 'motionBlur', V[SET_MOTION_BLUR]);
+  V[SET_AUTO_RES] = num(vd, 'autoRes', V[SET_AUTO_RES]);
   V[SET_PT]      = num(vd, 'pathTracing', V[SET_PT]);
 
   const ac: any = o['access'];
@@ -236,6 +248,9 @@ export function saveSettings(): void {
         + ', "ssr": ' + V[SET_SSR]
         + ', "ssgi": ' + V[SET_SSGI]
         + ', "bloom": ' + V[SET_BLOOM]
+        + ', "dof": ' + V[SET_DOF]
+        + ', "motionBlur": ' + V[SET_MOTION_BLUR]
+        + ', "autoRes": ' + V[SET_AUTO_RES]
         + ', "pathTracing": ' + V[SET_PT] + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]
         + ', "captions": ' + V[SET_CAPTIONS] + ' },\n';

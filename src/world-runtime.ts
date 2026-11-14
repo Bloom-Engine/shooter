@@ -191,6 +191,22 @@ function vec3Part(s: string | undefined, idx: number, fallback: number): number 
   return v === v ? v : fallback;
 }
 
+// ---- look ---------------------------------------------------------------------
+//
+// One `look` entity per world carries the arena's time of day and grade as plain key/values
+// (fog, exposure, tonemap, saturation, sky model ...). The engine's environment block has no
+// fields for these, and userData round-trips through the editor untouched. main.ts reads them
+// with lookNum(key, fallback); a world without the entity gets the fallbacks.
+
+const looks = bucket('look');
+export function lookNum(key: string, fallback: number): number {
+  if (looks.length === 0) return fallback;
+  const s = looks[0].userData[key];
+  if (s === undefined || s.length === 0) return fallback;
+  const v = parseFloat(s);
+  return v === v ? v : fallback;
+}
+
 // ---- player spawn ------------------------------------------------------------
 
 const spawns = bucket('player_spawn');
@@ -331,6 +347,11 @@ export const MESH_CATEGORY = new Array<number>(MESH_COUNT);
 /// could not tell, so it fenced the staircase off with wall circles and enemies
 /// could never use it (SH-051).
 export const MESH_IS_STAIR = new Array<number>(MESH_COUNT);
+// Phase 3.1 dressing (tools/gen/dress_arena.py). MESH_YAW: degrees about the vertical, applied to
+// the drawn model AND its box collider; -1000 = the entity carries none and keeps the old
+// behaviour (drawn unrotated, axis-aligned box). MESH_OBST: creatures steer round it.
+export const MESH_YAW = new Array<number>(MESH_COUNT);
+export const MESH_OBST = new Array<number>(MESH_COUNT);
 
 for (let i = 0; i < MESH_COUNT; i++) {
   const e = meshes[i];
@@ -341,6 +362,10 @@ for (let i = 0; i < MESH_COUNT; i++) {
   MESH_ROT_Y[i] = e.transform.rotation[1];
   MESH_SCALE[i] = e.transform.scale[0];
   MESH_COLLIDER[i] = e.userData['collider'] === 'box' ? 1 : 0;
+  const yawS = e.userData['yaw'];
+  const yawV = yawS !== undefined ? parseFloat(yawS) : -1000;
+  MESH_YAW[i] = yawV === yawV ? yawV : -1000;
+  MESH_OBST[i] = e.userData['obst'] === '1' ? 1 : 0;
   MESH_COLLIDER_HX[i] = vec3Part(he, 0, 0.5);
   MESH_COLLIDER_HY[i] = vec3Part(he, 1, 0.5);
   MESH_COLLIDER_HZ[i] = vec3Part(he, 2, 0.5);
@@ -625,6 +650,14 @@ for (let i = 0; i < WATER_COUNT; i++) {
 
 // True when (x, z) falls inside any keep-out rectangle, grown by `margin`.
 // Callers pass their own margin: trees need more clearance than grass blades.
+/// The building's footprint only (the last keep-out). The grass uses this: where the river is
+/// concerned it asks the terrain instead, because the shoreline is no longer the volume's edge.
+export function keepOutBuilding(x: number, z: number, margin: number): boolean {
+  const i = KEEPOUT_COUNT - 1;
+  return x > KEEPOUT_X0[i] - margin && x < KEEPOUT_X1[i] + margin &&
+         z > KEEPOUT_Z0[i] - margin && z < KEEPOUT_Z1[i] + margin;
+}
+
 export function keepOut(x: number, z: number, margin: number): boolean {
   for (let i = 0; i < KEEPOUT_COUNT; i++) {
     if (x > KEEPOUT_X0[i] - margin && x < KEEPOUT_X1[i] + margin &&

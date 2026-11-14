@@ -29,6 +29,7 @@
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
 #include "common/shadows.wgsl"
+#include "common/clouds.wgsl"
 
 // Array slices — the ABI shared with tools/build-building-textures.ts. Change
 // these and that tool's SLICES order together, or the house gets a concrete
@@ -124,6 +125,13 @@ fn fs_main(in: VsOut) -> OpaqueOut {
     is_slab   = false;
   }
 
+  // Phase 3.4 - a second building type. bp.misc.z = 1 makes the WALLS board-formed concrete
+  // (the slab scan) instead of brick: the guard post of arena 04.
+  if (!is_slab && bp.misc.z > 0.5) {
+    slice  = SLICE_SLAB;
+    size_m = bp.knobs.w;
+  }
+
   // Material override for trim boxes. The PROJECTION stays the face's own; `is_slab` keeps
   // meaning "horizontal face" for the weathering and the tangent mapping below.
   let is_metal = in.code > 0.25 && in.code < 0.75;
@@ -167,7 +175,44 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   var mat_tint = bp.base.rgb;
   if (is_metal) { mat_tint = vec3<f32>(0.42, 0.45, 0.46); }
   else if (is_trim) { mat_tint = vec3<f32>(1.12, 1.10, 1.04); }
-  let speckled = tex * mat_tint * macro_v;
+  // Concrete walls (the guard post): the floor scan is a dark screed; a wall cast against
+  // boards is paler and a little warm.
+  else if (!is_slab && bp.misc.z > 0.5) { mat_tint = vec3<f32>(1.75, 1.68, 1.55); }
+  var speckled = tex * mat_tint * macro_v;
+  // Phase 3.4 - the brick is one 3 m scan, and macro tone alone still left a facade of
+  // identical panels. Walls get what a real one collects over decades, at scales the scan's
+  // period cannot line up with: areas of darker, sootier brick, areas re-pointed lighter and
+  // greyer, and a lime bloom low on the wall. Brick only (trim and steel keep their scan).
+  if (!is_slab && !is_trim && bp.misc.z < 0.5) {
+    let patch_a = value_noise(sample_uv * 0.21 + vec2<f32>(3.7, 9.2));
+    let patch_b = value_noise(sample_uv * 0.55 + vec2<f32>(11.3, 2.1));
+    let soot    = smoothstep(0.52, 0.80, patch_a);
+    let repoint = smoothstep(0.58, 0.82, patch_b) * (1.0 - soot);
+    let grey    = dot(speckled, vec3<f32>(0.33, 0.34, 0.33));
+    speckled = mix(speckled, speckled * vec3<f32>(0.66, 0.64, 0.66), soot * 0.75);
+    speckled = mix(speckled, mix(speckled, vec3<f32>(grey), 0.45) * 1.14, repoint * 0.7);
+    let bloom_n = value_noise(vec2<f32>(sample_uv.x * 1.4, sample_uv.y * 3.1));
+    let lime    = smoothstep(0.55, 0.85, bloom_n) * (1.0 - smoothstep(0.6, 2.4, p.y - 0.2));
+    speckled = mix(speckled, vec3<f32>(grey * 1.25 + 0.06), lime * 0.35);
+  }
+  // Ceilings (the underside of a slab) were the floor scan seen at a grazing angle from below,
+  // which the sampler smears into dark streaks. A ceiling is whitewashed plaster: one pale tone
+  // with water stains spreading from the walls and a few hairline cracks, all from noise that
+  // needs no sharp texel.
+  let is_ceiling = is_slab && n.y < -0.5 && !is_trim;
+  if (is_ceiling) {
+    let stain_n = value_noise(p.xz * 0.6) * 0.6 + value_noise(p.xz * 1.9 + 4.4) * 0.4;
+    let stain   = smoothstep(0.50, 0.80, stain_n);
+    // Hairline cracks: the zero line of one noise, kept only where a second says so, so they
+    // are short and few instead of contour lines across the whole ceiling.
+    let crack_n = abs(value_noise(p.xz * 2.3 + 8.8) - 0.5);
+    let crack   = (1.0 - smoothstep(0.002, 0.007, crack_n))
+                * smoothstep(0.62, 0.72, value_noise(p.xz * 0.5 + 1.9));
+    var plaster = vec3<f32>(0.66, 0.65, 0.61) * (0.93 + 0.14 * value_noise(p.xz * 7.0));
+    plaster = mix(plaster, vec3<f32>(0.44, 0.40, 0.31), stain * 0.55);
+    plaster = plaster * (1.0 - crack * 0.35);
+    speckled = plaster;
+  }
 
   // Horizontal mortar lines every `band_period` metres, analytically
   // antialiased. The old form — pow(max(cos(y·f),0), band.w·8) — was a
@@ -256,9 +301,8 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // when overcast patches drift over them.
   let sun_dir = normalize(view.sun_dir.xyz);
   let n_dot_l = max(dot(nrm, sun_dir), 0.0);
-  let cp = in.world_pos.xz * 0.025 + vec2<f32>(frame.time * 0.5, frame.time * 0.15);
-  let cn = value_noise(cp);
-  let cloud  = mix(0.55, 1.0, smoothstep(0.35, 0.78, cn));
+  // The engine's shared cloud deck (it was a private scrolling noise that matched no cloud).
+  let cloud  = cloud_shadow_at(in.world_pos, sun_dir, frame.wind.xy, frame.time, frame.cloud);
   // Cascaded sun shadow. The building both casts and receives now —
   // the normal-offset variant keeps its vertical walls acne-free
   // (a constant depth bias can't cover a wall's depth slope).
@@ -269,15 +313,41 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // walls pick up directional sky colour + ground bounce from the HDRI
   // rather than reading flat grey. A small flat floor keeps interiors and
   // overhangs from going pitch black.
-  let fill   = sample_env_diffuse(nrm) + view.ambient.rgb * 0.20;
-  let lit    = albedo * (fill + direct);
+  // Indoors the sky is mostly hidden. A face is indoors when it lies inside the house's
+  // footprint (bp.band: centre x, centre z, half x, half z) below the roof (bp.misc.y) and is a
+  // ceiling, a floor, or a wall whose normal points toward the middle of the house. Without
+  // this every room was lit like the field outside and the lamps had nothing to do.
+  let to_c    = vec2<f32>(bp.band.x, bp.band.y) - p.xz;
+  let in_foot = abs(to_c.x) < bp.band.z - 0.05 && abs(to_c.y) < bp.band.w - 0.05;
+  let inward  = dot(n.xz, to_c) > 0.0;
+  let indoors = in_foot && p.y < bp.misc.y - 0.3 && (is_slab || inward);
+  let fill   = (sample_env_diffuse(nrm) + view.ambient.rgb * 0.20) * select(1.0, 0.34, indoors);
+  // Phase 3.4 - lamps. The house had no light of its own: indoors was sky fill through the
+  // windows and nothing else. Every point light the game submits (the lamps inside, the work
+  // lights outside, muzzle flashes) now lights these walls, floors and ceilings. Unshadowed:
+  // a face turned away from the lamp gets nothing, which is what keeps a room's lamp off the
+  // outside of its own walls and off the floor above.
+  var local = vec3<f32>(0.0);
+  let pl_n = min(u32(view.point_light_count.x), 24u);
+  for (var i = 0u; i < pl_n; i = i + 1u) {
+    let lp   = view.point_lights[i].position;
+    let lv   = lp.xyz - in.world_pos;
+    let d    = length(lv);
+    if (d < lp.w) {
+      let k   = 1.0 - d / lp.w;
+      let ndl = max(dot(nrm, lv / max(d, 0.001)), 0.0);
+      // x2.5: these lamps are authored for the engine's own shading, which is brighter at range
+      local = local + view.point_lights[i].color.rgb * (view.point_lights[i].color.w * k * k * ndl * 2.5);
+    }
+  }
+  let lit    = albedo * (fill + direct + local);
 
   // Roughness from the scan's measured map (glTF ORM convention: G = rough)
   // instead of one constant 0.78 for every surface of the building. Damp and
   // dry patches of plaster catch the sun differently, and that variation is
   // most of what separates a surface from a picture of one. The floor slab
   // brings its own — polished concrete is not plaster.
-  let rough = textureSample(mr_array, albedo_array_samp, uv, slice).g;
+  let rough = select(textureSample(mr_array, albedo_array_samp, uv, slice).g, 0.92, is_ceiling);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);

@@ -29,6 +29,18 @@ Workspace URLs: `studio.tripo3d.ai/workspace/{generate|retopology|rigging|animat
 | prop_table | bcf96e2b-8517-4c7b-9135-43af1212fc7d | static |
 | prop_chair | 992ecbc7-c090-4cad-b434-748868e4fbb9 | static |
 | prop_bed | 65c748ce-f658-49e7-93fb-50a4b122078b | static |
+| rock_boulder | 3283dca2-9f24-41e1-837e-4400ae805b6b | static (Phase 3, 2026-11-14) |
+| rock_outcrop | b45fef20-6fd4-423f-9239-652a08acec78 | static |
+| rock_stone | 037cf52f-bfec-4468-9730-7b7f8f081a82 | static |
+| log_fallen | 3c70c58d-e3fe-40e8-96a2-9cc612e1aeaf | static |
+| stump | 887a54c3-1839-4e6d-9e65-c865cca00a3d | static |
+| prop_barrier | 09808c7c-2c0e-4070-808e-015cf0ded8a0 | static |
+| prop_sandbags | c747fd1a-cbef-42e4-966e-55dd2c0431bc | static |
+| prop_shelf | 169de32a-e939-4250-856d-86fddf08f868 | static |
+| prop_locker | d8ed66da-c54a-4cc2-b4b1-f67951a54d4d | static |
+| prop_generator | 9f9d4b06-d2bf-43a5-aad1-63603eb36e4d | static |
+| prop_worklight | 3d552b01-8dc8-4089-9091-5e130a6eee1d | static |
+| prop_wreck | cd616182-1eed-441c-99be-35830649f8d8 | static |
 
 Creature clips (all rigs): presets idle, run, walk, slash, hit_to_body_01, fall, plus the Text2Motion
 death clip made on the Ravager ("Hit hard in the chest, the creature jerks backward, staggers one step,
@@ -39,6 +51,8 @@ ravager 1.9, spitter 1.9, bruiser 2.4, bombard 2.4, colossus 3.5, trooper 1.85).
 
 Credits: 1,575 spent on 2026-11-12/13 (17 generations, 8 retopologies, 8 rigs, 22 Text2Motion clips);
 380 on 2026-11-14 for the Trooper's second clip batch (20 per clip; the export itself was free).
+660 on 2026-11-14 for the twelve Phase 3 world models (55 per generation, image to 3D, HD Model,
+H3.1 Best Quality; a static model needs no retopology or rig). Balance after: 18,980.
 
 Per-creature Text2Motion clips (5 s each; the phrases `tools/gen/build_cast.sh` matches on are the
 opening words): a run and an attack for each of the seven creatures, plus a second, more forceful
@@ -58,4 +72,12 @@ Static models (`<name>_hd.glb` here, the dense export) -> `assets/models/<name>.
 rifle 0.92, blaster 0.45, chaingun 1.05, cannon 1.00 (30k triangles, 2048 bakes), and
 `--kind prop --size <height>` with barrel 0.95, crate 1.0, table 0.8 `--long x`, chair 0.9,
 bed 0.6 `--long x --length 1.9` (12-16k triangles, 2048 bakes).
+Phase 3 world models (all `--kind prop`, 2048 bakes unless noted): rock_boulder `--size 1.5 --tris 12000`,
+rock_outcrop `--size 0.85 --long x --tris 12000`, rock_stone `--size 0.32 --tris 3000 --bake 1024`,
+log_fallen `--size 0.55 --long x --length 3.2 --tris 10000`, stump `--size 0.6 --tris 10000`,
+prop_barrier `--size 0.9 --long x --length 2.0 --tris 8000`, prop_sandbags `--size 1.0 --long x --length 2.0 --tris 12000`,
+prop_shelf `--size 1.9 --long x --tris 16000`, prop_locker `--size 1.8 --long x --tris 8000`,
+prop_generator `--size 0.9 --long x --length 1.2 --tris 14000`, prop_worklight `--size 1.9 --tris 12000`,
+prop_wreck `--size 2.6 --long x --length 6.5 --tris 40000 --bake 4096`. Their long side is glTF X;
+`tools/gen/dress_arena.py` gives each placement its yaw.
 Check any result with `tools/blender/model_sheet.py` (four views with axes) or `clip_sheet.py`.

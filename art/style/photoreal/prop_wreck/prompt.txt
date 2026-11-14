@@ -1,0 +1,7 @@
+Photorealistic reference photograph of ONE object for a 3D scan.
+
+Design: a single burnt-out wrecked military 6x6 cargo truck, about 6.5 m long: boxy armoured cab with the doors missing, the windscreen gone, an open flat cargo bed with bent steel side boards, all tyres burnt away to the bare steel rims so it sits low on its axles, the bonnet buckled. Scorched black and rust-orange steel with patches of surviving olive-drab paint, soot, ash. Shown from a raised three-quarter front view, the whole vehicle in frame.
+
+Shared look of the human gear: realistic near-future military hardware, plausible engineering, nothing fantastical. Matte olive-drab and dark graphite-grey polymer and anodised aluminium, worn at the edges to bare metal, light dust, small scratches, matte black rubber grips, visible screws and seams. No logos, no text, no glowing lights except where stated.
+
+Framing: a product photograph for a 3D scan. Seen from a slightly raised three-quarter front view so the front, one side and the top are all visible. ONE object, complete and uncropped with a little margin, centred. Flat, even, soft studio lighting with no cast shadows and no rim light. Plain uniform mid-grey background. Photorealistic, sharp focus everywhere, no depth-of-field blur, no text, no labels, no logos, no borders, no hands, no other objects.

@@ -27,7 +27,18 @@ struct VsOut {
   @invariant @builtin(position) clip_pos: vec4<f32>,
   @location(0) world_pos:    vec3<f32>,
   @location(1) world_normal: vec3<f32>,
+  // Phase 3.3: xy = unit flow direction in world XZ (from the mesh's vertex colour, so one shader
+  // serves a river along X and one along Z), z = 0 at the bank edge of the mesh .. 1 mid-channel.
+  @location(2) flow_bank:    vec3<f32>,
 };
+
+// Flow frame: x = metres downstream, y = metres across.
+fn to_flow(p: vec2<f32>, f: vec2<f32>) -> vec2<f32> {
+  return vec2<f32>(p.x * f.x + p.y * f.y, -p.x * f.y + p.y * f.x);
+}
+fn from_flow(q: vec2<f32>, f: vec2<f32>) -> vec2<f32> {
+  return vec2<f32>(q.x * f.x - q.y * f.y, q.x * f.y + q.y * f.x);
+}
 
 // Round-9 — shared value noise. Used by the vertex stage (wave-amplitude
 // patches) and the fragment stage (flow-advected micro detail).
@@ -80,7 +91,10 @@ fn gerstner(
 fn vs_main(in: VertexInput) -> VsOut {
   var out: VsOut;
   var local = in.position;
-  let world_xz = (draw.model * vec4<f32>(local, 1.0)).xz;
+  let fdir = normalize(in.color.gb * 2.0 - vec2<f32>(1.0));
+  let bank = in.color.r;
+  // Everything below runs in the flow frame (x downstream), then turns back to world.
+  let world_xz = to_flow((draw.model * vec4<f32>(local, 1.0)).xz, fdir);
   // Round-9 — river-flow rework. The old three-wave set was open-ocean
   // styled: mixed directions, full gravity-dispersion speed, perfectly
   // periodic — on a 5 m river it read as a fast train of stripes marching
@@ -92,14 +106,21 @@ fn vs_main(in: VertexInput) -> VsOut {
   //   (3) a slow drifting value-noise field modulates amplitude, so
   //       crests swell and die in patches instead of a fixed train.
   let t = frame.time * 0.55;
-  let amp_field = 0.45 + 1.0 * vnoise(world_xz * vec2<f32>(0.10, 0.28)
-                                      + vec2<f32>(-t * 0.22, 0.0));
+  // Phase 3.3: the swell dies toward the banks and is lower overall. At full height a crest
+  // stood 0.28 m proud of a 5 m river and cut the bank in a sawtooth along the mesh edge.
+  let amp_field = (0.45 + 1.0 * vnoise(world_xz * vec2<f32>(0.10, 0.28)
+                                       + vec2<f32>(-t * 0.22, 0.0))) * 0.55 * bank;
   var tangent  = vec3<f32>(1.0, 0.0, 0.0);
   var binormal = vec3<f32>(0.0, 0.0, 1.0);
-  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0,  0.18)), 6.0, 0.20 * amp_field, t, &tangent, &binormal);
-  local = local + gerstner(world_xz, normalize(vec2<f32>( 1.0, -0.42)), 3.2, 0.16 * amp_field, t, &tangent, &binormal);
-  local = local + gerstner(world_xz, normalize(vec2<f32>( 0.55, 0.85)), 1.9, 0.10 * amp_field, t, &tangent, &binormal);
-  let normal = normalize(cross(binormal, tangent));
+  var disp = gerstner(world_xz, normalize(vec2<f32>( 1.0,  0.18)), 6.0, 0.20 * amp_field, t, &tangent, &binormal);
+  disp = disp + gerstner(world_xz, normalize(vec2<f32>( 1.0, -0.42)), 3.2, 0.16 * amp_field, t, &tangent, &binormal);
+  disp = disp + gerstner(world_xz, normalize(vec2<f32>( 0.55, 0.85)), 1.9, 0.10 * amp_field, t, &tangent, &binormal);
+  let nf = normalize(cross(binormal, tangent));
+  let dxz = from_flow(disp.xz, fdir);
+  let nxz = from_flow(nf.xz, fdir);
+  local = local + vec3<f32>(dxz.x, disp.y, dxz.y);
+  let normal = vec3<f32>(nxz.x, nf.y, nxz.y);
+  out.flow_bank = vec3<f32>(fdir, bank);
   let world  = draw.model * vec4<f32>(local, 1.0);
   out.world_pos    = world.xyz;
   out.world_normal = normalize((draw.model * vec4<f32>(normal, 0.0)).xyz);
@@ -117,7 +138,7 @@ fn vs_main(in: VertexInput) -> VsOut {
 // cross-faded (flow-map trick) so the advection never visibly stretches
 // or snaps back. Anisotropic frequencies — lower along X than Z — make
 // the detail read as elongated current streaks, not isotropic dimples.
-fn micro_normal(world_xz: vec2<f32>, t: f32) -> vec3<f32> {
+fn micro_normal(world_xz: vec2<f32>, t: f32) -> vec3<f32> {   // in and out in the flow frame
   let flow  = vec2<f32>(1.35, 0.10);   // surface current, m/s (+X downstream)
   let cyc   = 2.6;                      // seconds per advection cycle
   let ph_a  = fract(t / cyc);
@@ -163,7 +184,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
   // Tier 4 — perturb the per-vertex normal with a fragment-level
   // micro-normal so close-range water reads as crinkled.
-  let micro    = micro_normal(in.world_pos.xz, frame.time);
+  let fdir     = normalize(in.flow_bank.xy);
+  let q        = to_flow(in.world_pos.xz, fdir);
+  let micro_f  = micro_normal(q, frame.time);
+  let micro_xz = from_flow(micro_f.xz, fdir);
+  let micro    = vec3<f32>(micro_xz.x, micro_f.y, micro_xz.y);
   let n_base   = normalize(in.world_normal);
   let micro_w  = clamp(water_params.knobs.w + imp * 0.45, 0.0, 0.8);
   let n        = normalize(mix(n_base, micro, micro_w));
@@ -217,7 +242,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // where in real water diffraction would scatter them.
   // Round-9: the pattern drifts downstream with the current and its
   // internal clock runs slower — matches the calmer wave system.
-  let cp = in.world_pos.xz - vec2<f32>(frame.time * 0.9, 0.0);
+  let cp = q - vec2<f32>(frame.time * 0.9, 0.0);
   let ct = frame.time * 0.6;
   let s1 = sin((cp.x + cp.y) * 3.7 + ct * 1.2);
   let s2 = sin((cp.x - cp.y) * 5.1 + ct * 0.9);
@@ -269,17 +294,28 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   let crestness = clamp(1.0 - n.y, 0.0, 1.0);
   let foam      = smoothstep(0.08, 0.25, crestness)
                 * smoothstep(0.06, 0.35, cos_theta);
-  water = mix(water, vec3<f32>(0.95, 0.98, 1.0), foam * water_params.knobs.x);
+  // Foam is a lit surface, not white paint: it takes the sky's diffuse light and the sun, so it
+  // goes amber at dusk and grey under cloud instead of glowing.
+  let l_foam    = normalize(view.sun_dir.xyz);
+  let foam_col  = vec3<f32>(0.80, 0.83, 0.82)
+                * (sample_env_diffuse(vec3<f32>(0.0, 1.0, 0.0)) + view.sun_color.rgb * max(l_foam.y, 0.0) * 0.55);
+  water = mix(water, foam_col, foam * water_params.knobs.x);
 
-  // Shoreline rim: bright where the water column is thin.
+  // Phase 3.3 - shore foam. Wherever the water column is thin (the banks, and around any rock or
+  // log standing in the river) a broken lace of foam drifts with the current: two noise octaves
+  // advected downstream, thresholded harder the deeper the water, so it is dense at the contact
+  // line and breaks into streaks within 35 cm of depth. knobs.y is its strength.
   let shore_t = smoothstep(0.0, 0.15, column);
-  let rim     = (1.0 - shore_t) * water_params.knobs.y;
-  water = mix(water, vec3<f32>(0.96, 0.99, 1.0), rim);
+  let shallow = 1.0 - smoothstep(0.02, 0.35, column);
+  let fq      = q - vec2<f32>(frame.time * 0.55, 0.0);
+  let lace_n  = vnoise(fq * vec2<f32>(2.2, 5.5)) * 0.6 + vnoise(fq * vec2<f32>(6.0, 13.0) + vec2<f32>(3.1, 7.7)) * 0.4;
+  let lace    = smoothstep(0.62 - shallow * 0.42, 0.78 - shallow * 0.30, lace_n) * shallow;
+  water = mix(water, foam_col, clamp(lace * water_params.knobs.y, 0.0, 0.85));
 
   // Phase 7 / Round-3 — impulse wake foam. The normal agitation above
   // carries most of the effect; this is just a soft churned-water
   // brightening, capped well below white so it never reads as paint.
-  water = mix(water, vec3<f32>(0.88, 0.93, 0.95), imp * 0.22);
+  water = mix(water, foam_col, imp * 0.22);
 
   // Round-3 — sun glint: tight Blinn specular from the sun direction.
   // sample_env at any useful LOD blurs the sun disc into a wash, so a

@@ -50,6 +50,7 @@ export const ENV: any = {
   matBuilding: 0, matBuildingMesh: 0,
   matGlass: 0, matGlassMesh: 0,
   matMuzzleFlash: 0, matMuzzleFlashMesh: 0,
+  matContact: 0, matContactMesh: 0,
 };
 
 // Round-4 — deterministic value noise over world XZ, used for the
@@ -147,7 +148,7 @@ export function initEnvironment(): void {
     // in the shallows and the surface still darkens toward mid-channel.
     1.30, 0.55, 0.42,   0.0,    // absorption per metre
     0.035, 0.085, 0.080, 0.0,   // deep_tint
-    0.50, 0.10,         0.6,   0.26,    // foam / rim / sky_lod / micro_strength
+    0.50, 0.55,         0.6,   0.26,    // crest foam / shore foam / sky_lod / micro_strength
   ];
   if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
   
@@ -165,8 +166,19 @@ export function initEnvironment(): void {
   const WATER_CX = W.WATER_COUNT > 0 ? W.WATER_CX[0] : 0;    // world X centre
   const WATER_CZ = W.WATER_COUNT > 0 ? W.WATER_CZ[0] : 12;   // world Z centre
   const WATER_Y  = W.WATER_COUNT > 0 ? W.WATER_CY[0] + 0.05 : 0.05;
-  const WATER_COLS = 80;
-  const WATER_ROWS = 10;
+  // Phase 3.3: half-metre cells both ways (the river may run along X or along Z), and each
+  // vertex carries what water.wgsl needs to be direction-agnostic: colour.r = 0 on the two bank
+  // edges rising to 1 a quarter of the way in (the swell is scaled by it, so the surface meets
+  // the bank flat), colour.gb = the flow direction, packed 0..1.
+  // The DRAWN surface overhangs the water volume by WATER_OVERHANG on each bank: the banks are
+  // shaped (tools/gen/dress_arena.py) so the ground rises through the surface somewhere inside
+  // that margin, and the shoreline is that intersection instead of the mesh's straight edge.
+  const WATER_ALONG_X = WATER_W >= WATER_D;
+  const WATER_OVERHANG = 2.5;
+  const WATER_MW = WATER_W + (WATER_ALONG_X ? 0 : 2 * WATER_OVERHANG);
+  const WATER_MD = WATER_D + (WATER_ALONG_X ? 2 * WATER_OVERHANG : 0);
+  const WATER_COLS = Math.max(4, Math.round(WATER_MW / 0.5));
+  const WATER_ROWS = Math.max(4, Math.round(WATER_MD / 0.5));
   const _wvc = (WATER_COLS + 1) * (WATER_ROWS + 1);
   const _wic = WATER_COLS * WATER_ROWS * 2 * 3;
   const WATER_VERTS = new Array<number>(_wvc * 12);
@@ -178,11 +190,16 @@ export function initEnvironment(): void {
         const u = c / WATER_COLS;
         const vv = r / WATER_ROWS;
         // World-space positions — mesh has its own real extent.
-        WATER_VERTS[vi++] = -WATER_W * 0.5 + u * WATER_W;
+        WATER_VERTS[vi++] = -WATER_MW * 0.5 + u * WATER_MW;
         WATER_VERTS[vi++] = 0;
-        WATER_VERTS[vi++] = -WATER_D * 0.5 + vv * WATER_D;
+        WATER_VERTS[vi++] = -WATER_MD * 0.5 + vv * WATER_MD;
         WATER_VERTS[vi++] = 0; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 0;
-        WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1; WATER_VERTS[vi++] = 1;
+        const across = WATER_ALONG_X ? vv : u;
+        const bank = Math.min(1, Math.min(across, 1 - across) / 0.25);
+        WATER_VERTS[vi++] = bank * bank * (3 - 2 * bank);
+        WATER_VERTS[vi++] = WATER_ALONG_X ? 1.0 : 0.5;
+        WATER_VERTS[vi++] = WATER_ALONG_X ? 0.5 : 1.0;
+        WATER_VERTS[vi++] = 1;
         WATER_VERTS[vi++] = u; WATER_VERTS[vi++] = vv;
       }
     }
@@ -436,7 +453,7 @@ export function initEnvironment(): void {
       // No grass on the water or inside the building. Same world-derived shapes
       // the forest uses, with a tighter margin: a blade may grow right up to the
       // waterline, a tree may not.
-      if (W.keepOut(px, pz, 0.75)) continue;
+      if (W.keepOutBuilding(px, pz, 0.75)) continue;
       // Bilinear heightmap sample.
       const u = (px - T.TERRAIN_ORIGIN_X) / T.TERRAIN_CELL_SIZE;
       const v = (pz - T.TERRAIN_ORIGIN_Z) / T.TERRAIN_CELL_SIZE;
@@ -450,6 +467,17 @@ export function initEnvironment(): void {
         const h11 = T.TERRAIN_HEIGHTS[(iz + 1) * T.TERRAIN_SAMPLE_COUNT + ixc + 1];
         py = (h00 * (1 - fx) + h10 * fx) * (1 - fz) +
              (h01 * (1 - fx) + h11 * fx) * fz;
+      }
+      // Nothing grows under the water (the shoreline is the terrain's, see WATER_OVERHANG) and
+      // little on the mud the dressing tool painted: a trail is bare, its edges are thin.
+      if (W.WATER_COUNT > 0 && py < WATER_Y + 0.03
+          && Math.abs(px - WATER_CX) < WATER_MW * 0.5 && Math.abs(pz - WATER_CZ) < WATER_MD * 0.5) continue;
+      if (W.TERRAIN_SPLAT_COUNT > 0 && u >= 0 && v >= 0
+          && u < T.TERRAIN_SAMPLE_COUNT - 1 && v < T.TERRAIN_SAMPLE_COUNT - 1) {
+        const packed = W.TERRAIN_SPLAT_DATA[Math.round(v) * W.TERRAIN_SPLAT_W + Math.round(u)];
+        // packed is r | g<<8 | b<<16 | a<<24 as a plain number (it can exceed 2^31): divide, do not shift
+        const bare = ((Math.floor(packed / 65536) % 256) + (Math.floor(packed / 16777216) % 256)) / 255;   // mud + rock
+        if (r6 * 0.9 + 0.05 < bare) continue;
       }
       // Round-4 — moisture patches (~12 m wavelength): low-moisture areas
       // go dry olive-yellow and slightly shorter, lush areas stay deep
@@ -510,6 +538,26 @@ export function initEnvironment(): void {
     // normal-map strength, reserved x3.
     1.0,  0.0, 0.0, 0.0,
   ];
+  // Phase 3.4: the `band` vec4 (a painted mortar line, off since the frame became geometry) now
+  // carries the house's footprint, and misc.y its roof height: building.wgsl uses them to tell
+  // indoor faces from outdoor ones.
+  {
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9, top = -1e9;
+    for (let i = 0; i < W.MESH_COUNT; i++) {
+      if (W.MODEL_IS_BOX[W.MESH_MODEL_IDX[i]] !== 1 || W.MESH_CATEGORY[i] !== 1) continue;
+      x0 = Math.min(x0, W.MESH_X[i] - W.MESH_COLLIDER_HX[i]);
+      x1 = Math.max(x1, W.MESH_X[i] + W.MESH_COLLIDER_HX[i]);
+      z0 = Math.min(z0, W.MESH_Z[i] - W.MESH_COLLIDER_HZ[i]);
+      z1 = Math.max(z1, W.MESH_Z[i] + W.MESH_COLLIDER_HZ[i]);
+      top = Math.max(top, W.MESH_Y[i] + W.MESH_COLLIDER_HY[i]);
+    }
+    if (x1 > x0) {
+      BUILDING_PARAMS[4] = (x0 + x1) * 0.5; BUILDING_PARAMS[5] = (z0 + z1) * 0.5;
+      BUILDING_PARAMS[6] = (x1 - x0) * 0.5; BUILDING_PARAMS[7] = (z1 - z0) * 0.5;
+      BUILDING_PARAMS[13] = W.lookNum('roof_y', top - 1.2);   // parapets stand above the roof slab
+    }
+  }
+  BUILDING_PARAMS[14] = W.lookNum('wall_slice', 0);   // 0 brick, 1 concrete (building.wgsl misc.z)
   if (matBuilding > 0) setMaterialParams(matBuilding, BUILDING_PARAMS);
 
   // SH-050 — the building's photoscan slices. ORDER IS THE ABI: building.wgsl
@@ -617,6 +665,10 @@ export function initEnvironment(): void {
     'assets/materials/muzzle_flash.wgsl', 'additive',
   );
   const matMuzzleFlashMesh = genMeshCube(1, 1, 1);
+
+  // Phase 3.6 - contact shadow: a soft dark disc on a thin slab (see the shader).
+  ENV.matContact = compileMaterialFromFile('assets/materials/contact_shadow.wgsl', 'transparent');
+  ENV.matContactMesh = genMeshCube(1, 0.02, 1);
 
   // Publish the handles the rest of the game reads (ENV doc above).
   ENV.matWater = matWater;

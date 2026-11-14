@@ -10,7 +10,7 @@ import {
   isKeyPressed, isKeyDown, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
-  loadModel, drawModel, drawModelRotated, drawSphere, getModelBounds, loadModelAnimation, updateModelAnimation,
+  loadModel, setProceduralSky, setSunDirection, drawModel, drawModelRotated, drawSphere, getModelBounds, loadModelAnimation, updateModelAnimation,
   stageModels, stageModelsSync, commitModel,
   setModelFoliageWind, setFoliageShadowMotion,
   drawMeshWithMaterial, drawMeshWithMaterialInstanced,
@@ -29,7 +29,8 @@ import {
   beginMode2DRaw,
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
-  setCloudShadows,
+  setCloudShadows, setTonemap, setColorSaturation, setDepthOfField, setMotionBlurEnabled,
+  setAutoResolution,
   setTaaEnabled, setRenderScale, setCasStrength,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
@@ -61,6 +62,7 @@ import {
 } from './player';
 import * as W from './world-runtime';
 import { ENV, initEnvironment, initGiProxies } from './environment';
+import { initFlora, drawFlora } from './flora';
 import { GS } from './gamestate';
 import {
   DIR, initDirector, setDirectorDeps, updateDirector, updateEnemyProjectiles,
@@ -385,10 +387,25 @@ setDirectionalLight(
 // diffuse) at load time; refractive water + glass automatically
 // pick it up via sample_env(). With nothing loaded the env binds
 // are 1×1 black and PBR specular is dead.
-setEnvClearFromHdr('assets/env/outdoor.hdr');
+// Plan 3.5: the panorama graded to the arena's time of day (tools/gen/grade_sky.py; the order is
+// its PRESETS). Look key `sky_variant`: 0 noon as shot, 1 afternoon, 2 mist, 3 dusk.
+const SKY_FILES = ['assets/env/outdoor.hdr', 'assets/env/outdoor_afternoon.hdr',
+                   'assets/env/outdoor_mist.hdr', 'assets/env/outdoor_dusk.hdr'];
+const SKY_VARIANT = Math.max(0, Math.min(3, Math.floor(W.lookNum('sky_variant', 0))));
+setEnvClearFromHdr(SKY_FILES[SKY_VARIANT]);
+// Phase 3.5: each arena has its own time of day. The world file's `look` entity carries what the
+// engine's environment block has no field for; the fallbacks are the old noon values.
+// sky 0 = the HDR panorama, 1 = the engine's physical sky steered by the world's sun direction.
+const LOOK_SKY = W.lookNum('sky', 0);
+if (LOOK_SKY > 0.5) {
+  setProceduralSky(true, { rayleighDensity: W.lookNum('rayleigh', 1.0), mieDensity: W.lookNum('mie', 1.0), groundAlbedo: 0.12 });
+  setSunDirection(vec3(W.ENV_SUN_DIR_X, W.ENV_SUN_DIR_Y, W.ENV_SUN_DIR_Z), W.lookNum('sky_sun', 1.0));
+}
+setTonemap(W.lookNum('tonemap', 0));
+setColorSaturation(W.lookNum('saturation', 1.0));
 // Tier 1.2 — IBL strength. 1.0 = unit; bump up if the scene reads
 // dim against the new HDR sky, pull back if it blows out.
-setEnvIntensity(1.0);
+setEnvIntensity(W.lookNum('env_intensity', 1.0));
 // Tier 1.3 — three-cascade sun shadows. Adds ~3 ms of GPU work
 // but grounds every object visually.
 enableShadows();
@@ -399,7 +416,7 @@ enableShadows();
 // IBL-fill material lighting: 0.18 washed the stone to white before
 // the materials sampled real irradiance, 0.12 went moody-dark after.
 setAutoExposure(true);
-setAutoExposureKey(0.155);
+setAutoExposureKey(W.lookNum('exposure_key', 0.155));
 // Tier 1.5 — pale-blue distance haze. r,g,b,density,heightRef,
 // heightFalloff. Density 0.012 reads as a soft far-plane haze
 // without dimming the foreground.
@@ -412,12 +429,13 @@ setAutoExposureKey(0.155);
 // full valley length — the visible "milk band" hugged the waterline and
 // spilled over the banks. Drop the reference below ground and thin the
 // density: low pooling survives, the white sheet does not.
-setFog(0.78, 0.84, 0.90, 0.016, -0.6, 6.0);
+setFog(W.ENV_FOG_R, W.ENV_FOG_G, W.ENV_FOG_B, W.lookNum('fog_density', 0.016),
+       W.lookNum('fog_height', -0.6), W.lookNum('fog_falloff', 6.0));
 // Tier 1.7 — warm god-rays through the trees. Round-2 retune (audit F3):
 // at 0.4/0.96 the 32-tap shaft march added up to ~+0.14 HDR of warm veil
 // on every sunward silhouette — a big share of the "pale backlit
 // treeline". 0.18/0.90 keeps the god-ray read without the wash.
-setSunShafts(0.18, 0.90, 1.0, 0.95, 0.7);
+setSunShafts(W.lookNum('shafts', 0.18), 0.90, W.ENV_SUN_R, W.ENV_SUN_G * 0.95, W.ENV_SUN_B * 0.85);
 // EN-013 — global wind UBO. All foliage materials (grass, trees,
 // future ferns/clovers) read these values from PerFrame.wind so
 // one source of truth drives the whole scene's swing.
@@ -442,7 +460,7 @@ setWind(0.85, 0.50, WIND_AMP, 1.6);
 // (deck - eye) x scale), so this pair is what keeps the sky reading the way it
 // always has while making the shadows arena-scale -- one or two crossing the
 // field rather than one blanket over all of it.
-setCloudShadows(0.45, 150, 0.008, 6);
+setCloudShadows(W.lookNum('cloud_shadow', 0.45), 150, 0.008, 6);
 // TAA + TSR reconstruction. Setting the scale explicitly opts out of the
 // legacy TAA coupling (which would otherwise silently halve the internal
 // resolution). 0.75 at 4K output = 2880x1620 internal, reconstructed to
@@ -714,6 +732,44 @@ for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
 
 // Same hoist for the static-mesh pass: positions are world data (immutable at
 // runtime) and the cube tint depends only on the 4-entry category table.
+// Work lights (prop_worklight): where their two lamp heads are, so the frame loop can draw a
+// glow on each. The light itself is a world light the dressing tool placed beside them.
+const WL_MAX = 16;
+const WL_X = new Array<number>(WL_MAX * 2);
+const WL_Y = new Array<number>(WL_MAX * 2);
+const WL_Z = new Array<number>(WL_MAX * 2);
+const WL_N = [0];
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  if (W.UNIQUE_MODELS[W.MESH_MODEL_IDX[i]].indexOf('prop_worklight') < 0 || WL_N[0] >= WL_MAX * 2 - 1) continue;
+  const yawR = (W.MESH_YAW[i] > -999 ? W.MESH_YAW[i] : 0) * Math.PI / 180;
+  const sc = W.MESH_SCALE[i];
+  for (let side = -1; side <= 1; side += 2) {
+    // local (side * 0.22, 1.74, 0): local +X turns to (cos, -sin)
+    WL_X[WL_N[0]] = W.MESH_X[i] + Math.cos(yawR) * side * 0.22 * sc;
+    WL_Y[WL_N[0]] = W.MESH_Y[i] + 1.74 * sc;
+    WL_Z[WL_N[0]] = W.MESH_Z[i] - Math.sin(yawR) * side * 0.22 * sc;
+    WL_N[0] = WL_N[0] + 1;
+  }
+}
+// Plan 3.6 - what ties a character to the place it stands in. EN_WET / PL_WET: seconds of
+// "just came out of the river" left (the model is tinted darker while it dries). A creature also
+// darkens as it is hurt: blood and dirt, read at a glance as "that one is nearly down".
+const WET_TIME = 7.0;
+const EN_WET = new Array<number>(MAX_ENEMIES);
+for (let i = 0; i < MAX_ENEMIES; i++) EN_WET[i] = 0;
+const PL_WET = [0];
+function wadingAt(x: number, y: number, z: number): boolean {
+  return W.WATER_COUNT > 0 && y < ENV.WATER_Y - 0.06
+    && Math.abs(x - ENV.WATER_CX) < ENV.WATER_W * 0.5 + 2.5
+    && Math.abs(z - ENV.WATER_CZ) < ENV.WATER_D * 0.5 + 2.5;
+}
+function drawContact(x: number, y: number, z: number, size: number, strength: number): void {
+  if (ENV.matContact <= 0) return;
+  drawMeshWithMaterial(ENV.matContact, ENV.matContactMesh, vec3(x, y + 0.035, z), size,
+    { r: 0, g: 0, b: 0, a: Math.floor(255 * strength) });
+}
+const DOFS = [0, 14];        // depth of field last sent: aperture, focus distance
+const PROP_DRAW_DIST = 46;   // metres; small drawn-only props (river stones) beyond this are skipped
 const MESH_POS = new Array<any>(W.MESH_COUNT);
 for (let i = 0; i < W.MESH_COUNT; i++) {
   MESH_POS[i] = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
@@ -731,7 +787,7 @@ for (let c = 0; c < 4; c++) {
 // actually blocks a walker. The door and window openings get no circles, so
 // enemies funnel through the doors instead of clipping through masonry.
 // The +256 is the wall-circle budget (~1 per metre of ground-floor wall).
-const OBST_MAX = FOREST_COUNT + W.MESH_COUNT + 256;
+const OBST_MAX = FOREST_COUNT + W.MESH_COUNT * 3 + 512;
 const OBST_X = new Array<number>(OBST_MAX);
 const OBST_Z = new Array<number>(OBST_MAX);
 const OBST_R = new Array<number>(OBST_MAX);
@@ -746,6 +802,30 @@ for (let i = 0; i < W.MESH_COUNT; i++) {
     OBST_X[GS.OBST_COUNT] = W.MESH_X[i];
     OBST_Z[GS.OBST_COUNT] = W.MESH_Z[i];
     OBST_R[GS.OBST_COUNT] = 0.30 * W.MESH_SCALE[i];
+    GS.OBST_COUNT = GS.OBST_COUNT + 1;
+  }
+}
+// Phase 3.1: rocks, logs, barriers and the like (`obst` props). A row of circles along the
+// prop's long side, turned by its yaw, so a 3 m log is a wall to walk round and not one fat disc.
+for (let i = 0; i < W.MESH_COUNT; i++) {
+  if (W.MESH_OBST[i] !== 1) continue;
+  const hx = W.MESH_COLLIDER_HX[i];
+  const hz = W.MESH_COLLIDER_HZ[i];
+  const thin = Math.min(hx, hz);
+  const long = Math.max(hx, hz) - thin;
+  const yawR = (W.MESH_YAW[i] > -999 ? W.MESH_YAW[i] : 0) * Math.PI / 180;
+  // local long axis: +X if hx >= hz, else +Z; local +X turns to (cos, -sin), +Z to (sin, cos)
+  const ax = hx >= hz ? Math.cos(yawR) : Math.sin(yawR);
+  const az = hx >= hz ? -Math.sin(yawR) : Math.cos(yawR);
+  // Close together (0.55 of a radius apart): the row has to be near enough to a straight wall
+  // that a walker sliding along it does not catch in the notch between two circles (a Bruiser
+  // did, against the truck, with the circles a radius and a half apart).
+  const n = long < 0.05 ? 1 : Math.max(2, Math.ceil(2 * long / ((thin + 0.15) * 0.55)) + 1);
+  for (let k = 0; k < n && GS.OBST_COUNT < OBST_MAX; k++) {
+    const t = n === 1 ? 0 : -long + (2 * long * k) / (n - 1);
+    OBST_X[GS.OBST_COUNT] = W.MESH_X[i] + ax * t;
+    OBST_Z[GS.OBST_COUNT] = W.MESH_Z[i] + az * t;
+    OBST_R[GS.OBST_COUNT] = thin + 0.15;
     GS.OBST_COUNT = GS.OBST_COUNT + 1;
   }
 }
@@ -951,6 +1031,8 @@ const TERRAIN_PARAMS = [
   // Matches the arena_02 river volume (z=12, carve half-width 2.6).
   // SH-050 — bank fade 1.8 -> 3.0: the brown mud now has to READ as a bank, and
   // a 1.8 m fade put the whole grass->mud transition inside a stride.
+  // Phase 3.3: filled in below from the world's water volume (it was arena_02's numbers for
+  // every arena, so the ravine's mud lay 12 m from its river).
   12.0, 2.4, 3.0,    0.12,
   // global tiling multiplier, detail UV scale, detail strength, normal strength
   //
@@ -990,13 +1072,27 @@ const TERRAIN_PARAMS = [
   TERRAIN_PARAMS[SPLAT_UV + 2] = sv;
   TERRAIN_PARAMS[SPLAT_UV + 3] = ov;
 }
+if (W.WATER_COUNT > 0) {
+  // river vec4 at 20: centre line, half-width (negative = the river runs along Z), fade, waterline
+  const alongX = W.WATER_SX[0] >= W.WATER_SZ[0];
+  TERRAIN_PARAMS[20] = alongX ? W.WATER_CZ[0] : W.WATER_CX[0];
+  TERRAIN_PARAMS[21] = alongX ? 3.2 : -3.2;
+  TERRAIN_PARAMS[22] = 3.0;
+  TERRAIN_PARAMS[23] = W.WATER_CY[0] + 0.05;
+} else {
+  TERRAIN_PARAMS[20] = 9999; TERRAIN_PARAMS[21] = 0.01;
+}
 if (matTerrain > 0) setMaterialParams(matTerrain, TERRAIN_PARAMS);
 // Per-mesh collider from userData.collider === 'box'.
 for (let i = 0; i < W.MESH_COUNT; i++) {
   if (W.MESH_COLLIDER[i] === 1) {
     const shape = boxShape(vec3(W.MESH_COLLIDER_HX[i], W.MESH_COLLIDER_HY[i], W.MESH_COLLIDER_HZ[i]));
+    // A dressing prop carries a yaw; its box turns with the drawn model (same right-handed
+    // turn about +Y that drawModelRotated applies).
+    const yawR = W.MESH_YAW[i] > -999 ? W.MESH_YAW[i] * Math.PI / 180 : 0;
     createBody(physics, shape, {
       motionType: MotionType.STATIC,
+      rotation: { x: 0, y: Math.sin(yawR * 0.5), z: 0, w: Math.cos(yawR * 0.5) },
       // A box placeholder is centred on its position; a prop MODEL has its origin at the
       // base, so its collider is lifted by its half height. (Until 2026-11 the furniture's
       // colliders sat half their height into the floor, under the crates you could see.)
@@ -1207,6 +1303,7 @@ WPN.initWeapons();
 
 
 initEnvironment();
+initFlora();
 
 // SH-051 — build the vertical-navigation tables (walkable building boxes + the
 // stair flights) from the world data. Must run before the director's first
@@ -1259,7 +1356,7 @@ let dbgShadow = true;
 
 // ---- M8 polish: post-FX ---------------------------------------------------
 // Called once at startup — these are cheap, always-on stylistic passes.
-setVignette(0.4, 0.55);    // darken frame edges
+setVignette(W.lookNum('vignette', 0.4), 0.55);    // darken frame edges
 setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckle
                            // over sky/shadow areas (phase-0 calibration).
 
@@ -1467,18 +1564,43 @@ const COMBATSHOT = false;
 
 // ---- SCENESHOT harness ------------------------------------------------------
 // Stills of the level art (house, grass, trees) from fixed viewpoints, no enemies.
-// Rows: player x, z, yaw, pitch. Captures shooter_scene_<n>.png. MUST be false in shipped builds.
+// Captures shooter_scene_<n>.png from the view table of the arena that is loaded. MUST be false in shipped builds.
 const SCENESHOT = false;
-const SCENE_VIEWS = [
-  -21, 8, 0.0, 0.10,        // house, south front
-  -2, 3, -0.85, 0.08,       // house, south-east corner
-  -20, -9, 1.2, 0.15,       // house, inside ground floor
-  -21, -1, 0.0, 0.0,        // house, door close-up
-  8, 22, 0.3, 0.02,         // grass + tree line, low
-  9, 10, 0.5, -0.20,        // tree, looking up into a crown
-  0, 20, 0.0, 0.12,         // spawn view
-  15, 2, 1.2, 0.05,         // trees close
+// Rows: player x, z, yaw, pitch, floor y (-1 = stand on the terrain). One table per arena.
+const SCENE_VIEWS_02 = [
+  -21, 8, 0.0, 0.10, -1,        // house, south front
+  -2, 3, -0.85, 0.08, -1,       // house, south-east corner
+  -20, -9, 1.2, 0.15, 0.2,      // house, inside ground floor
+  -21, -1, 0.0, 0.0, -1,        // house, door close-up
+  8, 22, 0.3, 0.02, -1,         // grass + tree line, low
+  9, 10, 0.5, -0.20, -1,        // tree, looking up into a crown
+  0, 20, 0.0, 0.12, -1,         // spawn view
+  15, 2, 1.2, 0.05, -1,         // trees close
+  -14, -12, -1.9, 0.10, 0.2,    // house, inside, looking west along the ground floor
+  -22, -12, 2.6, 0.12, 3.9,     // house, first floor
+  2, -3, -2.2, 0.05, -1,        // plaza, toward the generator and the house's east side
+  -30, 30, 0.9, 0.02, -1,       // south-west meadow, to the horizon
 ];
+const SCENE_VIEWS_03 = [
+  3, 27, 0.0, 0.10, -1,         // spawn view, up the ravine
+  6, 10, -0.6, 0.05, -1,        // east bank, across the river
+  -10, 0, 1.57, 0.08, -1,       // west bank, looking east
+  0.5, -14, 0.0, 0.03, -1,      // in the river, upstream
+  14, -20, 2.4, 0.10, -1,       // north-east rim, back down
+  10, 22, 0.9, 0.05, -1,        // the camp by the spawn
+];
+const SCENE_VIEWS_04 = [
+  0, 26, 0.0, 0.10, -1,
+  -12, 8, 0.8, 0.06, -1,
+  10, 4, -0.9, 0.06, -1,
+  0, -6, 3.14, 0.08, -1,
+  -20, -18, 0.6, 0.04, -1,
+  18, -14, -2.2, 0.08, -1,
+  4, 12, 1.57, 0.02, -1,
+  -6, -2, -1.57, 0.10, -1,
+];
+const SCENE_VIEWS = W.WORLD_ID === 'arena_03' ? SCENE_VIEWS_03
+  : (W.WORLD_ID === 'arena_04' ? SCENE_VIEWS_04 : SCENE_VIEWS_02);
 
 // ---- STAIRTEST harness (temporary diagnostic) -------------------------------
 // SH-051's acceptance test, and the only honest one: it asks whether enemies
@@ -2024,6 +2146,20 @@ function gameFrame(_hostDt: number): void {
   // freezes the world; `dtReal` keeps driving the feedback decay, the menus and
   // the camera, or a hit-stop would freeze its own recovery.
   const dt = menuOpen() ? 0 : FEEL.applyHitstop(dtReal);
+  // Plan 3.5 - depth of field. A menu or an end screen throws the world behind it out of focus.
+  // NOT while aiming: tried at aperture 0.02, focus 14 m, and the COMBATSHOT aim frame came out
+  // blurred edge to edge, the target included. The engine's blur has no usable in-focus band at
+  // gameplay distances yet, so aiming stays sharp. Only re-sent when it changes.
+  if (!MOBILE && !WEB) {
+    let ap = 0, fd = 14;
+    if (SET.get(SET.SET_DOF) !== 0) {
+      if (menuOpen() || GS.gameOver || DIR.gameWon) { ap = 0.07; fd = 2.5; }
+    }
+    if (Math.abs(ap - DOFS[0]) > 0.0005 || Math.abs(fd - DOFS[1]) > 0.05) {
+      setDepthOfField(fd, ap);
+      DOFS[0] = ap; DOFS[1] = fd;
+    }
+  }
   FEEL.updateFeel(dtReal);
   if (GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen()) GS.runElapsed = GS.runElapsed + dt;
   // iOS reports the screen in *pixels*, where macOS reports points (engine
@@ -2620,9 +2756,12 @@ function gameFrame(_hostDt: number): void {
   // so the water shader can render persistent ripples.
   {
     const pp = ppFrame;
-    const inRiver = pp.z > ENV.WATER_CZ - ENV.WATER_D * 0.5 &&
-                    pp.z < ENV.WATER_CZ + ENV.WATER_D * 0.5 &&
-                    Math.abs(pp.x) < ENV.WATER_W * 0.5;
+    // Phase 3.3: the shoreline is wherever the ground dips under the water (the banks are no
+    // longer a straight trench), so "in the river" is asked of the terrain, inside the water
+    // volume widened by the 2.5 m the drawn surface overhangs it.
+    const inRiver = Math.abs(pp.x - ENV.WATER_CX) < ENV.WATER_W * 0.5 + 2.5 &&
+                    Math.abs(pp.z - ENV.WATER_CZ) < ENV.WATER_D * 0.5 + 2.5 &&
+                    terrainHeightAt(pp.x, pp.z) < ENV.WATER_Y - 0.04;
     const moving = Math.abs(input.moveX) + Math.abs(input.moveZ) > 0.1;
     splatCooldown -= dt;
     if (inRiver && moving && splatCooldown <= 0) {
@@ -2647,8 +2786,8 @@ function gameFrame(_hostDt: number): void {
       } else if (BLDG_HX > 0 && Math.abs(pp.x - BLDG_CX) < BLDG_HX
                              && Math.abs(pp.z - BLDG_CZ) < BLDG_HZ) {
         surface = 3;
-      } else if (Math.abs(pp.x) < ENV.WATER_W * 0.5
-                 && Math.abs(pp.z - ENV.WATER_CZ) < ENV.WATER_D * 0.5 + 2.2) {
+      } else if (Math.abs(pp.x - ENV.WATER_CX) < ENV.WATER_W * 0.5 + 4.5
+                 && Math.abs(pp.z - ENV.WATER_CZ) < ENV.WATER_D * 0.5 + 4.5) {
         surface = 1;
       } else if (paintedHardGround(pp.x, pp.z)) {
         surface = 1;
@@ -2807,14 +2946,15 @@ function gameFrame(_hostDt: number): void {
     if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
     GS.playerHP = PLAYER_HP_MAX;
     DIR.waveBreakTimer = 9999;
-    const nViews = SCENE_VIEWS.length / 4;
+    const nViews = SCENE_VIEWS.length / 5;
     const vi = Math.floor((testFrame - 30) / 50);
     if (testFrame >= 30 && vi < nViews) {
       const ph = (testFrame - 30) % 50;
-      const vx = SCENE_VIEWS[vi * 4], vz = SCENE_VIEWS[vi * 4 + 1];
-      if (ph === 0) setPlayerPosition(vec3(vx, terrainHeightAt(vx, vz) + 1.2, vz));
-      CAM[0] = SCENE_VIEWS[vi * 4 + 2];
-      CAM[1] = SCENE_VIEWS[vi * 4 + 3];
+      const vx = SCENE_VIEWS[vi * 5], vz = SCENE_VIEWS[vi * 5 + 1];
+      const vy = SCENE_VIEWS[vi * 5 + 4];
+      if (ph === 0) setPlayerPosition(vec3(vx, (vy < 0 ? terrainHeightAt(vx, vz) : vy) + 1.2, vz));
+      CAM[0] = SCENE_VIEWS[vi * 5 + 2];
+      CAM[1] = SCENE_VIEWS[vi * 5 + 3];
       if (ph === 45) takeScreenshot('shooter_scene_' + vi + '.png');
     }
     if (testFrame >= 30 && vi >= nViews) {
@@ -2980,6 +3120,8 @@ function gameFrame(_hostDt: number): void {
     drawMeshWithMaterialInstanced(ENV.matGrass, ENV.matGrassMesh, 0,
       ENV.matGrassInstances, ENV.GRASS_INSTANCE_COUNT);
   }
+  // Phase 3.1 / 3.2: ferns, shrubs, reeds, flowers, weeds, and the far tree line.
+  drawFlora();
   // Building stone — single drawMeshWithMaterial covers all
   // category-1 boxes; the noise + horizontal-band material in
   // the fragment turns them from flat beige into something that
@@ -3063,12 +3205,30 @@ function gameFrame(_hostDt: number): void {
       const yawDeg = ((i * 47) % 360);
       drawModelRotated(v, MESH_POS[i], sc, yawDeg, WHITE);
     } else {
-      drawModel(meshModelHandles[mi], MESH_POS[i], W.MESH_SCALE[i], WHITE);
+      // Props. Small ones are skipped beyond PROP_DRAW_DIST and behind the camera: the
+      // dressing adds a few hundred of them and most are never in view.
+      const pdx = W.MESH_X[i] - CAM[2], pdz = W.MESH_Z[i] - CAM[4];
+      const pd2 = pdx * pdx + pdz * pdz;
+      const big = W.MESH_COLLIDER_HX[i] + W.MESH_COLLIDER_HZ[i] > 1.2 || W.MESH_COLLIDER[i] === 1;
+      if (!big && pd2 > PROP_DRAW_DIST * PROP_DRAW_DIST) continue;
+      if (pd2 > 36 && pdx * (CAM[5] - CAM[2]) + pdz * (CAM[7] - CAM[4]) < -0.35 * Math.sqrt(pd2) *
+          Math.sqrt((CAM[5] - CAM[2]) * (CAM[5] - CAM[2]) + (CAM[7] - CAM[4]) * (CAM[7] - CAM[4]))) continue;
+      if (W.MESH_YAW[i] > -999) {
+        drawModelRotated(meshModelHandles[mi], MESH_POS[i], W.MESH_SCALE[i], W.MESH_YAW[i], WHITE);
+      } else {
+        drawModel(meshModelHandles[mi], MESH_POS[i], W.MESH_SCALE[i], WHITE);
+      }
     }
   }
   // (Water rendering moved up — Phase 9 drawMeshWithMaterial replaces
   // the old cube-grid loop that used to live here.)
   // Point lights from the world file — static scene lights.
+  if (ENV.matMuzzleFlash > 0) {
+    for (let i = 0; i < WL_N[0]; i++) {
+      drawMeshWithMaterial(ENV.matMuzzleFlash, ENV.matMuzzleFlashMesh,
+        vec3(WL_X[i], WL_Y[i], WL_Z[i]), 0.34, { r: 255, g: 238, b: 205, a: 210 });
+    }
+  }
   for (let i = 0; i < W.LIGHT_COUNT; i++) {
     addPointLight(W.LIGHT_X[i], W.LIGHT_Y[i], W.LIGHT_Z[i],
                   W.LIGHT_RANGE[i],
@@ -3340,8 +3500,12 @@ function gameFrame(_hostDt: number): void {
     animPlay(animPlayer, wantClip, fade, rate, loopClip);
     animUpdate(animPlayer, dt, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
+    if (wadingAt(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z)) PL_WET[0] = WET_TIME;
+    else if (PL_WET[0] > 0) PL_WET[0] = PL_WET[0] - dt;
+    const plWet = Math.floor(255 * (1 - 0.28 * Math.min(1, PL_WET[0] / (WET_TIME * 0.6))));
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
-              PLAYER_SCALE, WHITE);
+              PLAYER_SCALE, plWet >= 254 ? WHITE : { r: plWet, g: plWet, b: plWet, a: 255 });
+    if (playerGrounded()) drawContact(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, 1.7, 0.50);
 
     // The weapon points down the aim while the Trooper holds it, and stays in the HAND through
     // a roll or a death. While it is held, learn where "down the barrel" and "weapon up" are in
@@ -3540,13 +3704,19 @@ function gameFrame(_hostDt: number): void {
     // recognisably violet even while flashing.
     const bT = KIND_TINTO[k];
     const f = enFlashT[i] > 0 ? enFlashT[i] / DRETCH_HIT_FLASH : 0;
-    const tint = f > 0
-      ? { r: bT.r,
-          g: Math.floor(bT.g * (1 - f)),
-          b: Math.floor(bT.b * (1 - f)),
+    if (wadingAt(enX[i], enY[i], enZ[i])) EN_WET[i] = WET_TIME;
+    else if (EN_WET[i] > 0) EN_WET[i] = EN_WET[i] - dt;
+    const wetK = 1 - 0.30 * Math.min(1, EN_WET[i] / (WET_TIME * 0.6));
+    const hurt = 1 - Math.max(0, enHP[i]) / KIND_HP[k];          // 0 fresh .. 1 nearly dead
+    const dr = wetK * (1 - hurt * 0.22), dg = wetK * (1 - hurt * 0.42), db = wetK * (1 - hurt * 0.42);
+    const tint = (f > 0 || dg < 0.995)
+      ? { r: Math.floor(bT.r * dr),
+          g: Math.floor(bT.g * dg * (1 - f)),
+          b: Math.floor(bT.b * db * (1 - f)),
           a: 255 }
       : bT;
     drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], tint);
+    drawContact(enX[i], enY[i], enZ[i], 0.9 + KIND_HEIGHT[k] * 0.75, 0.50);
   }
   // Dying enemies: play the death animation once, frozen on its final
   // collapsed pose (the engine wraps anim time, so playback clamps just

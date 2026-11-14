@@ -45,7 +45,8 @@ for f in "snew":
     face[f] = {"s": p[2] + h[2], "n": p[2] - h[2], "e": p[0] + h[0], "w": p[0] - h[0]}[f]
 X0, X1, Z0, Z1 = face["w"], face["e"], face["n"], face["s"]
 OUT = {"s": 1, "n": -1, "e": 1, "w": -1}
-T = 0.6                                   # wall thickness
+# wall thickness, measured (the house is 0.6 m, the guard post of arena 04 is 0.3 m)
+T = round(2 * min(min(x[6][0], x[6][2]) for x in walls), 3)
 floors = sorted({round(x[3] - x[4], 2) for x in walls if x[4] > 1.0})     # wall bottoms: 0.2, 3.9
 tops = sorted({round(x[3] + x[4], 2) for x in walls if x[4] > 1.0})       # wall tops: 3.4, 7.1
 parapet_top = max(e["transform"]["position"][1] + he(e)[1] for e in ents if e["name"].startswith("h_par_"))
@@ -102,7 +103,9 @@ for f in "snew":
         cur = c1
 
 # 2. A course at every slab edge and 3. parapet coping.
-for y0, y1 in ((tops[0] - 0.04, floors[1] + 0.04), (tops[1] - 0.04, roof_top + 0.04)):
+for k in range(len(tops)):          # any number of storeys
+    y0 = tops[k] - 0.04
+    y1 = (floors[k + 1] if k + 1 < len(floors) else roof_top) + 0.04
     for f in "snew":
         on_face(f, sum(span[f]) / 2, (y0 + y1) / 2, (span[f][1] - span[f][0]) / 2 + 0.10, (y1 - y0) / 2, 0.045, 0.055, "concrete")
 for f in "snew":
@@ -152,7 +155,7 @@ for f, along, half, y0, y1, door in openings:
 for f in "sn":
     for a in (span[f][0] + 1.05, span[f][1] - 1.05):
         on_face(f, a, (0.1 + roof_top) / 2, 0.05, (roof_top - 0.1) / 2, 0.13, 0.05, "metal")
-        for y in (1.2, 3.0, 5.2, roof_top - 0.3):
+        for y in [v for v in (1.2, 3.0, 5.2) if v < roof_top - 0.6] + [roof_top - 0.3]:
             on_face(f, a, y, 0.075, 0.03, 0.09, 0.09, "metal")
 mx, mz = X0 + 1.6, Z0 + 1.6
 box(mx, roof_top + 2.4, mz, 0.035, 2.4, 0.035, "metal")
@@ -161,5 +164,6 @@ box(mx, roof_top + 4.3, mz, 0.45, 0.02, 0.02, "metal")
 box(mx, roof_top + 3.9, mz, 0.02, 0.02, 0.32, "metal")
 
 w["entities"] = ents + out
-json.dump(w, open(path, "w"), indent=2)
+raw = open(path).read()
+open(path, "w").write(json.dumps(w, indent=2) if raw.startswith("{\n") else json.dumps(w, separators=(",", ":")))
 print(f"{path}: {len(openings)} openings ({sum(1 for o in openings if o[5])} doors), {len(out)} trim boxes")

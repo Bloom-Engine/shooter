@@ -18,7 +18,7 @@ import {
 } from 'bloom';
 import { drawText, measureText } from './ui-text';
 import {
-  setOutputScale, setRenderScale, setShadowsEnabled,
+  setOutputScale, setRenderScale, setShadowsEnabled, setMotionBlurEnabled, setAutoResolution,
   setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
   setPathTracing, isPathTracingSupported,
 } from 'bloom/core';
@@ -88,6 +88,7 @@ const MAIN_COUNT = 4;
 const SET_LABELS: string[] = [
   'DISPLAY RESOLUTION', 'RENDER RESOLUTION',
   'SHADOWS', 'AMBIENT OCCLUSION', 'REFLECTIONS', 'GLOBAL ILLUMINATION', 'BLOOM',
+  'MENU BACKGROUND BLUR', 'MOTION BLUR', 'DYNAMIC RESOLUTION (60 FPS)',
   'PATH TRACING',
   'MASTER VOLUME', 'MUSIC VOLUME', 'SFX VOLUME',
   'LOOK SENSITIVITY', 'PAD SENSITIVITY', 'AIMING SENSITIVITY', 'PAD AIM ASSIST', 'INVERT Y',
@@ -99,6 +100,7 @@ const SET_LABELS: string[] = [
 const SET_KINDS: number[] = [
   ROW_SLIDER, ROW_SLIDER,
   ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE,
+  ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE,
   ROW_TRI,
   ROW_SLIDER, ROW_SLIDER, ROW_SLIDER,
   ROW_SLIDER, ROW_SLIDER, ROW_SLIDER, ROW_TOGGLE, ROW_TOGGLE,
@@ -110,6 +112,7 @@ const SET_KINDS: number[] = [
 const SET_IDX: number[] = [
   SET.SET_OUTPUT_SCALE, SET.SET_RENDER_SCALE,
   SET.SET_SHADOWS, SET.SET_SSAO, SET.SET_SSR, SET.SET_SSGI, SET.SET_BLOOM,
+  SET.SET_DOF, SET.SET_MOTION_BLUR, SET.SET_AUTO_RES,
   SET.SET_PT,
   SET.SET_MASTER_VOL, SET.SET_MUSIC_VOL, SET.SET_SFX_VOL,
   SET.SET_SENS, SET.SET_PAD_SENS, SET.SET_ADS_SENS, SET.SET_AIM_ASSIST, SET.SET_INVERT_Y,
@@ -124,6 +127,7 @@ const SET_IDX: number[] = [
 const SET_MIN:  number[] = [
   0.5, 0.5,
   0, 0, 0, 0, 0,
+  0, 0, 0,
   0,
   0, 0, 0,
   0.2, 0.2, 0.3, 0, 0,
@@ -133,6 +137,7 @@ const SET_MIN:  number[] = [
 const SET_MAX:  number[] = [
   1.0, 1.0,
   1, 1, 1, 1, 1,
+  1, 1, 1,
   2,
   1, 1, 1,
   3.0, 3.0, 1.0, 1, 1,
@@ -142,6 +147,7 @@ const SET_MAX:  number[] = [
 const SET_STEP: number[] = [
   0.05, 0.05,
   1, 1, 1, 1, 1,
+  1, 1, 1,
   1,
   0.05, 0.05, 0.05,
   0.1, 0.1, 0.05, 1, 1,
@@ -150,7 +156,7 @@ const SET_STEP: number[] = [
   1, 0];
 // MUST equal the length of the six arrays above — they are parallel and indexed
 // by row, so a mismatch silently misaligns every row past the short one.
-const SET_COUNT_ROWS = 22;
+const SET_COUNT_ROWS = 25;
 
 export function initMenus(): void {
   S[0] = MENU_NONE; S[1] = 0; S[2] = 0; S[3] = MENU_PAUSE;
@@ -229,6 +235,10 @@ function applyLive(idx: number): void {
     setSsgiEnabled(SET.get(SET.SET_SSGI) !== 0);
   } else if (idx === SET.SET_BLOOM) {
     setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
+  } else if (idx === SET.SET_MOTION_BLUR) {
+    setMotionBlurEnabled(SET.get(SET.SET_MOTION_BLUR) !== 0);
+  } else if (idx === SET.SET_AUTO_RES) {
+    applyAutoRes();
   } else if (idx === SET.SET_PT) {
     // No-op on devices without hardware ray query — the row reads N/A
     // there and the value is inert (fallback matrix, PT-5).
@@ -247,7 +257,18 @@ export function applyGraphicsSettings(): void {
   setSsrEnabled(SET.get(SET.SET_SSR) !== 0);
   setSsgiEnabled(SET.get(SET.SET_SSGI) !== 0);
   setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
+  setMotionBlurEnabled(SET.get(SET.SET_MOTION_BLUR) !== 0);
+  applyAutoRes();
   if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
+}
+
+/// Dynamic resolution: on, the engine steps the render scale between 0.5 and 1.0 to hold 60 Hz;
+/// off, the scale goes back to the player's own slider. (Depth of field has no call here: the
+/// frame loop sets it, because its focus changes with aiming and menus.)
+function applyAutoRes(): void {
+  const on = SET.get(SET.SET_AUTO_RES) !== 0;
+  setAutoResolution(60, on);
+  if (!on) setRenderScale(SET.get(SET.SET_RENDER_SCALE));
 }
 
 function confirm(): void {

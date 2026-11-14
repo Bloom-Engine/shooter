@@ -49,7 +49,8 @@ struct TerrainParams {
   // x = macro noise freq, y = slope threshold (cos), z = ridge height (m),
   // w = pale strength
   knobs:     vec4<f32>,
-  // x = river centre z, y = river half-width, z = bank fade width,
+  // x = river centre line (world z for a river along X, world x for one along Z),
+  // y = half-width of the bed, NEGATIVE when the river runs along Z, z = bank fade width,
   // w = waterline y
   river:     vec4<f32>,
   // x = GLOBAL tiling multiplier (1.0 = every layer at its true physical size;
@@ -189,17 +190,27 @@ fn fs_main(in: VsOut) -> OpaqueOut {
 
   // Dirt in the riverbed and up the damp bank, gated on height so only the
   // carved channel takes it.
-  let dzr   = abs(p.z - tp.river.x);
-  let bed_x = 1.0 - smoothstep(tp.river.y, tp.river.y + tp.river.z, dzr);
-  let bed_y = 1.0 - smoothstep(tp.river.w, tp.river.w + 0.5, p.y);
+  // Phase 3.3: the band is measured across whichever way the river runs, its edge wanders with
+  // a noise (it was a ruled stripe), and inside it the ground is sorted by height: mud at and
+  // below the waterline, a pebble line just above it, then grass.
+  let across = select(p.z, p.x, tp.river.y < 0.0);
+  let half_w = abs(tp.river.y);
+  let dzr   = abs(across - tp.river.x) + (fbm2(p.xz * 0.45) - 0.5) * 2.2;
+  let bed_x = 1.0 - smoothstep(half_w, half_w + tp.river.z, dzr);
+  let bed_y = 1.0 - smoothstep(tp.river.w + 0.05, tp.river.w + 0.45, p.y + (nz - 0.5) * 0.25);
   let dirt_w = clamp(bed_x * bed_y + smoothstep(0.62, 0.85, nz) * 0.35, 0.0, 1.0);
+  let shingle = bed_x * smoothstep(tp.river.w - 0.30, tp.river.w + 0.02, p.y)
+              * (1.0 - smoothstep(tp.river.w + 0.10, tp.river.w + 0.34, p.y))
+              * smoothstep(0.35, 0.60, fbm2(p.xz * 1.7));
+  // Wet: under the water and the hand's breadth above it that the swell reaches.
+  let wet = bed_x * (1.0 - smoothstep(tp.river.w + 0.02, tp.river.w + 0.20, p.y));
 
   // Composite. Order matters: grass is the base, dirt paints over it, rock wins
   // outright on steep faces.
   var w_lush = (1.0 - dry_w);
   var w_dry  = dry_w;
   var w_dirt = dirt_w;
-  var w_rock = rock_w;
+  var w_rock = clamp(rock_w + shingle * 0.85, 0.0, 1.0);
   let grass_left = max(0.0, 1.0 - w_dirt - w_rock);
   w_lush = w_lush * grass_left;
   w_dry  = w_dry  * grass_left;
@@ -240,6 +251,17 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // two grass layers lean toward the blades' own green with distance.
   let meadow_far = smoothstep(18.0, 60.0, distance(view.camera_pos.xyz, p)) * (w_lush + w_dry);
   albedo = mix(albedo, albedo * vec3<f32>(0.80, 1.00, 0.56) + vec3<f32>(0.0, 0.02, 0.0), meadow_far);
+
+  // The skirt beyond the arena (plan 3.2) was the arena's lawn continued to the horizon. Out
+  // there the ground is wooded hillside: darker, less yellow, patchy at the scale of copses, so
+  // the tree line that stands on it (the far-forest cards) has something to grow out of.
+  let out_d  = max(abs(p.x), abs(p.z));
+  let wooded = smoothstep(44.0, 62.0, out_d);
+  let copse  = fbm2(p.xz * 0.035 + vec2<f32>(9.1, 3.3));
+  albedo = mix(albedo, albedo * mix(vec3<f32>(0.42, 0.58, 0.40), vec3<f32>(0.70, 0.80, 0.52), copse), wooded);
+
+  // Wet ground is darker and more saturated (water fills the pores that scatter light).
+  albedo = albedo * mix(1.0, 0.52, wet);
 
   // Macro variation — a low-frequency multiply so the tiling doesn't read as a
   // grid from the air. Without this, any tileable texture announces its period
@@ -299,14 +321,27 @@ fn fs_main(in: VsOut) -> OpaqueOut {
 
   let direct = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
   let fill   = sample_env_diffuse(nrm) + view.ambient.rgb * 0.20;
-  let lit    = albedo * (fill + direct);
+  // Lamps (plan 3.4 / 3.5): the work lights and anything else submitted as a point light.
+  var local = vec3<f32>(0.0);
+  let pl_n = min(u32(view.point_light_count.x), 24u);
+  for (var i = 0u; i < pl_n; i = i + 1u) {
+    let lp = view.point_lights[i].position;
+    let lv = lp.xyz - p;
+    let d  = length(lv);
+    if (d < lp.w) {
+      let k = 1.0 - d / lp.w;
+      local = local + view.point_lights[i].color.rgb
+            * (view.point_lights[i].color.w * k * k * max(dot(nrm, lv / max(d, 0.001)), 0.0));
+    }
+  }
+  let lit    = albedo * (fill + direct + local);
 
   // Rock is a touch glossier than sod; wet riverbed dirt glossier still.
-  let rough = mix(0.95, 0.72, w_rock) - w_dirt * bed_y * 0.25;
+  let rough = mix(mix(0.95, 0.72, w_rock) - w_dirt * bed_y * 0.25, 0.22, wet * 0.85);
 
   var out: OpaqueOut;
   out.hdr      = vec4<f32>(lit, 1.0);
-  out.material = vec2<f32>(0.0, clamp(rough, 0.25, 1.0));
+  out.material = vec2<f32>(0.0, clamp(rough, 0.18, 1.0));
   out.velocity = abi_motion_vector(in.curr_clip, in.prev_clip);
   out.albedo   = vec4<f32>(albedo, 1.0);
   return out;

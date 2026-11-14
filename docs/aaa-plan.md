@@ -14,7 +14,7 @@ they are: player animation, world art, combat depth, UI, audio/VFX variety, cont
 has an acceptance test. `[bug]` items are defects, the rest are missing or shallow features.
 "Verified" means re-checked on 2026-11-14; "reported" means found by code reading and not yet
 reproduced in play. Sizes are for one person with the current tooling. Ticket ids are not assigned
-here; register items in `docs/tickets.md` (next free: SH-058) as they are picked up.
+here; register items in `docs/tickets.md` (next free: SH-059) as they are picked up.
 
 **Rule carried over from July:** no performance win may cost visual quality at default settings.
 
@@ -161,7 +161,39 @@ handling quirk per weapon, modelled pickups in place of the bobbing cubes (`src/
 
 ---
 
-## Phase 3 - World art and lighting (4-8 weeks, mostly content)
+## Phase 3 - World art and lighting - LANDED 2026-11-14 (ticket SH-058)
+
+**State.** All seven items have work behind them; `docs/tickets.md` SH-058 has the per-item record.
+Judged from still captures (the SCENESHOT harness, now with a view table per arena) and by the
+P2BOT stand-in clearing all three arenas. **No person has walked through it,** and nothing was
+looked at in motion: wind on the new plants, the foam drifting, the river from a moving camera.
+**Decisions taken:** time of day comes from grading the one sky panorama per arena, not from the
+engine's physical sky (tried: a near-black zenith and banded clouds); lamps light the house and
+the ground from inside the game's own shaders, unshadowed (the engine's shadowed spot and point
+lights exist now but only shadow what its scene shader draws, which is neither the house nor the
+terrain); small plants and the far tree line are instanced cards, rocks and hardware are Tripo
+models (660 credits, twelve models). **Carried forward:**
+
+- **Depth of field while aiming (3.5).** Tried and removed: the engine's blur had no in-focus
+  band at fight distances and softened the target with everything else. It now only blurs the
+  world behind menus and end screens. Motion blur and dynamic resolution are settings rows,
+  off by default, and nobody has looked at either.
+- **Volumetric fog (3.5).** The engine has none. The ravine's mist is the height fog, thicker.
+- **Shadows from indoor lamps, and visible bounce (3.4).** Lamps are unshadowed: a face turned
+  away gets nothing, which keeps a room's lamp off the far side of its walls, but furniture
+  casts no lamp shadow. Characters and props indoors still take the open sky's ambient light.
+- **Damage and decals on the house (3.4).** Variation is procedural (soot, re-pointing, lime
+  bloom, a plastered ceiling); there are no broken corners, holes or posters.
+- **Emissive eyes and visor (3.6).** Not done: it needs an emissive map per character. What
+  landed is a contact shadow under every figure, a darker wet look after wading, and creatures
+  darkening as they are hurt.
+- **The 10 m rule (3.1)** ("no 10 m square without a second object type") was not measured.
+- **Phones, the web build and Android** were not run. Plant counts are scaled down there and
+  Android draws no small plants; the card shader has only been compiled by the desktop backend.
+- **The editor** has not opened the dressed worlds. The new keys (`look`, `yaw`, `obst`) are
+  plain userData and should pass through; that is an expectation, not a test.
+
+The original findings and items, for the record:
 
 Observed in the captures: a bare horizon of green hills, a river with a sawtooth mesh edge and a
 flat brown bank stripe, a brick box whose interior has a smeared ceiling texture and no light of
@@ -286,13 +318,13 @@ to `assets/LICENSE.md`; add `PrivacyInfo.xcprivacy`, age rating and store metada
 | Need | Engine ticket | Blocks |
 |------|---------------|--------|
 | UI widget layer | EN-030 (re-opened) | 4.1, 4.2 |
-| Spot lights | EN-034 | 3.4 |
+| Spot lights that shadow material-path geometry (the house, the terrain) | EN-034 landed `addShadowedSpotLight` for scene-shader draws only | 3.4 |
 | More than 1024 joint matrices | new | 2.6 |
 | Two-bone IK, additive and layered clips for the player | to check | 1.3 |
 | Ragdoll that survives the Mixamo skeleton | new | 2.4 |
 | UTF-8 file reads | EN-059 | 4.5 |
 | Grass LOD | EN-060 | 7.1 |
-| Volumetric fog, colour-grading LUT | to check | 3.5 |
+| Volumetric fog, colour-grading LUT, a depth of field with a usable focus band | checked 2026-11-14: none of the three exists | 3.5 |
 
 ## Suggested order
 

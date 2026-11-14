@@ -1,0 +1,7 @@
+Photorealistic reference photograph of ONE object for a 3D scan.
+
+Design: a single portable military diesel generator, about 1.2 m long, 0.7 m wide and 0.9 m tall: an olive-drab steel enclosure in a tubular steel skid frame, a louvred radiator grille at one end, an exhaust stub with a rain cap on top, a control panel with analogue dials and heavy sockets on the side, a filler cap, lifting eyes. Oil stains, chipped paint.
+
+Shared look of the human gear: realistic near-future military hardware, plausible engineering, nothing fantastical. Matte olive-drab and dark graphite-grey polymer and anodised aluminium, worn at the edges to bare metal, light dust, small scratches, matte black rubber grips, visible screws and seams. No logos, no text, no glowing lights except where stated.
+
+Framing: a product photograph for a 3D scan. Seen from a slightly raised three-quarter front view so the front, one side and the top are all visible. ONE object, complete and uncropped with a little margin, centred. Flat, even, soft studio lighting with no cast shadows and no rim light. Plain uniform mid-grey background. Photorealistic, sharp focus everywhere, no depth-of-field blur, no text, no labels, no logos, no borders, no hands, no other objects.

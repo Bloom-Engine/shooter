@@ -11,6 +11,11 @@
       "id": "arena_03",
       "name": "RIVERBEND RAVINE",
       "path": "assets/worlds/arena_03.world.json"
+    },
+    {
+      "id": "arena_04",
+      "name": "CHECKPOINT",
+      "path": "assets/worlds/arena_04.world.json"
     }
   ]
 }

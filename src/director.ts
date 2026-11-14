@@ -1138,6 +1138,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // its wall collision. Tree circles never stand down, and everyone not
       // following the field keeps the circles exactly as before.
       const wallsOff = navving && NAVOUT[5] === 1;
+      let hitO = -1;
       for (let o = 0; o < GS.OBST_COUNT; o++) {
         if (wallsOff && o >= GS.OBST_WALL_START) continue;
         const odx = nx - DEPS.o.OBST_X[o];
@@ -1148,6 +1149,36 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           const od = Math.sqrt(od2);
           nx = DEPS.o.OBST_X[o] + (odx / od) * minD;
           nz = DEPS.o.OBST_Z[o] + (odz / od) * minD;
+          hitO = o;
+        }
+      }
+      // Plan 3.1 - long props (a log, a barrier, the truck) are rows of circles: a wall. A walker
+      // heading straight into one has no sideways component for the projection above to keep,
+      // so it presses on the spot (P2BOT caught a Skitter doing that against the truck for a
+      // whole run). When a circle ate most of the step, go round instead: along the tangent of
+      // the circle that pushed, always to this creature's own side (enOrbitDir), so it cannot
+      // dither, and a row of circles is convex, so rounding it ends.
+      if (hitO >= 0 && !wallsOff) {
+        const want = Math.sqrt(vx * vx + vz * vz) * dt;
+        const got = Math.sqrt((nx - enX[i]) * (nx - enX[i]) + (nz - enZ[i]) * (nz - enZ[i]));
+        if (want > 0.0005 && got < want * 0.45) {
+          const rdx = enX[i] - DEPS.o.OBST_X[hitO], rdz = enZ[i] - DEPS.o.OBST_Z[hitO];
+          const rl = Math.sqrt(rdx * rdx + rdz * rdz) + 0.0001;
+          const side = enOrbitDir[i] >= 0 ? 1 : -1;
+          let tx2 = enX[i] + (-rdz / rl) * side * want;
+          let tz2 = enZ[i] + ( rdx / rl) * side * want;
+          for (let o = 0; o < GS.OBST_COUNT; o++) {
+            const odx = tx2 - DEPS.o.OBST_X[o];
+            const odz = tz2 - DEPS.o.OBST_Z[o];
+            const minD = DEPS.o.OBST_R[o] + bodyR;
+            const od2 = odx * odx + odz * odz;
+            if (od2 < minD * minD && od2 > 0.000001) {
+              const od = Math.sqrt(od2);
+              tx2 = DEPS.o.OBST_X[o] + (odx / od) * minD;
+              tz2 = DEPS.o.OBST_Z[o] + (odz / od) * minD;
+            }
+          }
+          nx = tx2; nz = tz2;
         }
       }
       // SH-051 — the stairs' solid mass, which the obstacle circles above cannot

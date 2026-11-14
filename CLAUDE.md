@@ -9,8 +9,8 @@ The full picture is in `README.md`. This is a Perry-compiled TypeScript
 FPS) built on the Bloom engine. Seven alien kinds (two RANGED; an original
 cast since 2026-11: Skitter, Stalker, Ravager, Bruiser, Colossus, Spitter,
 Bombard, against the Trooper), three
-waves, four weapons, TWO playable arenas (`arena_02` Outdoor Plaza and
-`arena_03` Riverbend Ravine — see SH-040; a third is still owed),
+waves, four weapons, THREE playable arenas (`arena_02` Outdoor Plaza in late afternoon,
+`arena_03` Riverbend Ravine on a misty morning, `arena_04` Checkpoint at dusk),
 textured arena, skeletal-animated enemies, ambient music, and a live 3D
 soundscape (river/wind emitters + creature locomotion on EN-062 voices —
 see SH-052) — runnable with
@@ -28,6 +28,7 @@ see SH-052) — runnable with
   (kind tables + pool), `director.ts` (waves + per-kind AI + enemy
   projectiles), `combat.ts` (weapons/fire/player projectiles/pickups/grenades/melee),
   `hitshapes.ts` (where a shot lands on a creature: shapes on its live skeleton),
+  `flora.ts` (plant cards and the far tree line, scattered at load, instanced),
   `camera.ts` (orbit + canopy occlusion), `hud.ts`, `environment.ts`
   (water/grass/building/glass/GI proxies), `gamestate.ts` (shared run
   scalars as `const GS`), plus `feel/vfx/weapons/menu/settings/score/
@@ -46,8 +47,8 @@ see SH-052) — runnable with
 - `assets/models/` — committed GLBs, built by the asset pipeline below
   (`tools/gen/`, `tools/blender/`).
 - `docs/aaa-plan.md` — the current plan: what is missing for AAA quality, in
-  order. Phases 0 (bugs and hygiene), 1 (the player on screen) and 2 (combat) landed
-  2026-11-14; each phase's header says what it left open.
+  order. Phases 0 (bugs and hygiene), 1 (the player on screen), 2 (combat) and 3 (world art
+  and lighting) landed 2026-11-14; each phase's header says what it left open.
 
 ## Read before changing things
 
@@ -223,7 +224,18 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
    building texture arrays, chosen per box through vertex colour (see `building.wgsl`).
    The SCENESHOT harness in `src/main.ts` captures fixed views of house, grass and trees.
 7. **Sounds**: `tools/gen/sfx.py` (ElevenLabs). **UI type**: `assets/fonts/` via `src/ui-text.ts`.
-8. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
+8. **Dressing an arena** (Phase 3, SH-058): `tools/gen/dress_arena.py <arena_id>` shapes the
+   river banks, places rocks, logs, stumps, river stones and the hand-listed hardware (its `EXTRA`
+   table) as `static_mesh` entities, adds a world light at every work light, and paints
+   `terrain.layers`. It replaces what it placed before (`dress_*` ids) and repaints all four
+   layers, so editor paint on a dressed arena is lost on a re-run. Rebuild the terrain's drawn
+   mesh afterwards if the banks changed (`bun tools/build-terrain.ts <world> <glb>`).
+   `tools/gen/set_look.py <arena_id> key=value ...` sets the time of day and grade;
+   `tools/gen/grade_sky.py` makes the sky variants in `assets/env/`. `tools/gen/gen_arena_04.py`
+   seeded the Checkpoint arena (re-running it overwrites the world file). Plant cards are
+   generated on magenta like the tree leaves and keyed into `assets/textures/flora_*.png`; the far
+   tree card is rendered from the tree model by `tools/blender/tree_impostor.py`.
+9. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
    bundles ship those under the plain names.
 Check anything visually with `tools/blender/model_sheet.py` (four views with axes) and
 `tools/blender/clip_sheet.py` (frames of one clip), and in-game with the COMBATSHOT harness, which
@@ -268,6 +280,16 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
 - Enemies die by their authored clip (chosen by the blow: `enDeathClip`); the engine's auto-ragdoll is switched off (`DEATH_RAGDOLL` in
   `src/main.ts`) because it mangles this skeleton.
 - Developer overlays (render-pass line, diagnostics bar) are hidden; F1 or `--debughud 1` shows them.
+- World rules the code rests on (Phase 3, SH-058). The shoreline is where the terrain crosses
+  the water surface, not the water volume's edge: the drawn surface overhangs the volume by
+  2.5 m a side, and "in the river" is asked of the terrain height. Custom material shaders
+  light themselves, so a point light only reaches the house and the ground because
+  `building.wgsl` and `terrain.wgsl` loop over `view.point_lights` (unshadowed). A long prop is
+  a row of obstacle circles; keep them closer than a radius apart or walkers catch between
+  them. A spawn below the terrain falls through it for ever. Do not use bit-mixing hashes
+  (`| 0` on products past 2^53) for noise: compiled by Perry they came out nearly constant;
+  `flora.ts` has a Park-Miller cell hash that works. Judge world changes with SCENESHOT
+  (a view table per arena, `SCENE_VIEWS_0x` in `src/main.ts`; pick the arena with `level.txt`).
 - No vertex colours (the engine multiplies `COLOR_0` into albedo).
 - Weapons: barrel along +Z, rear at z = 0, metres. Props: origin at the base centre, drawn unrotated.
 
@@ -296,7 +318,11 @@ What lives in the world file:
 - **Game concepts, in `userData.kind`**: `player_spawn`, `collider_box`,
   `static_mesh` (optional box collider + tag-driven paint category),
   `prop_tree` (the forest — 88 real entities, each movable), 
-  `enemy_spawner`, `weapon_pickup`, `wave_config`. A spawner means
+  `enemy_spawner`, `weapon_pickup`, `wave_config`, `building_trim`, and `look` (one per world:
+  time of day and grade as key/values, read with `W.lookNum`). A `static_mesh` may carry `yaw`
+  (degrees: the model is drawn turned and its box collider turns with it) and `obst=1`
+  (creatures steer round it). Every entity needs a `modelRef`: logic entities use
+  `_gizmo_box.glb`, or the loader rejects the whole world. A spawner means
   nothing without this game, so it stays game-defined; the editor
   round-trips it as opaque key/values.
 

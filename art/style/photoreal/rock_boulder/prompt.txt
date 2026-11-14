@@ -1,0 +1,7 @@
+Photorealistic reference photograph of ONE object for a 3D scan.
+
+Design: a single large natural granite boulder about 1.5 m tall and 1.8 m wide, an irregular rounded block with a few broad fractured faces and one sloping side, sitting directly on the ground with a flat underside. Pale grey stone with darker weathering streaks, patches of pale lichen, and thick green moss on the top and in the cracks. No grass, no soil, no plants around it.
+
+Shared look of the natural objects: a temperate European river forest in summer. Weathered, damp, real: grey granite with pale lichen and patches of deep green moss, dark wet bark, nothing stylised, nothing fantastical.
+
+Framing: a product photograph for a 3D scan. Seen from a slightly raised three-quarter front view so the front, one side and the top are all visible. ONE object, complete and uncropped with a little margin, centred. Flat, even, soft studio lighting with no cast shadows and no rim light. Plain uniform mid-grey background. Photorealistic, sharp focus everywhere, no depth-of-field blur, no text, no labels, no logos, no borders, no hands, no other objects.

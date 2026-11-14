@@ -74,7 +74,7 @@ aiming down the sights.
 
 ### The game
 
-Two arenas (Outdoor Plaza, Riverbend Ravine), three waves each, against seven
+Three arenas (Outdoor Plaza in the afternoon, Riverbend Ravine in morning mist, Checkpoint at dusk), three waves each, against seven
 alien kinds: Skitter, Stalker, Ravager, Bruiser and the Colossus up close, and
 the Spitter and Bombard at range, so closing the distance is not the universal
 answer. Rifle and blaster from the start; clearing the first arena unlocks the
