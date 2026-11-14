@@ -383,6 +383,22 @@ export const enBody: BodyHandle[] = new Array<BodyHandle>(MAX_ENEMIES);
 // clock, crossfade and attack-layer weight (see the note at ALIEN_GLB).
 export const enAnim = new Array<number>(MAX_ENEMIES);
 
+// ---- Phase 6: elites ---------------------------------------------------------------------
+// An elite is a creature of an ordinary kind that the wave plan marked with `!`: tougher, hits
+// harder, drawn a size up with a red glow, shrugs off light hits, and pays triple. One flag per
+// slot; every table above still applies, scaled by the constants here.
+export const enElite = new Array<number>(MAX_ENEMIES);
+for (let i = 0; i < MAX_ENEMIES; i++) enElite[i] = 0;
+export const ELITE_HP = 2.4;
+export const ELITE_DMG = 1.3;
+export const ELITE_SCALE = 1.16;
+export const ELITE_SCORE = 3;
+/// The scale slot i is drawn (and its hit shapes sized) at.
+export function enScale(i: number): number {
+  const s = KIND_SCALE[enKind[i]];
+  return enElite[i] === 1 ? s * ELITE_SCALE : s;
+}
+
 // The pool's Jolt bodies, animation handles and ragdoll slots. Split out from the
 // tables above because it is the one part that needs the physics world, which
 // main.ts owns — so it is a function taking `physics` rather than module-scope

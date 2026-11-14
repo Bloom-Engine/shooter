@@ -13,8 +13,10 @@ Perry + Bloom game on desktop, iOS, tvOS, Android and the web.
 ## Play
 
 ```
-perry compile src/main.ts -o main && ./main
+PERRY_LLVM_INPROCESS=0 perry compile src/main.ts -o main && ./main
 ```
+
+(or `npm run dev`. The variable works round a Perry code-generation fault: `docs/perry-quirks.md` #6.)
 
 Controls:
 
@@ -75,13 +77,22 @@ aiming down the sights.
 
 ### The game
 
-Three arenas (Outdoor Plaza in the afternoon, Riverbend Ravine in morning mist, Checkpoint at dusk), three waves each, against seven
+Three arenas (Outdoor Plaza in the afternoon, Riverbend Ravine in morning mist, Checkpoint at dusk), ten waves each, against seven
 alien kinds: Skitter, Stalker, Ravager, Bruiser and the Colossus up close, and
 the Spitter and Bombard at range, so closing the distance is not the universal
 answer. Rifle and blaster from the start; clearing the first arena unlocks the
 chaingun and clearing the second the cannon. Picking another arena in the menu
 relaunches the game into it (on phones and TV boxes, which cannot relaunch an
 app, it asks you to reopen it). Ammo crates respawn around the arena.
+
+A wave arrives in groups that pick where they come from as they start: a flank from both
+sides of where you are looking, an ambush from behind, a ranged line from as far off as the
+arena allows. Some creatures are elites (a size larger, glowing red, tougher, worth triple).
+Each arena has one or two objective waves: hold the ring at the generator until its seconds
+are banked, or destroy the three nests that keep breeding. A run pays credits, spent in the
+armoury on four upgrades per weapon; a cleared arena is worth up to three stars, and stars
+open the next arena. The first run starts with a five-step tutorial that can be skipped.
+Progress lives in `profile.json` next to `settings.json`.
 
 How a fight works (November 2026): the aliens have to see or hear you. A crouch
 is silent and seen at half the distance, a sprint and a shot carry; break their
@@ -130,6 +141,7 @@ shooter/
     combat.ts         firing, player projectiles, pickups     weapons.ts   stat table
     player.ts         character controller      camera.ts    orbit camera
     hud.ts menu.ts settings.ts score.ts         UI and persistence
+    profile.ts objective.ts tutor.ts            credits/upgrades/stars, objective waves, tutorial
     ui.ts binds.ts strings.ts ui-atlas.ts       UI kit, key bindings, string table (4 languages)
     audio-mix.ts vfx.ts feel.ts environment.ts  presentation
     world-runtime.ts  runtime world loader (world.json -> flat arrays)

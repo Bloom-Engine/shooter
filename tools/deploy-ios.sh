@@ -6,6 +6,8 @@
 # information, or similar detritus not allowed"), so we strip those and sign
 # ourselves. Pass --console to stream stdout/stderr from the device.
 set -euo pipefail
+# docs/perry-quirks.md #6: Perry's in-process LLVM backend fails on src/main.ts; use its external one.
+export PERRY_LLVM_INPROCESS="${PERRY_LLVM_INPROCESS:-0}"
 cd "$(dirname "$0")/.."
 
 DEVICE="${BLOOM_IOS_DEVICE:-6F220DD1-012C-5FF2-9EE7-BEC1CEA74497}"   # Ralph's iPhone

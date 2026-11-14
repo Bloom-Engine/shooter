@@ -36,6 +36,10 @@ import * as SCORE from './score';
 import * as MIX from './audio-mix';
 import * as SET from './settings';
 import * as WPN from './weapons';
+import * as OBJECTIVE from './objective';
+import { OBJ } from './objective';
+import * as TUTOR from './tutor';
+import * as PROFILE from './profile';
 import {
   MAX_ENEMIES, KIND_POOL, KIND_SLOT0, KIND_COUNT,
   enAlive, enDying, enX, enY, enZ, enHP, enBody, enKind,
@@ -63,6 +67,7 @@ import {
   KIND_HEIGHT, LOC_BODY, LOC_HEAD, LOC_WEAK, LOC_SHELL, LOC_LIMB,
   enPosed, enHitDX, enHitDZ, enHitK, enDeathClip, enDeathVX, enDeathVZ, enDeathVY,
   enDeathLift, ANIM_FALL_IDX, ANIM_DIE_IDX, KIND_BOX_Y, KIND_BOX_HX,
+  enElite, ELITE_HP, ELITE_DMG, ELITE_SCORE,
 } from './enemies';
 
 /// Mutable director state, const-object slots (the DEPS.o.CAM pattern).
@@ -87,6 +92,22 @@ export const DIR: any = {
   // A dodge that made a blow miss: seconds left on the HUD's confirmation.
   dodgedT: 0,
   hpNext: 0,
+  // Phase 6 - the group being spawned: seconds since it began, the wave entry it began at
+  // (-1 none yet), the spawn point(s) its pattern chose, creatures it has put down, and how
+  // many times an objective wave's list has come round.
+  groupT: 0,
+  groupEntry: -1,
+  groupSp0: 0,
+  groupSp1: 0,
+  groupN: 0,
+  cycle: 0,
+  // Seconds the last few creatures of a wave have all been unaware of the player.
+  lostT: 0,
+  // Elites alive right now (the HUD marks them).
+  eliteCount: 0,
+  // False under a test harness: a scripted run must not write the player's best score,
+  // credits or stars (a bot run did overwrite a best score once).
+  bank: true,
 };
 
 // ---- Plan 2.1 tuning: what the player sounds like ------------------------------------------
@@ -99,7 +120,7 @@ const SEARCH_TIME = 9.0;       // seconds a blind hunt lasts before the pack gue
 const SEARCH_SPEED = 0.55;     // fraction of its speed while casting about for the player
 const SEARCH_LOPE = 0.85;      // ...and while still far from where it expects them
 // ---- Plan 2.5 tuning ------------------------------------------------------------------------
-const TOKENS_BASE = 2;         // creatures that may be mid-attack at once (3 from the last wave)
+const TOKENS_BASE = 2;         // creatures that may be mid-attack at once (3 from wave 4, 4 from wave 8)
 const RING_EXTRA = 1.6;        // token-less creatures hold this far outside their strike range
 // ---- Plan 2.7: health --------------------------------------------------------------------
 export const REGEN_DELAY = 5.0;    // seconds unhurt before health starts coming back
@@ -169,14 +190,27 @@ export function damagePlayer(dmg: number, sx: number, sz: number, voice: number)
     GS.playerHP = 0;
     playSound(DEPS.o.sfxPlayerDie[voice & 1]);
     FEEL.addTrauma(1.0);
-    SCORE.commitRun(W.ARENA_INDEX);
-    SET.saveSettings();     // persist the best score immediately
+    bankRun(false);
     playSound(DEPS.o.stingDeath);  // SH-036
     GS.gameOver = true;
   } else {
     playSound(DEPS.o.sfxPlayerPain[voice & 1]);
   }
   return true;
+}
+
+/// The run is over: the best score into settings.json, the rest (credits, stars, lifetime
+/// numbers) into the profile.
+function bankRun(won: boolean): void {
+  if (!DIR.bank) return;
+  SCORE.commitRun(W.ARENA_INDEX);
+  SET.saveSettings();
+  PROFILE.commitRun(W.ARENA_INDEX, won, SCORE.score(), SCORE.kills(), GS.runElapsed,
+                    SCORE.shotsFired(), SCORE.shotsHit(), SCORE.crits(), SCORE.comboPeak(),
+                    SCORE.accuracy(), SCORE.damageTaken(),
+                    SCORE.killsOfKind(0), SCORE.killsOfKind(1), SCORE.killsOfKind(2),
+                    SCORE.killsOfKind(3), SCORE.killsOfKind(4), SCORE.killsOfKind(5),
+                    SCORE.killsOfKind(6));
 }
 
 function dropHeal(x: number, y: number, z: number): void {
@@ -217,8 +251,12 @@ const spawnerZ = W.SPAWNER_Z;
 export const wavePlan = W.WAVE_SIZE;
 const WAVE_OFFS = W.WAVE_OFFS;
 const WAVE_KINDS = W.WAVE_KIND;
-const WAVE_SPAWN_DELAY = 1.2;
-export const WAVE_BREAK_DELAY = 2.5;
+const WAVE_SPAWN_DELAY = 1.2;      // between creatures of an old-style round-robin wave
+const GROUP_SPAWN_DELAY = 0.45;    // between creatures of a choreographed group
+const NEST_SPAWN_DELAY = 0.9;      // between creatures climbing out of the nests
+const NEST_CONCURRENT = 9;         // a nest wave holds fewer on the field: the nests are the job
+const SPAWN_MIN_DIST = 9.0;        // no group arrives closer to the player than this
+export const WAVE_BREAK_DELAY = 3.5;
 // Round-2 audit (F11): with one kind per wave and BODIES_PER_KIND=2 pool
 // slots, the shipped game never showed more than 2 enemies at once — the
 // arena felt empty and the measured pool-max load never occurred in play.
@@ -241,6 +279,16 @@ export const WAVE_BREAK_DELAY = 2.5;
 // not cause that gap and lowering it would not close it.
 // Plan 2.6 raised it to 12 with the larger pool (30 bodies; see KIND_POOL in enemies.ts).
 const MAX_CONCURRENT = 12;
+// The stuck-breaker's state per slot (see "nothing stays stuck" in updateDirector): seconds
+// since the last position sample, the sample, seconds of sidestep left, and its side.
+const UN_T = new Array<number>(MAX_ENEMIES);
+const UN_X = new Array<number>(MAX_ENEMIES);
+const UN_Z = new Array<number>(MAX_ENEMIES);
+const UN_K = new Array<number>(MAX_ENEMIES);
+const UN_D = new Array<number>(MAX_ENEMIES);
+const UN_N = new Array<number>(MAX_ENEMIES);   // times wedged in a row
+const UN_Q = new Array<number>(MAX_ENEMIES);   // seconds since it was last wedged
+for (let i = 0; i < MAX_ENEMIES; i++) { UN_T[i] = 0; UN_X[i] = 0; UN_Z[i] = 0; UN_K[i] = 0; UN_D[i] = 1; UN_N[i] = 0; UN_Q[i] = 0; }
 
 
 
@@ -272,15 +320,78 @@ function findDormantSlot(kind: number): number {
   return -1;
 }
 
-function spawnEnemy(): void {
-  const kind = WAVE_KINDS[WAVE_OFFS[DIR.waveIdx] + DIR.waveSpawned];
+/// A group begins: its pattern picks the spawn point(s) from where the player stands and looks
+/// RIGHT NOW. That is the choreography: a flank comes from both sides of the view, an ambush
+/// from behind it, a ranged line from as far off as the arena allows.
+function startGroup(pat: number): void {
+  const n = W.SPAWNER_COUNT;
+  DIR.groupT = 0;
+  DIR.groupN = 0;
+  DIR.groupSp0 = 0;
+  DIR.groupSp1 = 0;
+  if (n <= 0) return;
+  if (pat === W.PAT_SURROUND) { DIR.groupSp0 = Math.floor(Math.random() * n) % n; return; }
+  if (pat === W.PAT_ROUND) return;
+  const pp = playerPosition();
+  const yaw = DEPS.o.CAM[0];
+  const fx = Math.sin(yaw), fz = -Math.cos(yaw);       // where the camera looks
+  const rx = Math.cos(yaw), rz = Math.sin(yaw);        // its right
+  let b0 = -1, b1 = -1;
+  let s0 = -1e9, s1 = -1e9;
+  for (let pass = 0; pass < 2 && b0 < 0; pass++) {
+    for (let i = 0; i < n; i++) {
+      const dx = spawnerX[i] - pp.x, dz = spawnerZ[i] - pp.z;
+      const d = Math.sqrt(dx * dx + dz * dz);
+      // First pass: nothing on top of the player. If that leaves no point at all, any will do.
+      if (pass === 0 && d < SPAWN_MIN_DIST) continue;
+      const inv = d > 0.001 ? 1 / d : 0;
+      const ahead = (dx * fx + dz * fz) * inv;
+      const side = (dx * rx + dz * rz) * inv;
+      let a = 0, b = -1e9;
+      if (pat === W.PAT_FRONT) a = ahead;
+      else if (pat === W.PAT_AMBUSH) a = -ahead;
+      else if (pat === W.PAT_FAR) a = d;
+      else if (pat === W.PAT_NEAR) a = d >= 14 ? -d : -1000 - (14 - d);
+      else { a = side; b = -side; }                    // FLANK: one from each side
+      if (a > s0) { s0 = a; b0 = i; }
+      if (b > s1) { s1 = b; b1 = i; }
+    }
+  }
+  DIR.groupSp0 = b0 < 0 ? 0 : b0;
+  DIR.groupSp1 = b1 < 0 ? DIR.groupSp0 : b1;
+}
+
+/// Put down wave entry `entry`. False when no body of its kind is free (try again next tick).
+function spawnEnemy(entry: number): boolean {
+  const kind = WAVE_KINDS[entry];
   const slot = findDormantSlot(kind);
-  if (slot < 0) return;   // all bodies of this kind busy; retry next tick
-  const sp = DIR.waveSpawned % 4;
-  enX[slot] = spawnerX[sp];
-  enZ[slot] = spawnerZ[sp];
+  if (slot < 0) return false;   // all bodies of this kind busy; retry next tick
+  const pat = W.WAVE_PAT[entry];
+  const nSp = W.SPAWNER_COUNT;
+  let sxw = 0, szw = 0;
+  const nest = OBJ.type === OBJECTIVE.OBJ_NESTS ? OBJECTIVE.pickNest(DIR.waveSpawned) : -1;
+  if (nest >= 0) {
+    // Out of a nest: a step to one side of it, so it does not stand inside the shell.
+    const na = Math.random() * Math.PI * 2;
+    sxw = OBJECTIVE.nestX[nest] + Math.cos(na) * 1.9;
+    szw = OBJECTIVE.nestZ[nest] + Math.sin(na) * 1.9;
+  } else if (nSp > 0) {
+    let sp = DIR.groupSp0;
+    if (pat === W.PAT_ROUND) sp = DIR.waveSpawned % nSp;
+    else if (pat === W.PAT_SURROUND) sp = (DIR.groupSp0 + DIR.groupN) % nSp;
+    else if (pat === W.PAT_FLANK) sp = (DIR.groupN & 1) === 0 ? DIR.groupSp0 : DIR.groupSp1;
+    // Spread a group over a couple of metres, so it arrives as a pack and not as a stack.
+    const jit = pat === W.PAT_ROUND ? 0 : 1.3;
+    sxw = spawnerX[sp] + (Math.random() * 2 - 1) * jit;
+    szw = spawnerZ[sp] + (Math.random() * 2 - 1) * jit;
+  }
+  enX[slot] = sxw;
+  enZ[slot] = szw;
   enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
-  enHP[slot] = KIND_HP[kind] * SCORE.diffHealthMul();
+  UN_T[slot] = 0; UN_X[slot] = sxw; UN_Z[slot] = szw; UN_K[slot] = 0; UN_N[slot] = 0; UN_Q[slot] = 0;
+  enElite[slot] = W.WAVE_ELITE[entry];
+  enHP[slot] = KIND_HP[kind] * SCORE.diffHealthMul() * (enElite[slot] === 1 ? ELITE_HP : 1);
+  if (enElite[slot] === 1) TUTOR.hint(TUTOR.HINT_ELITE);
   enAlive[slot] = 1;
   enAttackCD[slot] = 0;
   enFlashT[slot] = 0;
@@ -326,11 +437,16 @@ function spawnEnemy(): void {
   // the previous occupant, and animPlay is (deliberately) a no-op when asked
   // for the clip that is already playing.
   enAnimClip[slot] = -1;
-  // Spawners sit at the arena corners — start facing the middle.
-  enHeading[slot] = Math.atan2(-enX[slot], enZ[slot]);
+  // Start facing the player (the corners used to face the middle of the arena).
+  {
+    const pH = playerPosition();
+    enHeading[slot] = Math.atan2(pH.x - enX[slot], -(pH.z - enZ[slot]));
+  }
   setBodyPosition(enBody[slot],
     vec3(enX[slot], enY[slot] + KIND_BOX_Y[kind], enZ[slot]), true);
   DIR.waveSpawned = DIR.waveSpawned + 1;
+  DIR.groupN = DIR.groupN + 1;
+  return true;
 }
 
 // SH-042 — ENEMY projectiles. Deliberately a separate pool from the player's:
@@ -385,12 +501,15 @@ export function despawnAllEnemies(): void {
     enDeathT[i] = 0;
     enDeathYaw[i] = 0;
     enAware[i] = 0; enReactT[i] = 0; enHasToken[i] = 0; enPosed[i] = 0; enHitK[i] = 0;
+    enElite[i] = 0;
     enAIState[i] = AI_APPROACH;
     enX[i] = 0; enY[i] = -100; enZ[i] = 0;
     setBodyPosition(enBody[i], vec3(0, -100, 0), false);
   }
   for (let i = 0; i < MAX_HEALS; i++) hpLife[i] = 0;
   DIR.noiseR = 0; DIR.awareCount = 0; DIR.aliveCount = 0; DIR.tokensOut = 0; DIR.dodgedT = 0;
+  DIR.groupT = 0; DIR.groupEntry = -1; DIR.groupN = 0; DIR.cycle = 0; DIR.eliteCount = 0;
+  OBJECTIVE.clearObjective();
 }
 
 /// `loc` is where the shot landed (LOC_* in enemies.ts); the caller has already applied the
@@ -483,12 +602,14 @@ export function damageEnemy(i: number, dmg: number,
     FEEL.requestHitstop(k >= 3 ? 0.09 : 0.05);
     FEEL.addTrauma(0.12 + KIND_SCALE[k] * 0.1);
     FEEL.rumble(0.5, 0.4, 0.12);
-    SCORE.noteKill(k);
+    if (enElite[i] === 1) { SCORE.noteKillMul(k, ELITE_SCORE); PROFILE.noteElite(); }
+    else SCORE.noteKill(k);
     // Plan 2.7 - a kill can leave a field dressing. The chance doubles when the player is
     // badly hurt, so the game leans toward keeping a fight alive without guaranteeing it.
     {
       let ch = KIND_DROP_CHANCE[k];
       if (GS.playerHP < 40) ch = ch * 2;
+      if (enElite[i] === 1) ch = 1;        // an elite always leaves one
       if (Math.random() < ch) dropHeal(enX[i], groundY, enZ[i]);
     }
     return;
@@ -505,7 +626,8 @@ export function damageEnemy(i: number, dmg: number,
     if (enFlinchLock[i] <= 0) {
       enAIState[i] = AI_FLINCH;
       enStateT[i] = FLINCH_TIME;
-      enFlinchLock[i] = FLINCH_LOCKOUT;
+      // An elite shrugs most of them off: three times as long before the next flinch.
+      enFlinchLock[i] = enElite[i] === 1 ? FLINCH_LOCKOUT * 3 : FLINCH_LOCKOUT;
       enHasToken[i] = 0;
     }
   } else {
@@ -594,13 +716,15 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       enHasToken[i] = attacking ? 1 : 0;
       if (attacking) tokensOut = tokensOut + 1;
     }
-    const maxTokens = DIR.waveIdx >= 2 ? TOKENS_BASE + 1 : TOKENS_BASE;
+    const maxTokens = TOKENS_BASE + (DIR.waveIdx >= 3 ? 1 : 0) + (DIR.waveIdx >= 7 ? 1 : 0);
+    let eliteCount = 0;
     let awareCount = 0;
     let aliveCount = 0;
 
     for (let i = 0; i < MAX_ENEMIES; i++) {
       if (enAlive[i] === 0) continue;
       aliveCount = aliveCount + 1;
+      if (enElite[i] === 1) eliteCount = eliteCount + 1;
       const k = enKind[i];
       // The REAL offset to the player: perception and the blows themselves use it.
       const pdx = pp.x - enX[i];
@@ -776,7 +900,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             if (isInvulnerable()) {
               DIR.dodgedT = 0.8;
             } else {
-              damagePlayer(KIND_DMG[k], enX[i], enZ[i], i);
+              damagePlayer(KIND_DMG[k] * (enElite[i] === 1 ? ELITE_DMG : 1), enX[i], enZ[i], i);
               playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
             }
           }
@@ -923,7 +1047,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           if (enHitDone[i] === 0 && sameFloor && pdist <= 1.7) {
             enHitDone[i] = 1;
             if (isInvulnerable()) DIR.dodgedT = 0.8;
-            else damagePlayer(KIND_DMG[k], enX[i], enZ[i], i);
+            else damagePlayer(KIND_DMG[k] * (enElite[i] === 1 ? ELITE_DMG : 1), enX[i], enZ[i], i);
           }
           if (enHitDone[i] === 1 || enStateT[i] <= 0) {
             enAIState[i] = AI_RECOVER;
@@ -1008,7 +1132,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             spawnEnemyProjectile(
               enX[i], muzY, enZ[i],
               (tx / tl + jx) * vsp, (ty / tl + jy) * vsp, (tz / tl + jz) * vsp,
-              RANGED_DMG[k], k);
+              RANGED_DMG[k] * (enElite[i] === 1 ? ELITE_DMG : 1), k);
             playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], muzY, enZ[i]);
             VFX.emitMuzzle(enX[i], muzY, enZ[i], tx / tl, ty / tl, tz / tl, 0, 0);
           }
@@ -1123,6 +1247,38 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           vx = vx + (sx / sd) * push;
           vz = vz + (sz / sd) * push;
         }
+      }
+
+      // Phase 6 - nothing stays stuck. A creature that wants to move and has not covered 35 cm
+      // in a second and a half is wedged (the first ten-wave bot run found a Ravager parked
+      // behind one tree trunk for the rest of the wave: it was following the house's flow
+      // field, which does not know about trees, straight through the trunk's centre line,
+      // where the slide below has nothing tangential to keep). It steps a right angle to its
+      // course for a second, to the other side each time, and then tries again.
+      // A wall is wider than a trunk (a Skitter spent fifteen minutes against the checkpoint
+      // building, stepping one metre aside and back), so each failure in a row doubles down:
+      // 1.6 s to one side, 1.6 s to the other, then 3.2 s each way, up to 6.4 s, which carries
+      // it round anything in these arenas. Twelve seconds without being wedged forgets the count.
+      UN_T[i] = UN_T[i] + dt;
+      UN_Q[i] = UN_Q[i] + dt;
+      if (UN_Q[i] > 12) UN_N[i] = 0;
+      if (UN_T[i] >= 1.5) {
+        const mvx = enX[i] - UN_X[i], mvz = enZ[i] - UN_Z[i];
+        if (mvx * mvx + mvz * mvz < 0.35 * 0.35 && vx * vx + vz * vz > 1.0) {
+          UN_N[i] = UN_N[i] + 1;
+          UN_Q[i] = 0;
+          let turns = Math.floor((UN_N[i] + 1) / 2);
+          if (turns > 4) turns = 4;
+          UN_K[i] = 1.6 * turns;
+          UN_D[i] = (UN_N[i] & 1) === 1 ? 1 : -1;
+        }
+        UN_T[i] = 0; UN_X[i] = enX[i]; UN_Z[i] = enZ[i];
+      }
+      if (UN_K[i] > 0) {
+        UN_K[i] = UN_K[i] - dt;
+        const sx = -vz * UN_D[i], sz = vx * UN_D[i];
+        vx = sx * 0.95 + vx * 0.15;
+        vz = sz * 0.95 + vz * 0.15;
       }
 
       // Integrate, then slide the tentative position out of any trunk
@@ -1286,6 +1442,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
     }
 
     DIR.awareCount = awareCount;
+    DIR.eliteCount = eliteCount;
     DIR.aliveCount = aliveCount;
     DIR.tokensOut = tokensOut;
 
@@ -1341,18 +1498,72 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
     MIX.updateMusicIntensity(dtReal, alive, DIR.waveBreakTimer <= 0);
     if (DIR.waveIdx < wavePlan.length) {
       if (DIR.waveBreakTimer > 0) {
-        DIR.waveBreakTimer = DIR.waveBreakTimer - dt;
-        if (DIR.waveBreakTimer <= 0) SCORE.beginWave(GS.runElapsed);
+        // The tutorial holds the first countdown until it has been answered or skipped.
+        if (!TUTOR.tutorialActive()) DIR.waveBreakTimer = DIR.waveBreakTimer - dt;
+        if (DIR.waveBreakTimer <= 0) {
+          SCORE.beginWave(GS.runElapsed);
+          DIR.groupT = 0; DIR.groupEntry = -1; DIR.groupN = 0; DIR.cycle = 0;
+          DIR.spawnTimer = 0;
+          const wt0 = W.WAVE_TYPE[DIR.waveIdx];
+          if (wt0 === W.WAVE_KILL) OBJECTIVE.clearObjective();
+          else OBJECTIVE.beginObjective(wt0, W.WAVE_PARAM[DIR.waveIdx], SCORE.diffHealthMul());
+          if (OBJ.type === OBJECTIVE.OBJ_HOLD) TUTOR.hint(TUTOR.HINT_HOLD);
+          if (OBJ.type === OBJECTIVE.OBJ_NESTS) TUTOR.hint(TUTOR.HINT_NESTS);
+        }
       } else {
         const waveSize = wavePlan[DIR.waveIdx];
-        if (DIR.waveSpawned < waveSize && alive < MAX_CONCURRENT) {
+        // An objective wave that found its site in this world (OBJ.type is 0 when it did not,
+        // and the wave is then an ordinary one).
+        const objective = OBJ.type !== OBJECTIVE.OBJ_NONE;
+        if (objective) OBJECTIVE.updateObjective(dt);
+        DIR.groupT = DIR.groupT + dt;
+        // An objective wave's list comes round again until the objective is done.
+        if (objective && !OBJ.done && DIR.waveSpawned >= waveSize) {
+          DIR.waveSpawned = 0;
+          DIR.cycle = DIR.cycle + 1;
+          DIR.groupEntry = -1;
+        }
+        const more = DIR.waveSpawned < waveSize && !(objective && OBJ.done);
+        const cap = OBJ.type === OBJECTIVE.OBJ_NESTS ? NEST_CONCURRENT : MAX_CONCURRENT;
+        if (more && alive < cap) {
           DIR.spawnTimer = DIR.spawnTimer - dt;
           if (DIR.spawnTimer <= 0) {
-            spawnEnemy();
-            DIR.spawnTimer = WAVE_SPAWN_DELAY;
+            const entry = WAVE_OFFS[DIR.waveIdx] + DIR.waveSpawned;
+            const gap = W.WAVE_GAP[entry];
+            let go = true;
+            if (gap >= 0 && DIR.groupEntry !== entry) {
+              // First of a group: wait out the gap since the last one began, unless the field
+              // is nearly clear (a player who kills fast is not left standing about).
+              const first = DIR.waveSpawned === 0 && DIR.cycle === 0;
+              const early = alive <= 2 && DIR.groupT > 1.0;
+              if (!first && DIR.groupT < gap && !early) go = false;
+              if (go) { startGroup(W.WAVE_PAT[entry]); DIR.groupEntry = entry; }
+            }
+            if (go && spawnEnemy(entry)) {
+              const pat = W.WAVE_PAT[entry];
+              DIR.spawnTimer = OBJ.type === OBJECTIVE.OBJ_NESTS ? NEST_SPAWN_DELAY
+                : (pat === W.PAT_ROUND ? WAVE_SPAWN_DELAY : GROUP_SPAWN_DELAY);
+            }
           }
         }
-        if (DIR.waveSpawned >= waveSize && alive === 0) {
+        // The last few must not wander for ever: when nothing more is coming, three or fewer
+        // are left and none of them has known where the player is for twenty seconds, they are
+        // told. (They still have to get there; the compass shows the player where they are.)
+        if (!more && alive > 0 && alive <= 3 && DIR.awareCount === 0) {
+          DIR.lostT = DIR.lostT + dt;
+          if (DIR.lostT > 20) {
+            DIR.lostT = 0;
+            for (let i = 0; i < MAX_ENEMIES; i++) {
+              if (enAlive[i] === 1 && enAware[i] === 0) alertEnemy(i, 0.3, false);
+            }
+          }
+        } else {
+          DIR.lostT = 0;
+        }
+        const cleared = objective ? (OBJ.done && alive === 0)
+                                  : (DIR.waveSpawned >= waveSize && alive === 0);
+        if (cleared) {
+          OBJECTIVE.clearObjective();
           // SH-041 — bank the wave: a time bonus for clearing fast, an accuracy
           // bonus for clearing cleanly. Shown on the report card.
           GS.waveBonus = SCORE.endWave(GS.runElapsed);
@@ -1376,8 +1587,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
               GS.unlockBannerT = 5.0;
               GS.unlockBannerWeapon = nextUnlock;
             }
-            SCORE.commitRun(W.ARENA_INDEX);
-            SET.saveSettings();
+            bankRun(true);
           } else {
             // SH-036 — a wave died and another is coming. The sting lands over the
             // bed while the mixer is already crossfading combat -> calm.

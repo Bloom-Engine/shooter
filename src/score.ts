@@ -78,9 +78,12 @@ export function noteShot(): void { S[4] = S[4] + 1; }
 export function noteHit(): void { S[5] = S[5] + 1; }
 
 /// A kill: bank the points at the current multiplier, then raise it.
-export function noteKill(kind: number): number {
+export function noteKill(kind: number): number { return noteKillMul(kind, 1); }
+
+/// The same with a multiplier on the points (an elite pays ELITE_SCORE times its kind).
+export function noteKillMul(kind: number, mul: number): number {
   const base = kind >= 0 && kind < 7 ? KIND_POINTS[kind] : 10;
-  const gained = base * S[1] * DIFF_SCORE[diff()];
+  const gained = base * mul * S[1] * DIFF_SCORE[diff()];
   if (kind >= 0 && kind < 7) KK[kind] = KK[kind] + 1;
   S[11] = 0.5; S[12] = Math.floor(gained); S[13] = 1.1; S[14] = kind;
   S[0] = S[0] + gained;
@@ -90,6 +93,14 @@ export function noteKill(kind: number): number {
   if (S[1] > S[7]) S[7] = S[1];
   S[2] = COMBO_WINDOW;
   return Math.floor(gained);
+}
+
+/// Points that are not a kill (an objective completed, a nest destroyed): scaled by the
+/// difficulty, shown by the same pop-up, and they do not touch the combo.
+export function addPoints(n: number): void {
+  const gained = Math.floor(n * DIFF_SCORE[diff()]);
+  S[0] = S[0] + gained;
+  S[12] = gained; S[13] = 1.4;
 }
 
 /// Combo decays if you stop killing. This is what makes the multiplier a

@@ -9,12 +9,14 @@ The full picture is in `README.md`. This is a Perry-compiled TypeScript
 FPS) built on the Bloom engine. Seven alien kinds (two RANGED; an original
 cast since 2026-11: Skitter, Stalker, Ravager, Bruiser, Colossus, Spitter,
 Bombard, against the Trooper), three
-waves, four weapons, THREE playable arenas (`arena_02` Outdoor Plaza in late afternoon,
+waves, four weapons, THREE playable arenas of ten waves each (elites, a hold or a nest objective
+wave, credits and weapon upgrades between runs: Phase 6), (`arena_02` Outdoor Plaza in late afternoon,
 `arena_03` Riverbend Ravine on a misty morning, `arena_04` Checkpoint at dusk),
 textured arena, skeletal-animated enemies, ambient music, and a live 3D
 soundscape (river/wind emitters + creature locomotion on EN-062 voices —
 see SH-052) — runnable with
-`perry compile src/main.ts -o main && ./main`.
+`PERRY_LLVM_INPROCESS=0 perry compile src/main.ts -o main && ./main` (the variable is not optional:
+`docs/perry-quirks.md` #6).
 
 ## Where things live
 
@@ -33,7 +35,9 @@ see SH-052) — runnable with
   `camera.ts` (orbit + canopy occlusion), `hud.ts`, `menu.ts` (title, pause, tabbed settings,
   arena cards, results, credits), `ui.ts` (the UI kit: atlas sprites, palette, panels, button
   glyphs), `binds.ts` (which key / mouse button / pad button each action is on),
-  `strings.ts` (GENERATED string table, four languages), `environment.ts`
+  `strings.ts` (GENERATED string table, four languages), `profile.ts` (what a player keeps:
+  credits, upgrades, stars, lifetime numbers, in `profile.json`), `objective.ts` (hold and nest
+  waves), `tutor.ts` (the tutorial and the one-time hints), `environment.ts`
   (water/grass/building/glass/GI proxies), `gamestate.ts` (shared run
   scalars as `const GS`), plus `feel/vfx/weapons/menu/settings/score/
   audio-mix/boot/terrain`. Module headers state the Perry rules each
@@ -52,12 +56,15 @@ see SH-052) — runnable with
   (`tools/gen/`, `tools/blender/`).
 - `docs/aaa-plan.md` — the current plan: what is missing for AAA quality, in
   order. Phases 0 (bugs and hygiene), 1 (the player on screen), 2 (combat), 3 (world art
-  and lighting) and 4 (UI and front end) landed 2026-11-14; each phase's header says what it
-  left open.
+  and lighting), 4 (UI and front end) and slices A-C of 6 (encounters, progression, objectives
+  and onboarding) landed 2026-11-14; each phase's header says what it left open. Phase 5 (audio
+  and VFX depth) was skipped, not done.
 
 ## Read before changing things
 
-- **`docs/perry-quirks.md`** — five Perry 0.5.x bugs we work around.
+- **`docs/perry-quirks.md`** — six Perry 0.5.x bugs we work around. #6 is why every build sets
+  `PERRY_LLVM_INPROCESS=0`: without it `src/main.ts` fails with `unknown type { double, i64 }`,
+  and the line that seems to cause it never does.
   Since Perry 0.5.16xx the temporal dead zone is enforced for module-level `const`: a
   function called during module init must not read a `const` declared further down the file
   (`ReferenceError: Cannot access 'X' before initialization` at boot).
@@ -86,7 +93,7 @@ see SH-052) — runnable with
 npm run dev                            # compile + run (world loads at runtime)
 npm run build                          # compile only
 npm run assets                         # rebuild props + terrain visual mesh
-perry compile src/main.ts -o main      # raw compile
+PERRY_LLVM_INPROCESS=0 perry compile src/main.ts -o main      # raw compile (quirk #6)
 ./main                                  # play
 bun tools/validate-glb.ts <path>       # glTF-validator report
 bun tools/fetch-external-textures.ts   # re-download the CC0 photoscan sources
@@ -169,7 +176,8 @@ the view moves, and the phone has no headroom to absorb the stall.
 - `npm` may not be on the PowerShell PATH — run the tools directly
   with `bun` (e.g. `bun tools/build-terrain.ts`) and compile with
   `perry` as below.
-- Compile with `perry compile src/main.ts -o main --debug-symbols` so
+- Set `$env:PERRY_LLVM_INPROCESS = "0"` first (perry-quirks #6), then
+  compile with `perry compile src/main.ts -o main --debug-symbols` so
   `main.pdb` lands next to the exe — crash reports then symbolize.
 - Engine rebuild:
   `cargo build --release --manifest-path ..\engine\native\windows\Cargo.toml`
@@ -247,7 +255,13 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
    holds every string in four languages and writes `src/strings.ts`: edit the table, not the
    generated file. `tools/gen/ui_sfx.py` synthesises the interface sounds. Arena pictures for the
    menu are `assets/ui/<arena_id>.png`, 640 x 360.
-10. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
+10. **Encounters** (Phase 6, SH-060): `python3 tools/gen/gen_waves.py <arena_id>` writes the ten-wave
+   plan into the world's `wave_config` (its docstring is the format: `!` marks an elite, `groups`
+   is `size:pattern:gap`, `type` is kill / hold / nests), adds four spawn points (`spawner_x*`)
+   and the objective sites (`obj_hold` at the arena's generator, three `obj_nest_*`). Re-running
+   replaces all of those. The nest model is procedural: `blender -b -P tools/blender/build_nest.py
+   -- assets/models/prop_nest.glb`.
+11. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
    bundles ship those under the plain names.
 Check anything visually with `tools/blender/model_sheet.py` (four views with axes) and
 `tools/blender/clip_sheet.py` (frames of one clip), and in-game with the COMBATSHOT harness, which
@@ -314,6 +328,24 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   `drawTexturePro` origin is an absolute pivot; use `UI.sprRot`. The HUD is authored for a
   1080-unit-tall space and drawn at 0.62 on phones. A harness screenshot is skipped while the
   window is covered, so rerun if pictures are missing.
+- Encounter and progression rules the code rests on (Phase 6, SH-060). A wave is a list of
+  GROUPS; a group's pattern picks its spawn point(s) when the group STARTS, from where the
+  player stands and where the camera looks (`startGroup` in `director.ts`), so the same wave
+  plays differently from a different spot. A group waits out its gap unless two or fewer
+  creatures are left. An objective wave repeats its list until `OBJ.done`; if the world has no
+  site for it, it is an ordinary wave. An elite is a flag on a slot (`enElite`), never a new
+  kind: scale, health, damage and score are multiplied where they are read, and
+  `despawnAllEnemies` clears it. Weapon numbers are read through `WPN.damageOf / magSize /
+  pierceOf / aoeOf`, never from the `W_*` tables, or an upgrade does nothing. A run is banked
+  once, in `director.bankRun` (best score to `settings.json`, the rest to `profile.json`), and
+  not at all under a harness (`DIR.bank`): a bot run once overwrote a best score. The hold ring
+  is solid stakes because the additive glow card is one warm colour and too faint in daylight
+  to mark anything. A creature that wants to move and does not is sidestepped (`UN_*` in
+  `director.ts`), and the last few of a wave are told where the player is after twenty
+  seconds unaware: both exist because a wave that cannot end is the worst bug this game can
+  have. Judge changes with P2BOT (it is PUT at each objective; it does not walk),
+  UISHOT (captures 21-26: tutorial, elite, objective waves; run it per arena with `level.txt`)
+  and MENUTEST.
 - No vertex colours (the engine multiplies `COLOR_0` into albedo).
 - Weapons: barrel along +Z, rear at z = 0, metres. Props: origin at the base centre, drawn unrotated.
 
@@ -342,7 +374,8 @@ What lives in the world file:
 - **Game concepts, in `userData.kind`**: `player_spawn`, `collider_box`,
   `static_mesh` (optional box collider + tag-driven paint category),
   `prop_tree` (the forest — 88 real entities, each movable), 
-  `enemy_spawner`, `weapon_pickup`, `wave_config`, `building_trim`, and `look` (one per world:
+  `enemy_spawner`, `weapon_pickup`, `wave_config`, `objective` (`role=hold` with a `radius`, or
+  `role=nest`), `building_trim`, and `look` (one per world:
   time of day and grade as key/values, read with `W.lookNum`). A `static_mesh` may carry `yaw`
   (degrees: the model is drawn turned and its box collider turns with it) and `obst=1`
   (creatures steer round it). Every entity needs a `modelRef`: logic entities use

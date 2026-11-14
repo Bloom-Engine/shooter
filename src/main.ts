@@ -64,6 +64,9 @@ import * as W from './world-runtime';
 import { ENV, initEnvironment, initGiProxies } from './environment';
 import { initFlora, drawFlora } from './flora';
 import { GS } from './gamestate';
+import * as PROFILE from './profile';
+import * as TUTOR from './tutor';
+import { OBJ, nestStanding } from './objective';
 import {
   DIR, initDirector, setDirectorDeps, updateDirector, updateEnemyProjectiles,
   countAlive, WAVE_BREAK_DELAY, despawnAllEnemies, hpX, hpY, hpZ, hpLife, wavePlan,
@@ -89,6 +92,7 @@ import {
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
   KIND_SPINE_JOINT, KIND_TINTO,
   KIND_SCALE, KIND_Y_OFF, KIND_SPEED, KIND_HP, KIND_MELEE, DRETCH_HIT_FLASH,
+  enScale, enElite,
   AI_WINDUP, AI_FLINCH, AI_STRIKE_WIND, AI_STRIKE_HIT, AI_STRIKE_REC,
   KIND_POOL, KIND_SLOT0, MAX_ENEMIES,
   STRIKE_WINDUP, ATTACK_HIT_T, KIND_HEIGHT, KIND_RANGED, RANGED_WINDUP,
@@ -115,6 +119,7 @@ import * as SCORE from './score';
 import {
   initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, currentMenu, MENU_NONE,
   applyGraphicsSettings, openResults, setResultsTime, openSettingsTab, openLevels, openCredits,
+  openArmory, openRecord, armoryWeapon,
   selectRow, MENU_RESULTS, menuRow, menuTab,
 } from './menu';
 import * as STR from './strings';
@@ -143,6 +148,9 @@ initInput();
 // SH-037 — settings must load BEFORE anything reads them (input sensitivity,
 // audio volumes, FOV, shake). A missing file is a first run, not an error.
 SET.loadSettings();
+// Phase 6 - what the player has earned (credits, upgrades, stars). After the settings: a first
+// profile reads the best scores from them.
+PROFILE.loadProfile();
 
 // ---- CLI overrides for A/B-testing graphics settings -----------------------
 // `main --render-scale 0.5|0.75|1` and `main --output-scale 0.5|0.75|1`
@@ -1539,7 +1547,8 @@ const P2 = [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 const P2BOT = false;
 //   0 last wave index logged  1 most alive at once  2 most mid-attack at once  3 hits taken
 //   4 HP last frame
-const PB = [-1, 0, 0, 0, 100];
+//   5 nest to be put beside this frame (-1 none)
+const PB = [-1, 0, 0, 0, 100, -1];
 const P2OUT = [0, 0, 0, 0, 0];
 
 function p2Place(slot: number, x: number, z: number, heading: number): void {
@@ -1591,7 +1600,8 @@ const COMBATSHOT = false;
 const UISHOT = false;
 let uiShotPad = false;
 const UISHOT_NAMES = ['main', 'set_game', 'set_controls', 'set_binds', 'set_video', 'set_audio',
-                      'set_access', 'levels', 'credits', 'main_de', 'set_video_de', 'levels_fr'];
+                      'set_access', 'levels', 'credits', 'main_de', 'set_video_de', 'levels_fr',
+                      'armory', 'record'];
 
 // ---- SCENESHOT harness ------------------------------------------------------
 // Stills of the level art (house, grass, trees) from fixed viewpoints, no enemies.
@@ -1875,6 +1885,19 @@ setCombatDeps({
   musicMenu, musicCalm, musicCombat,
   mdlCrate, hasCrate, sfxSwing, sfxMeleeHit, sfxNadeThrow, sfxNadeBounce,
 });
+// Phase 6 - the nest model and the two sounds a nest makes (objective.ts).
+OBJ.hasNest = fileExists('assets/models/prop_nest.glb') ? 1 : 0;
+OBJ.mdlNest = OBJ.hasNest === 1 ? loadModel('assets/models/prop_nest.glb') : 0;
+OBJ.sfxHit = sfxImpactFlesh;
+OBJ.sfxBurst = sfxExplosion;
+// A scripted run (any harness) must not bank credits, stars or a best score, and must not be
+// stopped by the tutorial.
+if (SELFTEST || FACETEST || KEYPROBE || LOCOPROBE || WATERTEST || AITEST || MENUTEST || ANIMDBG
+    || PLAYERSHOT || P2TEST || P2BOT || COMBATSHOT || UISHOT || SCENESHOT || STAIRTEST
+    || FPSPROBE || PERFTEST || AUDIOTEST) {
+  DIR.bank = false;
+  TUTOR.setTutorEnabled(false);
+}
 
 // ---- P2TEST (see the harness block above) --------------------------------------------------
 // Frames: 30-200 shapes, 200-560 senses and the strike, 560-990 the pack, the rifle butt and a
@@ -2054,6 +2077,11 @@ function p2Late(): boolean {
   return fire;
 }
 
+/// Put the player at a point (the harnesses).
+function movePlayerTo(x: number, y: number, z: number): void {
+  setPlayerPosition(vec3(x, y, z));
+}
+
 function p2Bot(): boolean {
   const f = testFrame;
   if (f === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
@@ -2075,9 +2103,44 @@ function p2Bot(): boolean {
   if (alive > PB[1]) PB[1] = alive;
   if (mid > PB[2]) PB[2] = mid;
   let fire = false;
-  if (best >= 0) {
+  // Phase 6 - the objectives. The stand-in does not walk, so it is PUT where the objective
+  // is: inside the ring for a hold, seven metres from the nearest standing nest otherwise.
+  let nestAim = -1;
+  if (OBJ.type === 1 && !OBJ.done && !OBJ.inside) {
+    movePlayerTo(W.HOLD_SITE[0] + 2.5, W.HOLD_SITE[1] + 1.2, W.HOLD_SITE[2] + 2.5);
+  }
+  if (OBJ.type === 2 && !OBJ.done) {
+    let nd = 1e9;
+    for (let i = 0; i < W.NEST_COUNT; i++) {
+      if (!nestStanding(i)) continue;
+      const d = Math.hypot(pp.x - W.NEST_X[i], pp.z - W.NEST_Z[i]);
+      if (d < nd) { nd = d; nestAim = i; }
+    }
+    if (nestAim >= 0 && nd > 9) {
+      PB[5] = nestAim;       // moved below: one setPlayerPosition call site for this branch
+    }
+  }
+  if (PB[5] >= 0) {
+    const ni = PB[5];
+    PB[5] = -1;
+    // Six metres from the nest on the side of the arena's middle: open ground more often
+    // than not, and where a player would come from.
+    const nl = Math.hypot(W.NEST_X[ni], W.NEST_Z[ni]);
+    const ox = nl > 0.1 ? -W.NEST_X[ni] / nl * 6.0 : 6.0;
+    const oz = nl > 0.1 ? -W.NEST_Z[ni] / nl * 6.0 : 0;
+    movePlayerTo(W.NEST_X[ni] + ox, terrainHeightAt(W.NEST_X[ni] + ox, W.NEST_Z[ni] + oz) + 1.2, W.NEST_Z[ni] + oz);
+    console.log('P2BOT   put at nest ' + ni + ' (' + W.NEST_X[ni].toFixed(1) + ',' + W.NEST_Z[ni].toFixed(1) + ')');
+  }
+  // A creature within eight metres comes first; otherwise the nest.
+  if (best >= 0 && (nestAim < 0 || bestD < 8)) {
     shapeJoint(best, HSJ_NECK, TMP3);
     const dx = TMP3[0] - CAM[2], dy = TMP3[1] - 0.15 - CAM[3], dz = TMP3[2] - CAM[4];
+    CAM[0] = Math.atan2(dx, -dz);
+    CAM[1] = -Math.atan2(dy, Math.sqrt(dx * dx + dz * dz));
+    fire = true;
+  } else if (nestAim >= 0) {
+    const dx = W.NEST_X[nestAim] - CAM[2], dz = W.NEST_Z[nestAim] - CAM[4];
+    const dy = terrainHeightAt(W.NEST_X[nestAim], W.NEST_Z[nestAim]) + 0.8 - CAM[3];
     CAM[0] = Math.atan2(dx, -dz);
     CAM[1] = -Math.atan2(dy, Math.sqrt(dx * dx + dz * dz));
     fire = true;
@@ -2088,10 +2151,11 @@ function p2Bot(): boolean {
       + ' spawned=' + DIR.waveSpawned + ' alive=' + alive + ' aware=' + DIR.awareCount
       + ' kills=' + SCORE.kills() + ' acc=' + Math.round(SCORE.accuracy() * 100)
       + ' maxAlive=' + PB[1] + ' maxMidAttack=' + PB[2] + ' hitsTaken=' + PB[3]
-      + ' fps=' + getFPS().toFixed(0));
+      + ' obj=' + OBJ.type + ':' + Math.round(OBJ.prog) + '/' + OBJ.need + ' elites=' + DIR.eliteCount
+      + ' score=' + SCORE.score() + ' fps=' + getFPS().toFixed(0));
   }
   // The stragglers, when few are left: where each is and what it thinks.
-  if ((f % 600) === 0 && alive > 0 && alive <= 6) {
+  if ((f % 600) === 0 && alive > 0 && (alive <= 6 || OBJ.type === 2)) {
     for (let i = 0; i < MAX_ENEMIES; i++) {
       if (enAlive[i] === 0) continue;
       console.log('P2BOT   left: slot=' + i + ' kind=' + enKind[i] + ' st=' + enAIState[i]
@@ -2104,7 +2168,7 @@ function p2Bot(): boolean {
         + ' player=' + pp.x.toFixed(1) + ',' + pp.y.toFixed(1) + ',' + pp.z.toFixed(1));
     }
   }
-  if (DIR.gameWon || f > 30000) {
+  if (DIR.gameWon || f > 70000) {
     console.log('P2BOT done won=' + (DIR.gameWon ? 1 : 0) + ' t=' + GS.runElapsed.toFixed(0)
       + ' kills=' + SCORE.kills() + ' maxAlive=' + PB[1] + ' maxMidAttack=' + PB[2]
       + ' hitsTaken=' + PB[3]);
@@ -2400,13 +2464,36 @@ function gameFrame(_hostDt: number): void {
     if (f === 420) menuTestLog = menuTestLog + 'after death + wait: menu=' + currentMenu() + ' (want 6=RESULTS)\n';
     mtTap(f, 425, Key.ENTER);
     if (f === 440) menuTestLog = menuTestLog + 'after ENTER on TRY AGAIN: menu=' + currentMenu() + ' (want 0) gameOver=' + (GS.gameOver ? 1 : 0) + ' (want 0) hp=' + GS.playerHP + ' (want 100)\n';
+    // Phase 6 - the tutorial: put it on its DODGE step; the dodge key answers it, the next step
+    // follows, and Backspace skips what is left.
+    if (f === 442) TUTOR.debugStep(3);
+    if (f === 448) injectKeyDown(BND.kbCode(BND.ACT_DODGE));
+    if (f === 452) injectKeyUp(BND.kbCode(BND.ACT_DODGE));
+    if (f === 458) menuTestLog = menuTestLog + 'tutorial, dodge pressed: step=' + TUTOR.tutorialStep() + ' (want 3) answered=' + (TUTOR.tutorialAnswered() ? 1 : 0) + ' (want 1)\n';
+    if (f === 520) menuTestLog = menuTestLog + 'tutorial, a moment later: step=' + TUTOR.tutorialStep() + ' (want 4)\n';
+    mtTap(f, 522, Key.BACKSPACE);
+    if (f === 530) menuTestLog = menuTestLog + 'tutorial, after Backspace: active=' + (TUTOR.tutorialActive() ? 1 : 0) + ' (want 0)\n';
     // Pause -> MAIN MENU (row 4) -> the title, with no run behind it.
-    mtTap(f, 450, Key.ESCAPE);
-    if (f === 458) menuTestLog = menuTestLog + 'after ESC in play: menu=' + currentMenu() + ' (want 1=PAUSE)\n';
-    mtTap(f, 460, Key.DOWN); mtTap(f, 467, Key.DOWN); mtTap(f, 474, Key.DOWN); mtTap(f, 481, Key.DOWN);
-    mtTap(f, 490, Key.ENTER);
-    if (f === 500) {
-      menuTestLog = menuTestLog + 'after MAIN MENU: menu=' + currentMenu() + ' (want 4) gameState=' + GS.gameState + ' (want 0)\n';
+    mtTap(f, 540, Key.ESCAPE);
+    if (f === 548) menuTestLog = menuTestLog + 'after ESC in play: menu=' + currentMenu() + ' (want 1=PAUSE)\n';
+    mtTap(f, 550, Key.DOWN); mtTap(f, 557, Key.DOWN); mtTap(f, 564, Key.DOWN); mtTap(f, 571, Key.DOWN);
+    mtTap(f, 580, Key.ENTER);
+    if (f === 590) menuTestLog = menuTestLog + 'after MAIN MENU: menu=' + currentMenu() + ' (want 4) gameState=' + GS.gameState + ' (want 0)\n';
+    // Phase 6 - the title's new rows: ARMOURY is row 3 (E steps to the next weapon, the fifth
+    // row is BACK), SERVICE RECORD row 4 (Escape leaves it). Nothing is bought.
+    mtTap(f, 595, Key.DOWN); mtTap(f, 602, Key.DOWN); mtTap(f, 609, Key.DOWN); mtTap(f, 616, Key.ENTER);
+    if (f === 624) menuTestLog = menuTestLog + 'after ENTER on ARMOURY: menu=' + currentMenu() + ' (want 7)\n';
+    mtTap(f, 626, Key.E);
+    if (f === 632) menuTestLog = menuTestLog + 'after E in the armoury: weapon=' + armoryWeapon() + ' (want 1)\n';
+    mtTap(f, 634, Key.DOWN); mtTap(f, 641, Key.DOWN); mtTap(f, 648, Key.DOWN); mtTap(f, 655, Key.DOWN);
+    mtTap(f, 662, Key.ENTER);
+    if (f === 670) menuTestLog = menuTestLog + 'after ENTER on BACK: menu=' + currentMenu() + ' (want 4)\n';
+    mtTap(f, 672, Key.DOWN); mtTap(f, 679, Key.DOWN); mtTap(f, 686, Key.DOWN); mtTap(f, 693, Key.DOWN);
+    mtTap(f, 700, Key.ENTER);
+    if (f === 708) menuTestLog = menuTestLog + 'after ENTER on SERVICE RECORD: menu=' + currentMenu() + ' (want 8)\n';
+    mtTap(f, 710, Key.ESCAPE);
+    if (f === 720) {
+      menuTestLog = menuTestLog + 'after ESC in the record: menu=' + currentMenu() + ' (want 4)\n';
       // Leave the player's bindings as they were found.
       BND.resetBinds();
       SET.saveSettings();
@@ -2420,7 +2507,7 @@ function gameFrame(_hostDt: number): void {
   if (UISHOT) {
     const f = testFrame;
     const STEP = 45;
-    if (f >= 40 && f < 40 + 12 * STEP) {
+    if (f >= 40 && f < 40 + 14 * STEP) {
       const st = Math.floor((f - 40) / STEP);
       const ph = (f - 40) % STEP;
       if (ph === 0) {
@@ -2432,29 +2519,82 @@ function gameFrame(_hostDt: number): void {
         else if (st === 9) { STR.setLanguage(1); openMain(); }
         else if (st === 10) { STR.setLanguage(1); openSettingsTab(3); selectRow(3); }
         else if (st === 11) { STR.setLanguage(2); openLevels(); selectRow(2); }
+        else if (st === 12) { openArmory(0); selectRow(1); }
+        else if (st === 13) openRecord();
       }
       if (ph === STEP - 8) takeScreenshot('shooter_ui_' + (st < 10 ? '0' : '') + st + '_' + UISHOT_NAMES[st] + '.png');
     }
-    const g0 = 40 + 12 * STEP;
+    const g0 = 40 + 14 * STEP;
     if (f === g0) { STR.setLanguage(0); openMain(); startRun(); cursorLocked = true; }
     if (f > g0 && f < g0 + 500) GS.playerHP = PLAYER_HP_MAX;
-    if (f === g0 + 300) takeScreenshot('shooter_ui_12_hud.png');
+    if (f > g0 + 640) GS.playerHP = PLAYER_HP_MAX;
+    if (f === g0 + 300) takeScreenshot('shooter_ui_14_hud.png');
     if (f >= g0 + 310 && f < g0 + 340) {
       GS.playerHP = 18; GS.lastHitT = 1.1; GS.lastHitAngle = 2.2; GS.damageFlashT = 0.3;
       SET.set(SET.SET_CAPTIONS, 1);
     }
-    if (f === g0 + 338) takeScreenshot('shooter_ui_13_hud_hit.png');
+    if (f === g0 + 338) takeScreenshot('shooter_ui_15_hud_hit.png');
     if (f === g0 + 345) { SET.set(SET.SET_CAPTIONS, 0); uiShotPad = true; UIK.setPalette(1); WPN.beginReload(); GS.hitMarkT = 0.2; GS.hitMarkCrit = 1; }
-    if (f === g0 + 362) takeScreenshot('shooter_ui_14_hud_pad_reload.png');
+    if (f === g0 + 362) takeScreenshot('shooter_ui_16_hud_pad_reload.png');
     if (f === g0 + 370) { uiShotPad = false; UIK.setPalette(0); GS.waveBonusT = 3.4; GS.waveBonus = 420; GS.unlockBannerT = 4.0; }
-    if (f === g0 + 395) takeScreenshot('shooter_ui_15_hud_banners.png');
+    if (f === g0 + 395) takeScreenshot('shooter_ui_17_hud_banners.png');
     if (f === g0 + 400) { GS.waveBonusT = 0; GS.unlockBannerT = 0; openPause(); }
-    if (f === g0 + 440) takeScreenshot('shooter_ui_16_pause.png');
+    if (f === g0 + 440) takeScreenshot('shooter_ui_18_pause.png');
     if (f === g0 + 450) { DIR.gameWon = true; setResultsTime(GS.runElapsed + 187); openResults(true, 3, 3, true); }
-    if (f === g0 + 540) takeScreenshot('shooter_ui_17_results_won.png');
+    if (f === g0 + 540) takeScreenshot('shooter_ui_19_results_won.png');
     if (f === g0 + 550) { DIR.gameWon = false; GS.gameOver = true; openResults(false, 2, 3, false); }
-    if (f === g0 + 620) takeScreenshot('shooter_ui_18_results_died.png');
-    if (f === g0 + 640) { console.log('UISHOT done'); closeWindow(); return; }
+    if (f === g0 + 620) takeScreenshot('shooter_ui_20_results_died.png');
+    // Phase 6: the tutorial card, a hint, an elite, and the arena's objective waves.
+    if (f === g0 + 640) {
+      DIR.gameWon = false; GS.gameOver = false; closeMenu(); resetRun(); startRun(); cursorLocked = true;
+      DIR.waveBreakTimer = 9999;
+      TUTOR.debugStep(1);
+    }
+    if (f === g0 + 680) takeScreenshot('shooter_ui_21_tutorial.png');
+    if (f === g0 + 685) { TUTOR.setTutorEnabled(false); resetRun(); startRun(); TUTOR.debugHint(1); DIR.waveIdx = 5; DIR.waveBreakTimer = 0.05; }
+    if (f === g0 + 1000) {
+      // Stand the first creature alive in front of the camera as an elite.
+      for (let i = 0; i < MAX_ENEMIES; i++) {
+        if (enAlive[i] === 0) continue;
+        const ppE = playerPosition();
+        enElite[i] = 1;
+        enX[i] = ppE.x + Math.sin(CAM[0]) * 4.0; enZ[i] = ppE.z - Math.cos(CAM[0]) * 4.0;
+        break;
+      }
+    }
+    if (f === g0 + 1008) takeScreenshot('shooter_ui_22_elite.png');
+    if (f > g0 + 1040 && f < g0 + 2400) {
+      // Walk the objective waves of this arena: jump to each, give it time to start, capture.
+      const q = f - (g0 + 1041);
+      const slot = Math.floor(q / 560);
+      const ph = q % 560;
+      let found = -1, seen = 0;
+      for (let wv = 0; wv < wavePlan.length; wv++) {
+        if (W.WAVE_TYPE[wv] === W.WAVE_KILL) continue;
+        if (seen === slot) { found = wv; break; }
+        seen = seen + 1;
+      }
+      if (found < 0) { console.log('UISHOT done'); closeWindow(); return; }
+      if (ph === 0) { resetRun(); startRun(); DIR.waveIdx = found; DIR.waveBreakTimer = 0.05; }
+      const isHold = W.WAVE_TYPE[found] === W.WAVE_HOLD;
+      let mvX = 0, mvY = 0, mvZ = 0, mv = 0;
+      if (ph === 200 && isHold) {
+        mvX = W.HOLD_SITE[0] + 9.5; mvY = W.HOLD_SITE[1] + 1.2; mvZ = W.HOLD_SITE[2]; mv = 1;
+      }
+      if (ph === 200 && !isHold) {
+        mvX = W.NEST_X[1] + 6.5; mvY = W.NEST_Y[1] + 1.2; mvZ = W.NEST_Z[1]; mv = 1;
+      }
+      if (ph === 335 && isHold) {
+        mvX = W.HOLD_SITE[0] + 3.0; mvY = W.HOLD_SITE[1] + 1.2; mvZ = W.HOLD_SITE[2] + 2.5; mv = 1;
+      }
+      if (mv === 1) {
+        movePlayerTo(mvX, mvY, mvZ);
+        CAM[0] = -Math.PI / 2; CAM[1] = 0.16;
+      }
+      if (ph === 330) takeScreenshot('shooter_ui_' + (23 + slot) + '_objective.png');
+      if (ph === 520) takeScreenshot('shooter_ui_' + (25 + slot) + '_objective_b.png');
+    }
+    if (f === g0 + 2400) { console.log('UISHOT done'); closeWindow(); return; }
   }
   if (menuOpen()) {
     const act = updateMenu(dtReal, sw, sh, uiScale);
@@ -3001,6 +3141,7 @@ function gameFrame(_hostDt: number): void {
   updateWeaponTransform();
 
   updateDirector(dt, dtReal, playing);
+  TUTOR.updateTutor(dt, playing);
 
   // testFrame is incremented above the input block so the mouse-settle
   // grace period uses the same counter.
@@ -3810,7 +3951,7 @@ function gameFrame(_hostDt: number): void {
     enAnimClip[i] = baseClip;
     // Same engine quirk as the player model: the skinned path applies rotY
     // INVERTED, so pass π/2 − yaw or the aliens strafe sideways-on.
-    animUpdate(enAnim[i], dt, KIND_SCALE[k],
+    animUpdate(enAnim[i], dt, enScale(i),
       enX[i], enY[i], enZ[i], Math.PI / 2 - enHeading[i]);
     // The transform this pose was built with: the hit shapes lift the joints out of model
     // space with exactly these numbers (hitshapes.ts).
@@ -3851,7 +3992,16 @@ function gameFrame(_hostDt: number): void {
           b: Math.floor(bT.b * db * (1 - f)),
           a: 255 }
       : bT;
-    drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], tint);
+    if (enElite[i] === 1) {
+      // An elite: a size up (enScale), flushed red, and it carries its own glow, so it is
+      // picked out of a pack at dusk as well as at noon.
+      const et = { r: tint.r, g: Math.floor(tint.g * 0.66), b: Math.floor(tint.b * 0.62), a: 255 };
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), enScale(i), et);
+      addPointLight(enX[i], enY[i] + KIND_HEIGHT[k] * 0.7, enZ[i], 4.5, 1.0, 0.25, 0.12,
+                    2.2 + 0.6 * Math.sin(getTime() * 6 + i));
+    } else {
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), enScale(i), tint);
+    }
     drawContact(enX[i], enY[i], enZ[i], 0.9 + KIND_HEIGHT[k] * 0.75, 0.50);
   }
   // Dying enemies: play the death animation once, frozen on its final
@@ -3897,8 +4047,8 @@ function gameFrame(_hostDt: number): void {
         enJoltOn[i] = 0;
       }
       const yaw = Math.PI / 2 - enDeathYaw[i];
-      animUpdate(enAnim[i], dt, KIND_SCALE[k], enX[i], enY[i], enZ[i], yaw);
-      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
+      animUpdate(enAnim[i], dt, enScale(i), enX[i], enY[i], enZ[i], yaw);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), enScale(i), KIND_TINTO[k]);
 
       if (!DEATH_RAGDOLL) {
         enRagActive[i] = 2;     // play the death clip out, then sink (the branch below)
@@ -3906,7 +4056,7 @@ function gameFrame(_hostDt: number): void {
         // The transform passed here MUST be the one we just drew with: it is the
         // bridge between model space and world space, and the engine freezes it.
         const ok = activateRagdoll(enRagdoll[i], enAnim[i], physics,
-                                   KIND_SCALE[k], enX[i], enY[i], enZ[i], yaw);
+                                   enScale(i), enX[i], enY[i], enZ[i], yaw);
         if (ok) {
           enRagActive[i] = 1;
           // Throw it along the killing shot. Scaled by damage, so a rifle round
@@ -3924,7 +4074,7 @@ function gameFrame(_hostDt: number): void {
       // --- physics owns the pose now. No animUpdate: the ragdoll writes the
       // joint matrices directly.
       const age = updateRagdoll(enRagdoll[i], enAnim[i], dt);
-      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i], enZ[i]), enScale(i), KIND_TINTO[k]);
       // Settle, then free. Releasing matters: a pooled ragdoll that is never
       // released leaks bodies into the physics world - a slow, invisible death.
       if (age > 8.0) {
@@ -3960,9 +4110,9 @@ function gameFrame(_hostDt: number): void {
       // The body lies where it fell for CORPSE_LINGER seconds, then sinks into the ground.
       const CORPSE_LINGER = 5.0;
       const sink = enDeathT[i] > dur + CORPSE_LINGER ? (enDeathT[i] - dur - CORPSE_LINGER) * 0.9 : 0;
-      animUpdate(enAnim[i], dt, KIND_SCALE[k],
+      animUpdate(enAnim[i], dt, enScale(i),
         enX[i], enY[i] + liftD - sink, enZ[i], Math.PI / 2 - enDeathYaw[i]);
-      drawModel(mdlAliens[k], vec3(enX[i], enY[i] + liftD - sink, enZ[i]), KIND_SCALE[k], KIND_TINTO[k]);
+      drawModel(mdlAliens[k], vec3(enX[i], enY[i] + liftD - sink, enZ[i]), enScale(i), KIND_TINTO[k]);
       if (enDeathT[i] > dur + CORPSE_LINGER + 2.5) {
         enDying[i] = 0;
         enRagActive[i] = 0;

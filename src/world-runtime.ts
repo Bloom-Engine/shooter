@@ -492,6 +492,26 @@ let kindTotal = 0;
 let waveSize = new Array<number>(0);
 let waveOffs = new Array<number>(0);
 let waveKind = new Array<number>(0);
+// Phase 6 - per creature: 1 = elite; the spawn pattern of its group (PAT_*); and, on the FIRST
+// creature of a group, the seconds after the previous group began (-1 on the others).
+let waveElite = new Array<number>(0);
+let wavePat = new Array<number>(0);
+let waveGap = new Array<number>(0);
+// Per wave: WAVE_KILL / WAVE_HOLD / WAVE_NESTS, and its parameter (hold: seconds to bank).
+let waveType = new Array<number>(0);
+let waveParam = new Array<number>(0);
+
+export const PAT_ROUND = 0;
+export const PAT_FRONT = 1;
+export const PAT_AMBUSH = 2;
+export const PAT_FLANK = 3;
+export const PAT_FAR = 4;
+export const PAT_NEAR = 5;
+export const PAT_SURROUND = 6;
+const PAT_NAMES = ['round', 'front', 'ambush', 'flank', 'far', 'near', 'surround'];
+export const WAVE_KILL = 0;
+export const WAVE_HOLD = 1;
+export const WAVE_NESTS = 2;
 
 if (waveEnts.length > 0) {
   const raw = waveEnts[0].userData['waves'];
@@ -506,6 +526,11 @@ if (waveEnts.length > 0) {
     waveSize = new Array<number>(planCount);
     waveOffs = new Array<number>(planCount);
     waveKind = new Array<number>(kindTotal);
+    waveElite = new Array<number>(kindTotal);
+    wavePat = new Array<number>(kindTotal);
+    waveGap = new Array<number>(kindTotal);
+    waveType = new Array<number>(planCount);
+    waveParam = new Array<number>(planCount);
 
     let off = 0;
     for (let i = 0; i < planCount; i++) {
@@ -513,16 +538,48 @@ if (waveEnts.length > 0) {
       const count = w.count;
       waveSize[i] = count;
       waveOffs[i] = off;
+      const ty = w['type'];
+      waveType[i] = ty === 'hold' ? WAVE_HOLD : (ty === 'nests' ? WAVE_NESTS : WAVE_KILL);
+      const secs = w['secs'];
+      waveParam[i] = (secs === undefined || secs === null) ? 40 : (secs as number);
 
       const names = w.enemy.split(',');
       const nameCount = names.length;
       for (let k = 0; k < count; k++) {
-        const name = nameCount > 0 ? names[k % nameCount].trim() : 'skitter';
+        let name = nameCount > 0 ? names[k % nameCount].trim() : 'skitter';
+        let elite = 0;
+        if (name.length > 1 && name.charCodeAt(name.length - 1) === 33) {    // trailing '!'
+          elite = 1;
+          name = name.substring(0, name.length - 1);
+        }
         let id = 0;
         for (let n = 0; n < ENEMY_KIND_NAMES.length; n++) {
           if (ENEMY_KIND_NAMES[n] === name || ENEMY_KIND_LEGACY[n] === name) { id = n; break; }
         }
         waveKind[off + k] = id;
+        waveElite[off + k] = elite;
+        // Without `groups` the whole wave is one round-robin group: the old behaviour.
+        wavePat[off + k] = PAT_ROUND;
+        waveGap[off + k] = k === 0 ? 0 : -1;
+      }
+      const gr = w['groups'];
+      if (gr !== undefined && gr !== null && gr.length > 0) {
+        const parts = gr.split(',');
+        let at = 0;
+        for (let q = 0; q < parts.length; q++) {
+          const f = parts[q].split(':');
+          if (f.length < 3) continue;
+          const size = parseInt(f[0]);
+          const pname = f[1].trim();
+          const gap = parseFloat(f[2]);
+          let pat = PAT_ROUND;
+          for (let n = 0; n < PAT_NAMES.length; n++) if (PAT_NAMES[n] === pname) pat = n;
+          for (let k = 0; k < size && at < count; k++) {
+            wavePat[off + at] = pat;
+            waveGap[off + at] = k === 0 ? gap : -1;
+            at = at + 1;
+          }
+        }
       }
       off = off + count;
     }
@@ -533,6 +590,42 @@ export const WAVE_PLAN_COUNT = planCount;
 export const WAVE_SIZE = waveSize;
 export const WAVE_OFFS = waveOffs;
 export const WAVE_KIND = waveKind;
+export const WAVE_ELITE = waveElite;
+export const WAVE_PAT = wavePat;
+export const WAVE_GAP = waveGap;
+export const WAVE_TYPE = waveType;
+export const WAVE_PARAM = waveParam;
+
+// ---- objective sites (Phase 6) -------------------------------------------------------------
+// `objective` entities: role=hold is the ring a hold wave is fought in (one per world),
+// role=nest a place a nest wave grows one.
+const objEnts = bucket('objective');
+let holdN = 0;
+let nestN = 0;
+for (let i = 0; i < objEnts.length; i++) {
+  if (objEnts[i].userData['role'] === 'nest') nestN = nestN + 1;
+  else if (objEnts[i].userData['role'] === 'hold') holdN = holdN + 1;
+}
+export const HOLD_SITE = [0, 0, 0, 6.5, 0];     // x, y, z, radius, 1 = the world has one
+export const NEST_COUNT = nestN;
+export const NEST_X = new Array<number>(nestN);
+export const NEST_Y = new Array<number>(nestN);
+export const NEST_Z = new Array<number>(nestN);
+{
+  let n = 0;
+  for (let i = 0; i < objEnts.length; i++) {
+    const p = objEnts[i].transform.position;
+    if (objEnts[i].userData['role'] === 'nest') {
+      NEST_X[n] = p[0]; NEST_Y[n] = p[1]; NEST_Z[n] = p[2];
+      n = n + 1;
+    } else if (objEnts[i].userData['role'] === 'hold' && HOLD_SITE[4] === 0) {
+      HOLD_SITE[0] = p[0]; HOLD_SITE[1] = p[1]; HOLD_SITE[2] = p[2];
+      const r = objEnts[i].userData['radius'];
+      if (r !== undefined && r !== null && r.length > 0) HOLD_SITE[3] = parseFloat(r);
+      HOLD_SITE[4] = 1;
+    }
+  }
+}
 
 // ---- forest ------------------------------------------------------------------
 //

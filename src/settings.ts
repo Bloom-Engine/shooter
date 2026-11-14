@@ -87,7 +87,9 @@ export const SET_CAPTION_SIZE = 36; // 0 small, 1 medium, 2 large
 export const SET_CAPTION_BG = 37;  // 0/1 - a dark plate behind subtitles
 export const SET_PALETTE    = 38;  // 0 standard, 1 red-green safe, 2 blue-yellow safe, 3 high contrast
 export const SET_CROUCH_TOGGLE = 39; // 0 = hold, 1 = toggle
-export const SET_COUNT      = 40;
+// Plan Phase 6 - the tutorial and the one-time hints (tutor.ts).
+export const SET_HINTS      = 40;  // 0/1
+export const SET_COUNT      = 41;
 
 /// Frames per second for each SET_FPS_CAP option; 0 = no limit.
 export const FPS_CAPS = [30, 60, 120, 144, 0];
@@ -156,6 +158,7 @@ function defaults(): void {
   V[SET_CAPTION_BG] = 1;
   V[SET_PALETTE]    = 0;
   V[SET_CROUCH_TOGGLE] = 0;
+  V[SET_HINTS]      = 1;
   platformDefaults();
   resetBinds();
   for (let i = 0; i < MAX_ARENAS; i++) best[i] = 0;
@@ -283,6 +286,7 @@ export function loadSettings(): void {
   V[SET_LANG]       = num(g, 'language', V[SET_LANG]);
   V[SET_HUD_SCALE]  = num(g, 'hudScale', V[SET_HUD_SCALE]);
   V[SET_COMPASS]    = num(g, 'compass', V[SET_COMPASS]);
+  V[SET_HINTS]      = num(g, 'hints', V[SET_HINTS]);
   V[SET_DEADZONE]   = num(c, 'deadzone', V[SET_DEADZONE]);
   V[SET_CURVE]      = num(c, 'curve', V[SET_CURVE]);
   V[SET_VIBRATION]  = num(c, 'vibration', V[SET_VIBRATION]);
@@ -367,7 +371,8 @@ export function saveSettings(): void {
   s = s + '  "game": { "difficulty": ' + V[SET_DIFFICULTY]
         + ', "language": ' + V[SET_LANG]
         + ', "hudScale": ' + V[SET_HUD_SCALE]
-        + ', "compass": ' + V[SET_COMPASS] + ' },\n';
+        + ', "compass": ' + V[SET_COMPASS]
+        + ', "hints": ' + V[SET_HINTS] + ' },\n';
   s = s + '  "binds": { ' + bindsJson() + ' },\n';
   s = s + '  "video": { "fov": ' + V[SET_FOV]
         + ', "renderScale": ' + V[SET_RENDER_SCALE]

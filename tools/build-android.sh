@@ -79,6 +79,8 @@ fi
 # PERRY_BIN lets a patched/worktree perry be used (e.g. the ELF-TLS build).
 # PERRY_ANDROID_TARGET_JSON (read by perry itself) opts into the has-thread-local
 # custom target + -Zbuild-std that fixes the bionic 128-pthread-key GC crash.
+# docs/perry-quirks.md #6: Perry's in-process LLVM backend fails on src/main.ts; use its external one.
+export PERRY_LLVM_INPROCESS="${PERRY_LLVM_INPROCESS:-0}"
 echo "==> Compiling with Perry (target: android)... [${PERRY_BIN:-perry}]"
 "${PERRY_BIN:-perry}" compile --target android src/main.ts -o "$SO_OUTPUT"
 

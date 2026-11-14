@@ -1981,3 +1981,75 @@ as before the phase), reading its input through the new binding table.
 Cost: nothing bought. The atlas is drawn by a script, the weapon silhouettes are Blender renders
 of the game's models, the six sounds are synthesised, the arena pictures are crops of Phase 3
 captures.
+
+---
+
+## SH-060 — AAA plan, Phase 6 slices A-C: encounters, progression, objectives and onboarding ✅ *(landed 2026-11-14; run by a stand-in, not played; slice D open)*
+
+Ralph's decisions: escalating survival with a meta layer (not a campaign), credits earned in runs
+as the currency, slices A to C now and slice D (boss, two weapons, two arenas, which costs Tripo
+credits) later. Phase 5 was skipped to get here.
+
+Checked with three harnesses. UISHOT (27 captures a run; run in all three arenas, because the
+objective waves differ): the 14 menu screens including ARMOURY and SERVICE RECORD, a locked arena
+card, the results screen with credits, the tutorial card, an elite, each objective wave from
+outside and inside. MENUTEST: 22 checks through the real key path, all passing; the eight new
+ones answer a tutorial step with the dodge key, see the next step follow, skip the rest with
+Backspace, open the armoury from the title, step to the next weapon, leave by BACK, open the
+service record and leave by Escape. P2BOT, a stand-in that holds the trigger and is PUT at each
+objective (it does not walk), cleared all ten waves of each arena on the final code:
+
+| Arena | Time | Kills | Objective waves |
+|---|---|---|---|
+| arena_02 Outdoor Plaza | 379 s | 142 | hold: 40 s banked, the wave took 52 s |
+| arena_03 Riverbend Ravine | 537 s | 174 | nests: three destroyed, the wave took 134 s |
+| arena_04 Checkpoint | 698 s | 236 | hold, then nests: the nest wave took 173 s and 74 kills |
+
+Health is held full for the stand-in, so these say the waves flow and end, not that they can be
+survived. It took 55 hits in arena_02 and 396 to 782 in the later arenas.
+
+| Slice | What changed | Checked how |
+|---|---|---|
+| A. Spawn choreography | `tools/gen/gen_waves.py` writes each arena's ten waves as GROUPS (`size:pattern:gap`). `startGroup` in `src/director.ts` picks a group's spawn point(s) the moment it starts, from the player's position and the camera's direction: front, ambush (behind), flank (alternating the two points furthest to either side), far, near (not closer than 14 m), surround, and `round`, the old behaviour, which is what a wave without `groups` still gets. No group arrives within 9 m of the player. A group waits out its gap unless two or fewer creatures are left. The tool adds four spawn points per arena (eight in all), chosen for distance from the others and tested against water, slope, trees, props and walls. | The bot run: every wave started, spawned and ended. Which point each group used was not logged or watched. |
+| A. Elites | `!` after a name in the wave list. One flag per slot (`enElite`): 2.4x health, 1.3x damage (blows and bolts), 16% larger (model and hit shapes), flushed red with its own point light, three times the flinch lockout, triple score, a field dressing every time, a larger accent pip on the compass and an `ELITES: n` line. One or two per wave from wave 6, more in the later arenas. | One capture (a creature flagged and stood in front of the camera in the harness). The bot killed the waves that contain them. |
+| A. Ten waves | 127 / 141 / 149 creatures listed per arena (objective waves repeat their list). Attack tokens rise at waves 4 and 8. The break between waves is 3.5 s (was 2.5). | Bot. |
+| B. Profile | `src/profile.ts`, `profile.json` (`"v": 1`), loaded after the settings. Credits; `upgrades.w<weapon>t<track>`; `stars.a<arena>`; lifetime runs, wins, deaths, kills (and per kind), elites, objectives, shots, hits, critical hits, best combo, seconds, credits earned; a bit mask of hints shown; the tutorial flag. Vetted before parsing like settings.json. A first profile gives one star to every arena that already has a best score. Banked once per run in `director.bankRun`; never under a harness (`DIR.bank`). | A hand-written profile was loaded for the captures (balance, upgrade levels, stars, the record screen's numbers all showed as written; the rifle's magazine read 35 in the HUD with one magazine level). No run was banked by a real player: `commitRun` and the file it writes were not exercised end to end. |
+| B. Upgrades | Per weapon: damage +10% x3, magazine +5 / +3 / +20 / +1 rounds x3, reload -10% x3 (400 / 900 / 1600 credits), and one perk at 2500: rifle MARKSMAN (head and weak-point hits +35%), blaster OVERCHARGE (bolts 25% faster, through one more body), chaingun STABILISER (spins up in half the time, no slower walk), cannon SHAPED CHARGE (blast 30% wider, half the damage to yourself). Weapon numbers are read through `WPN.damageOf / magSize / pierceOf / projSpeedOf / aoeOf / critMul`. | The magazine upgrade was seen in the HUD. Damage, reload and the four perks were not measured. Buying was not exercised: the key test stops short of it so that it cannot spend a real profile's credits. |
+| B. Screens | ARMOURY (weapon strip with silhouettes, what the weapon does now, four rows with level pips and price, red when unaffordable, locked weapons greyed) and SERVICE RECORD (twelve numbers, kills per kind, stars and best per arena, BACK and a two-press RESET PROGRESS) from the title; ARMOURY also from the results screen, which shows what the run earned and the balance. Arena cards show stars and, when locked, a padlock and the stars needed (0 / 1 / 3); NEXT ARENA only appears when it is open. | Captures; the key test for navigation. RESET PROGRESS was not pressed. |
+| C. Hold | `objective` entity `role=hold` at the arena's generator (moved up to 5 m so most of the ring is open ground). 6.5 m ring of twelve stakes with lamps that turn green clockwise as seconds are banked; seconds outside drain at 0.35 a second; 40 / 45 / 50 seconds by arena. The wave's list repeats until it is done, then what is left has to be killed. HUD: what to do, a percentage and bar, a marker with distance on the compass. +400 points. | Captures from outside and inside (the count rose, the light turned). The bot, put in the ring, banked 40 of 40 and the wave ended. |
+| C. Nests | Three `role=nest` sites. Each grows a nest (`prop_nest.glb`, procedural, `tools/blender/build_nest.py`) with 420 health that pushes up out of the ground and breeds the wave's list; bullets, bolts and blasts hurt it (`objective.rayNests`, `blastNests`); at most nine creatures alive. +150 a nest, +400 for the last. | One capture in arena_03 (the nest stands in the world; it reads as a dark mound). The bot destroyed all three in arena_03 and arena_04. The first runs stalled or crawled: see below. |
+| C. Tutorial | `src/tutor.ts`. Five prompts before wave 1 of the first arena for a profile that has not seen it: move, aim and fire, reload, dodge, grenade or strike. Each is answered by doing it; the countdown waits; a step moves on by itself after 14 s; Backspace (or the pad's view button) skips. | One capture; the key test for answer, advance and skip. Not the whole sequence by hand. |
+| C. Hints | Six one-time lines (low health, first elite, first hold, first nests, a new weapon, an empty reserve), each a bit in the profile. GAME > TUTORIAL AND HINTS switches both off. | Not seen on screen in a run: the harness forces one to capture the panel. |
+
+Found on the way.
+
+- **A creature could stay wedged for a whole wave.** The first ten-wave bot run stalled on wave 6:
+  a Ravager from one of the new spawn points was following the house's flow field, which does
+  not know about trees, through the centre line of a trunk, and the slide that takes creatures
+  round trunks had nothing tangential to keep. Older than this phase; the corner spawns and a
+  player who never left the south bank hid it. A creature that wants to move and has not covered
+  35 cm in a second and a half now steps a right angle to its course for a second, the other way
+  each time (`director.ts`, "nothing stays stuck").
+- **`src/main.ts` stopped compiling** part-way through (`unknown type { double, i64 }`). It is a
+  Perry code-generation fault that the size of the module tips over, not anything in the line
+  being added; three theories about a trigger were wrong. Every build now sets
+  `PERRY_LLVM_INPROCESS=0`. `docs/perry-quirks.md` #6.
+- **The last creature of a wave could wander for ever.** In the Checkpoint arena the bot's first
+  run never finished wave 10: one Skitter that did not know where the player was walked against
+  the building for fifteen minutes. The stuck-breaker now doubles its sidestep each time it
+  fails in a row (1.6 s each way, then 3.2, up to 6.4), and when nothing more is coming, three or
+  fewer are left and none has been aware for twenty seconds, they are told where the player is.
+- **A shot aimed at a nest could pass beside it.** The crosshair converged on creatures and the
+  world, not on nests, so from over the shoulder the muzzle's line went to the ground behind.
+  The bot hit a nest with 8% of its shots in the first run. Nests are in the aim ray now.
+- **One bot run in arena_03 ended without a result**: its log stops at 600 s in the nest wave
+  with the window covered and no error. Not reproduced; the rerun finished.
+- **The additive glow card cannot mark a place in daylight.** Its shader ignores the tint's
+  colour and is faint against a sunlit scene; the first two versions of the hold ring were
+  invisible.
+- **A harness run could write the player's save.** Bot and test runs no longer bank a best
+  score, credits or stars.
+
+Cost: nothing bought. The nest is built by a script; no new sounds (a nest uses the flesh-impact
+and explosion sounds).
+

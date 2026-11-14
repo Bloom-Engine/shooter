@@ -14,7 +14,7 @@ they are: player animation, world art, combat depth, UI, audio/VFX variety, cont
 has an acceptance test. `[bug]` items are defects, the rest are missing or shallow features.
 "Verified" means re-checked on 2026-11-14; "reported" means found by code reading and not yet
 reproduced in play. Sizes are for one person with the current tooling. Ticket ids are not assigned
-here; register items in `docs/tickets.md` (next free: SH-060) as they are picked up.
+here; register items in `docs/tickets.md` (next free: SH-061) as they are picked up.
 
 **Rule carried over from July:** no performance win may cost visual quality at default settings.
 
@@ -313,20 +313,60 @@ projectile trails with a mesh or ribbon, spawn effects, water splashes that are 
 
 ---
 
-## Phase 6 - A game around the fight (months; needs design decisions first)
+## Phase 6 - A game around the fight - SLICES A-C LANDED 2026-11-14 (ticket SH-060); slice D open
 
-Everything above polishes eight minutes. AAA is also volume and structure. Decide the shape before
-building:
+**Decisions (Ralph, 2026-11-14).** Escalating survival with a meta layer, not a campaign.
+Upgrades are bought with credits earned in runs. Built in four slices; A to C landed without
+spending anything, D (the boss, two more weapons, two more arenas) needs Tripo credits and is
+not started. Phase 5 was skipped on the way here, so everything below arrives with the sounds
+and effects the game already had.
 
-- **Structure:** escalating survival with a meta layer, or a short authored campaign of linked
-  arenas. The first fits the current code; the second needs objectives, checkpoints and scripting.
-- **Encounters:** objectives beyond kill-all (hold, escort, destroy), elites and a boss with phases,
-  spawn choreography in place of round-robin corners (`src/director.ts:155`).
-- **Progression:** weapon upgrades, unlock tree, difficulty modes, persistent stats, profiles and a
-  versioned save file.
-- **Onboarding:** a tutorial beat and contextual prompts.
-- **Volume target for a credible demo:** 5 arenas, 10 waves or 20 minutes each, 2 bosses, 6 weapons.
-- **Out of scope unless decided otherwise:** co-op, narrative with voice acting.
+**State.** `docs/tickets.md` SH-060 has the record. Judged from the UISHOT harness (27 captures
+per arena run), the MENUTEST harness (22 scripted checks through the real key path) and P2BOT
+runs. **Nobody has played it.** A stand-in that is PUT at each objective proves the waves flow
+and end; it says nothing about whether a hold is tense, a flank is fair, or ten waves are too
+many. Every number added here (elite multipliers, upgrade prices and steps, star thresholds,
+hold seconds, nest health, the arena star gates) is a first guess.
+
+| Slice | What landed |
+|---|---|
+| A. Encounters | Ten waves per arena (was three). A wave is a list of groups, and each group's pattern picks its spawn point(s) when it starts, from where the player stands and looks: front, ambush, flank, far, near, surround (`tools/gen/gen_waves.py`, `startGroup` in `src/director.ts`). Eight spawn points per arena (were four corners). Elites: a flagged creature of an existing kind, 2.4x health, 1.3x damage, 16% larger, red glow, flinches a third as often, pays triple, always drops a field dressing. |
+| B. Progression | `profile.json` (versioned, separate from settings): credits, four upgrade tracks per weapon (damage, magazine, reload, one perk each), stars per arena, lifetime numbers. ARMOURY and SERVICE RECORD screens. Arenas open by total stars (0 / 1 / 3). A run pays a tenth of its score, 150 for a win, 200 per new star. |
+| C. Objectives and onboarding | HOLD (bank seconds inside a ring of stakes at the arena's generator) and NESTS (three nests that breed until shot apart); arena_02 has a hold wave, arena_03 a nest wave, arena_04 both. A five-step tutorial before the first wave of the first arena, answered by doing each thing, skippable, once per profile. Six one-time hints. One setting switches both. |
+
+**Carried forward:**
+
+- **Length and difficulty are untuned.** The stand-in needed 6, 9 and 12 minutes for the three
+  arenas with its health held full, and took several hundred hits in the later two. A nest wave
+  ran over two minutes and, in arena_04, 74 kills. A person will be slower.
+- **Slice D: volume.** One boss with phases, two weapons, arenas 5 and 6 (the plan's target of
+  two bosses was cut to one for now). Needs Tripo: say the cost first.
+- **Escort objectives.** Left out on purpose: they need a companion that paths, and a weak
+  escort is worse than none.
+- **The nest is procedural** (`tools/blender/build_nest.py`): a fused mound with a baked
+  procedural skin. It reads as a nest and it is not at the level of the generated cast. A
+  Tripo model would replace `assets/models/prop_nest.glb` with no code change.
+- **The hold ring is twelve stakes with lamps**, drawn with engine primitives, because the
+  additive glow material is one warm colour and too faint in daylight. A ground decal or a
+  proper beam needs a material of its own.
+- **Elites have no sound of their own and no name plate**; they are told apart by size, colour,
+  glow and a larger pip on the compass.
+- **Upgrades cannot be refunded**, and there is one profile, not slots. RESET PROGRESS (two
+  presses) wipes it.
+- **The tutorial has no touch prompts**: on a phone it shows the words without glyphs and each
+  step moves on by itself after 14 seconds. Not run on a phone.
+- **Stars before Phase 6.** A profile is created from the old best scores: an arena with a
+  score counts as one star, so nobody is locked out of what they had reached.
+- **Perry.** `src/main.ts` now only compiles with `PERRY_LLVM_INPROCESS=0`
+  (`docs/perry-quirks.md` #6). Every build script sets it; only the macOS native build was run.
+  Not reported upstream yet.
+- **Not built here:** iOS, tvOS, Android, web, Windows.
+
+The plan's original text for this phase, for reference: structure (survival or campaign),
+encounters (objectives, elites, a boss, spawn choreography), progression (upgrades, unlock tree,
+difficulty modes, stats, profiles, a versioned save), onboarding (tutorial, contextual prompts),
+a volume target of 5 arenas x 10 waves, 2 bosses, 6 weapons; co-op and voiced narrative out of
+scope.
 
 ---
 

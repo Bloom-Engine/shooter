@@ -22,6 +22,8 @@
 // Every weapon is a ROW in the stat table, not a branch in the code — adding
 // the chaingun and the cannon below cost no new logic.
 
+import * as PROFILE from './profile';
+
 const MAX_WEAPONS = 4;
 
 export const W_RIFLE   = 0;
@@ -111,8 +113,8 @@ const MAX_MAGS   = [8, 8, 4, 5];
 
 export function initWeapons(): void {
   for (let i = 0; i < MAX_WEAPONS; i++) {
-    mag[i] = W_MAG[i];
-    reserve[i] = W_MAG[i] * START_MAGS[i];
+    mag[i] = magSize(i);
+    reserve[i] = magSize(i) * START_MAGS[i];
     unlocked[i] = i < 2 ? 1 : 0;   // rifle + blaster from the start
   }
   S[0] = W_RIFLE; S[1] = 0; S[2] = W_SPREAD0[W_RIFLE];
@@ -125,14 +127,35 @@ export function resetWeapons(): void { initWeapons(); }
 export function currentWeapon(): number { return S[0]; }
 export function currentAmmo(): number { return mag[S[0]]; }
 export function currentReserve(): number { return reserve[S[0]]; }
-export function magSize(w: number): number { return W_MAG[w]; }
+/// Magazine size with the profile's upgrade (plan Phase 6): W_MAG is the factory figure.
+export function magSize(w: number): number { return W_MAG[w] + PROFILE.magBonus(w); }
+/// What a hit does before range and location: the table's damage times the upgrade.
+export function damageOf(w: number): number { return W_DAMAGE[w] * PROFILE.damageMul(w); }
+/// Bodies a bolt passes through (the blaster's perk adds one).
+export function pierceOf(w: number): number {
+  return W_PIERCE[w] + (w === W_BLASTER && PROFILE.hasPerk(w) ? 1 : 0);
+}
+/// Projectile speed (the blaster's perk: a quarter faster).
+export function projSpeedOf(w: number): number {
+  return W_PROJ_SPEED[w] * (w === W_BLASTER && PROFILE.hasPerk(w) ? 1.25 : 1);
+}
+/// Blast radius (the cannon's perk: 30% wider).
+export function aoeOf(w: number): number {
+  return W_AOE[w] * (w === W_CANNON && PROFILE.hasPerk(w) ? 1.3 : 1);
+}
+/// Extra damage on a head or weak-point hit (the rifle's perk).
+export function critMul(w: number): number {
+  return w === W_RIFLE && PROFILE.hasPerk(w) ? 1.35 : 1;
+}
+/// How much of its own blast the owner takes (the cannon's perk halves it).
+export function selfBlastMul(): number { return PROFILE.hasPerk(W_CANNON) ? 0.5 : 1; }
 export function isUnlocked(w: number): boolean { return unlocked[w] === 1; }
 export function unlock(w: number): void { if (w >= 0 && w < MAX_WEAPONS) unlocked[w] = 1; }
 
 /// Ammo crates fill the RESERVE, capped so hoarding has a limit.
 export function addAmmo(w: number, n: number): void {
   reserve[w] = reserve[w] + n;
-  const cap = W_MAG[w] * MAX_MAGS[w];
+  const cap = magSize(w) * MAX_MAGS[w];
   if (reserve[w] > cap) reserve[w] = cap;
 }
 
@@ -147,7 +170,7 @@ export function isReloading(): boolean { return S[3] > 0; }
 export function reloadProgress(): number {
   const w = S[0];
   if (S[3] <= 0) return 0;
-  return 1 - S[3] / W_RELOAD[w];
+  return 1 - S[3] / (W_RELOAD[w] * PROFILE.reloadMul(w));
 }
 
 export function aimBlend(): number { return S[4]; }
@@ -190,9 +213,9 @@ export function nextWeapon(): void {
 export function beginReload(): void {
   const w = S[0];
   if (S[3] > 0) return;
-  if (mag[w] >= W_MAG[w]) return;   // already full
+  if (mag[w] >= magSize(w)) return;   // already full
   if (reserve[w] <= 0) return;      // nothing to load — the click IS the feedback
-  S[3] = W_RELOAD[w];
+  S[3] = W_RELOAD[w] * PROFILE.reloadMul(w);
 }
 
 /// Interrupt a reload — dodging, switching, dying.
@@ -211,7 +234,7 @@ export function updateWeapons(dt: number, firing: boolean, aiming: boolean): voi
     S[3] = S[3] - dt;
     if (S[3] <= 0) {
       S[3] = 0;
-      const need = W_MAG[w] - mag[w];
+      const need = magSize(w) - mag[w];
       const take = need < reserve[w] ? need : reserve[w];
       mag[w] = mag[w] + take;
       reserve[w] = reserve[w] - take;
@@ -240,7 +263,9 @@ export function updateWeapons(dt: number, firing: boolean, aiming: boolean): voi
   // Chaingun spool: winds up while held, winds down when released.
   if (W_SPINUP[w] > 0) {
     const dir = firing ? 1 : -1;
-    S[5] = S[5] + (dir * dt) / W_SPINUP[w];
+    // The chaingun's perk: the barrels come up in half the time.
+    const spin = PROFILE.hasPerk(w) ? W_SPINUP[w] * 0.5 : W_SPINUP[w];
+    S[5] = S[5] + (dir * dt) / spin;
     if (S[5] < 0) S[5] = 0;
     if (S[5] > 1) S[5] = 1;
   } else {
@@ -351,7 +376,7 @@ export function falloffAt(w: number, dist: number): number {
 /// Walk-speed multiplier the held weapon imposes right now (the spun-up chaingun).
 export function carryMul(): number {
   const w = S[0];
-  if (W_CARRY_MUL[w] >= 1) return 1;
+  if (W_CARRY_MUL[w] >= 1 || PROFILE.hasPerk(w)) return 1;
   return 1 + (W_CARRY_MUL[w] - 1) * S[5];
 }
 

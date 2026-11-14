@@ -258,6 +258,7 @@ def perry_compile(platform, out_path):
     compress_assets()
     target = PLATFORMS[platform][0]
     env = dict(os.environ)
+    env.setdefault("PERRY_LLVM_INPROCESS", "0")   # docs/perry-quirks.md #6
     env.pop("PERRY_RUNTIME_DIR", None)   # device targets: perry finds target/<triple>/release itself
     if platform == "macos":
         env["PERRY_RUNTIME_DIR"] = str(PERRY_HOME / "target/release")

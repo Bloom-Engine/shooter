@@ -30,7 +30,7 @@ import {
 } from './director';
 import {
   MAX_ENEMIES, enAlive, enX, enY, enZ, enKind, K_ADV_DRAGOON,
-  KIND_HEIGHT, KIND_TORSO_R, KIND_LIGHT, LOC_BODY, LOC_HEAD, LOC_MUL,
+  KIND_HEIGHT, KIND_TORSO_R, KIND_LIGHT, LOC_BODY, LOC_HEAD, LOC_WEAK, LOC_MUL,
 } from './enemies';
 import { rayEnemies, nearestAimPoint, setRaySkip } from './hitshapes';
 import { playerPosition } from './player';
@@ -43,6 +43,8 @@ import * as WPN from './weapons';
 import * as MIX from './audio-mix';
 import * as SET from './settings';
 import * as SCORE from './score';
+import * as OBJECTIVE from './objective';
+import * as TUTOR from './tutor';
 
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };
 
@@ -69,6 +71,7 @@ const STATIC_MASK = 1 << Layer.NON_MOVING;
 const HIT = [0, 0, 0, 0, 0];
 const MAG = [0, 0, 0, 0];
 const REC = [0, 0];
+const NH = [0];              // distance to the nest a ray hit (objective.rayNests)
 // How far each weapon's report carries (plan 2.1), metres.
 const W_NOISE = [45, 30, 50, 35];
 
@@ -149,7 +152,7 @@ function spawnProjectile(x: number, y: number, z: number,
   pLife[projNext] = BLASTER_PROJ_LIFE;
   pWeapon[projNext] = weapon;
   pCharge[projNext] = charge;
-  pPierce[projNext] = WPN.W_PIERCE[weapon];
+  pPierce[projNext] = WPN.pierceOf(weapon);
   pLast[projNext] = -1;
   projNext = (projNext + 1) % MAX_PROJ;
 }
@@ -201,6 +204,7 @@ export function resetRun(): void {
   for (let i = 0; i < PICKUP_COUNT; i++) { pickupActive[i] = 1; pickupRespawnT[i] = 0; }
   despawnAllEnemies();
   SCORE.resetScore();
+  TUTOR.resetTutor();
   FEEL.resetFeel();
   VFX.resetVfx();     // last run's blood shouldn't greet the new one
   GS.runElapsed = 0;
@@ -227,6 +231,7 @@ export function startRun(): void {
   WPN.selectWeapon(WPN.W_RIFLE);
   DIR.waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
   SCORE.resetScore();
+  TUTOR.resetTutor();
   GS.runElapsed = 0;
 }
 
@@ -243,6 +248,7 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   GS.capEvent = 5;                 // subtitle: explosion (hud.ts CAP_EXPLOSION)
 
   makeNoise(60);
+  OBJECTIVE.blastNests(x, y, z, radius, dmg);
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enAlive[i] === 0) continue;
     const dx = enX[i] - x;
@@ -269,7 +275,7 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   // at the centre: the numbers were rescaled by ten for the creatures (plan 2.3) and the
   // player's 100 HP was not.
   if (pd < radius && RUN[0] === 1 && !GS.gameOver && Math.abs(pp.y - y) < radius * 0.7) {
-    const selfDmg = Math.floor(dmg * 0.25 * (1 - pd / radius));
+    const selfDmg = Math.floor(dmg * 0.25 * (1 - pd / radius) * WPN.selfBlastMul());
     if (selfDmg > 0) damagePlayer(selfDmg, x, z, 0);
   }
 }
@@ -600,6 +606,14 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
       aimLen = HIT[0] - (aimStart - esD);
       aimOnEnemy = true;
     }
+    // ...or a nest (objective.ts), the same way: with the camera over one shoulder, a shot
+    // converged on the ground behind a nest passes beside it.
+    if (OBJECTIVE.rayNests(camOriginV.x + camFwd.x * esD, camOriginV.y + camFwd.y * esD,
+                           camOriginV.z + camFwd.z * esD, camFwd.x, camFwd.y, camFwd.z,
+                           aimLen + (aimStart - esD), NH) >= 0) {
+      aimLen = NH[0] - (aimStart - esD);
+      aimOnEnemy = true;
+    }
     if (aimHit || aimLen < FIRE_RANGE) aimTargetFar = aimStart + aimLen;
     const tgtX = camOriginV.x + camFwd.x * aimTargetFar;
     const tgtY = camOriginV.y + camFwd.y * aimTargetFar;
@@ -655,14 +669,22 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
                           FIRE_RANGE, STATIC_MASK);
       const wallT = hit ? hit.fraction * FIRE_RANGE : FIRE_RANGE;
       const ei = rayEnemies(originX, originY, originZ, aim.x, aim.y, aim.z, wallT, 0, HIT);
-      if (ei >= 0) {
+      // ...and a nest, when a nest wave is on (objective.ts), if it is nearer than both.
+      const ni = OBJECTIVE.rayNests(originX, originY, originZ, aim.x, aim.y, aim.z,
+                                    ei >= 0 ? HIT[0] : wallT, NH);
+      if (ni >= 0) {
+        SCORE.noteHit();
+        OBJECTIVE.damageNest(ni, WPN.damageOf(wpn) * WPN.falloffAt(wpn, NH[0]),
+                             originX + aim.x * NH[0], originY + aim.y * NH[0], originZ + aim.z * NH[0]);
+      } else if (ei >= 0) {
         // Accuracy counts ENEMIES hit, not rays that landed. Counting a
         // wall as a hit made the stat meaningless — and it is a stat the
         // score now pays a bonus on.
         SCORE.noteHit();
         const loc = HIT[1];
-        let dmg = WPN.W_DAMAGE[wpn] * WPN.falloffAt(wpn, HIT[0]) * LOC_MUL[loc];
+        let dmg = WPN.damageOf(wpn) * WPN.falloffAt(wpn, HIT[0]) * LOC_MUL[loc];
         if (loc === LOC_HEAD) dmg = dmg * WPN.W_HEAD_MUL[wpn];
+        if (loc === LOC_HEAD || loc === LOC_WEAK) dmg = dmg * WPN.critMul(wpn);
         damageEnemy(ei, dmg, HIT[2], HIT[3], HIT[4], aim.x, aim.y, aim.z, loc);
       } else if (hit) {
         // World hit — sparks, dust and a bullet hole that stays.
@@ -673,7 +695,7 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
                     hit.point.x, hit.point.y, hit.point.z);
       }
     } else {
-      const speed = WPN.W_PROJ_SPEED[wpn];
+      const speed = WPN.projSpeedOf(wpn);
       const chg = chargeShot >= 0 ? chargeShot : 0;
       spawnProjectile(originX, originY, originZ,
                       aim.x * speed, aim.y * speed, aim.z * speed,
@@ -703,8 +725,20 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     const ei = rayEnemies(ox, oy, oz, sx * inv, sy * inv, sz * inv, wallT, 0.12, HIT);
     setRaySkip(-1);
     const pw = pWeapon[i];
-    const aoe = WPN.W_AOE[pw];
-    if (ei >= 0 || hit) {
+    const aoe = WPN.aoeOf(pw);
+    const ni = OBJECTIVE.rayNests(ox, oy, oz, sx * inv, sy * inv, sz * inv,
+                                  ei >= 0 ? HIT[0] : wallT, NH);
+    if (ni >= 0) {
+      const nxh = ox + sx * inv * NH[0], nyh = oy + sy * inv * NH[0], nzh = oz + sz * inv * NH[0];
+      SCORE.noteHit();
+      if (aoe > 0) {
+        const chgN = pCharge[i];
+        explode(nxh, nyh, nzh, aoe * (0.55 + 0.45 * chgN), WPN.damageOf(pw) * (0.5 + 0.5 * chgN));
+      } else {
+        OBJECTIVE.damageNest(ni, WPN.damageOf(pw), nxh, nyh, nzh);
+      }
+      pLife[i] = 0;
+    } else if (ei >= 0 || hit) {
       const ix = ei >= 0 ? HIT[2] : hit.point.x;
       const iy = ei >= 0 ? HIT[3] : hit.point.y;
       const iz = ei >= 0 ? HIT[4] : hit.point.z;
@@ -714,14 +748,14 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
         // justifies the 0.9 s cooldown.
         const chg = pCharge[i];
         const radius = aoe * (0.55 + 0.45 * chg);
-        const dmg = WPN.W_DAMAGE[pw] * (0.5 + 0.5 * chg);
+        const dmg = WPN.damageOf(pw) * (0.5 + 0.5 * chg);
         explode(ix, iy, iz, radius, dmg);
         SCORE.noteHit();
         pLife[i] = 0;
       } else if (ei >= 0) {
         SCORE.noteHit();
         const loc = HIT[1];
-        let dmg = WPN.W_DAMAGE[pw] * LOC_MUL[loc];
+        let dmg = WPN.damageOf(pw) * LOC_MUL[loc];
         if (loc === LOC_HEAD) dmg = dmg * WPN.W_HEAD_MUL[pw];
         damageEnemy(ei, dmg, ix, iy, iz, sx * inv, sy * inv, sz * inv, loc);
         // The blaster's bolt carries on through (plan 2.8), once, and never into the same
@@ -831,6 +865,7 @@ export function drawCombatWorld(): void {
   // above it. Until 2026-11 these were bobbing coloured cubes. The weapon rides the AUTHORED
   // height (pickups once drew at an absolute y, which parked the house's upstairs pickup on
   // the ground floor); the crate sits 0.85 m under it, on the floor it was authored above.
+  OBJECTIVE.drawObjective();
   const tNow = getTime();
   for (let i = 0; i < PICKUP_COUNT; i++) {
     if (pickupActive[i] === 0) continue;

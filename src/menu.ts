@@ -33,6 +33,8 @@ import * as SET from './settings';
 import * as MIX from './audio-mix';
 import * as FEEL from './feel';
 import * as SCORE from './score';
+import * as PROFILE from './profile';
+import * as WPN from './weapons';
 import * as UI from './ui';
 import * as B from './binds';
 import * as STR from './strings';
@@ -42,7 +44,7 @@ import { KIND_NAME } from './enemies';
 import { ARENAS, ARENA_COUNT, ARENA_INDEX, selectArena } from './world-runtime';
 import {
   A_EMBLEM, A_FADE_R, A_FADE_H, A_ARROW_L, A_ARROW_R, A_STAR, A_CHECK, A_SOFT,
-  A_PANEL, A_PANEL_LINE, A_DISC, A_RING,
+  A_PANEL, A_PANEL_LINE, A_DISC, A_RING, A_LOCK, A_WPN_RIFLE, A_PIP,
 } from './ui-atlas';
 
 export const MENU_NONE     = 0;
@@ -54,6 +56,9 @@ export const MENU_MAIN     = 4;
 export const MENU_CREDITS  = 5;
 /// The end of a run: its numbers, and where to go next.
 export const MENU_RESULTS  = 6;
+/// Phase 6 - spend credits on weapon upgrades, and the profile's lifetime numbers.
+export const MENU_ARMORY   = 7;
+export const MENU_RECORD   = 8;
 
 // Row kinds.
 const ROW_ACTION = 0;
@@ -78,7 +83,9 @@ const IDX_RESET_BINDS = -2;
 //   11 selection highlight, smoothed y   12 1 = the pointer is what moved the selection last
 //   13 previous mouse x   14 previous mouse y   15 results: 1 = new best score
 //   16 1 = this screen opened this frame: the key that opened it must not also answer it
-const S = [MENU_NONE, 0, 0, MENU_PAUSE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//   17 armoury: the weapon shown   18 armoury: seconds left of the "bought" flash
+//   19 record: 1 = RESET PROGRESS has been pressed once (the next press erases)
+const S = [MENU_NONE, 0, 0, MENU_PAUSE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 // The action a click/confirm produced this frame, read by main.ts.
 export const ACT_NONE     = 0;
@@ -142,6 +149,7 @@ function buildRows(): void {
   choice(TAB_GAME, SET.SET_LANG, STR.S_LANGUAGE, -1, STR.LANG_COUNT, 0);
   slider(TAB_GAME, SET.SET_HUD_SCALE, STR.S_HUD_SCALE, 0.8, 1.3, 0.05, 0);
   toggle(TAB_GAME, SET.SET_COMPASS, STR.S_COMPASS, 0);
+  toggle(TAB_GAME, SET.SET_HINTS, STR.S_HINTS, 0);
   slider(TAB_GAME, SET.SET_FOV, STR.S_FOV, 60, 100, 5, 0);
   // CONTROLS
   slider(TAB_CONTROLS, SET.SET_SENS, STR.S_SENS, 0.2, 3.0, 0.1, F_NOTOUCH);
@@ -220,10 +228,13 @@ function rebuildVis(): void {
 const PAUSE_LABELS = [STR.S_RESUME, STR.S_SETTINGS, STR.S_LEVEL_SELECT, STR.S_RESTART_RUN,
                       STR.S_MAIN_MENU, STR.S_QUIT];
 const PAUSE_COUNT = 6;
-const MAIN_LABELS = [STR.S_PLAY, STR.S_LEVEL_SELECT, STR.S_SETTINGS, STR.S_CREDITS, STR.S_QUIT];
-const MAIN_COUNT = 5;
-// Results rows are built per run (NEXT ARENA only after a win with an arena left).
-const RES_ROWS = [0, 0, 0, 0];     // what each row does: 1 again, 2 next arena, 3 arenas, 4 title
+const MAIN_LABELS = [STR.S_PLAY, STR.S_LEVEL_SELECT, STR.S_SETTINGS, STR.S_ARMORY, STR.S_RECORD,
+                     STR.S_CREDITS, STR.S_QUIT];
+const MAIN_COUNT = 7;
+// Results rows are built per run (NEXT ARENA only after a win with an arena left that the
+// player's stars have opened).
+const RES_ROWS = [0, 0, 0, 0, 0];  // what each row does: 1 again, 2 next arena, 3 arenas, 4 title, 5 armoury
+const ARM_ROWS = PROFILE.TRACKS + 1;      // the four tracks, then BACK
 const RES_N = [0];
 
 // The run's length for the results screen (main owns the clock).
@@ -268,7 +279,8 @@ export function openResults(won: boolean, wave: number, waves: number, newBest: 
   S[7] = won ? 1 : 0; S[9] = wave; S[10] = waves; S[15] = newBest ? 1 : 0;
   let n = 0;
   RES_ROWS[n] = 1; n = n + 1;
-  if (won && ARENA_INDEX + 1 < ARENA_COUNT) { RES_ROWS[n] = 2; n = n + 1; }
+  if (won && ARENA_INDEX + 1 < ARENA_COUNT && PROFILE.arenaUnlocked(ARENA_INDEX + 1)) { RES_ROWS[n] = 2; n = n + 1; }
+  RES_ROWS[n] = 5; n = n + 1;
   RES_ROWS[n] = 3; n = n + 1;
   RES_ROWS[n] = 4; n = n + 1;
   RES_N[0] = n;
@@ -282,6 +294,10 @@ export function openSettingsTab(tab: number): void {
 }
 export function openLevels(): void { enter(MENU_LEVELS); S[1] = ARENA_INDEX; }
 export function openCredits(): void { enter(MENU_CREDITS); }
+export function openArmory(weapon: number): void { enter(MENU_ARMORY); S[17] = weapon; S[18] = 0; }
+export function openRecord(): void { enter(MENU_RECORD); S[19] = 0; }
+/// The weapon the armoury shows (the key-test harness).
+export function armoryWeapon(): number { return S[17]; }
 export function selectRow(r: number): void { S[1] = r; keepVisible(); }
 
 /// Leave a sub-screen for whichever menu opened it. Settings are written on the way out, so
@@ -298,6 +314,8 @@ function rowCount(): number {
   if (S[0] === MENU_LEVELS) return ARENA_COUNT + 1;   // + BACK
   if (S[0] === MENU_CREDITS) return 1;
   if (S[0] === MENU_RESULTS) return RES_N[0];
+  if (S[0] === MENU_ARMORY) return ARM_ROWS;
+  if (S[0] === MENU_RECORD) return 2;
   return VN[0];
 }
 
@@ -423,7 +441,18 @@ function applyAutoRes(): void {
 // ---- changing rows --------------------------------------------------------------------------
 
 /// Adjust the selected settings row. `dir` is -1 / +1.
+function weaponOpen(w: number): boolean {
+  return w < 2 || (SET.unlockMask() & (1 << w)) !== 0;
+}
+
+function armWeapon(w: number): void {
+  S[17] = (w + PROFILE.WEAPONS) % PROFILE.WEAPONS;
+  S[18] = 0;
+  MIX.uiTab();
+}
+
 function adjust(dir: number): void {
+  if (S[0] === MENU_ARMORY) { armWeapon(S[17] + dir); return; }
   if (S[0] !== MENU_SETTINGS) return;
   const r = VIS[S[1]];
   const kind = R_KIND[r];
@@ -472,8 +501,23 @@ function confirm(): void {
     MIX.uiSelect();
     if (S[1] === 1) { enter(MENU_LEVELS); S[1] = ARENA_INDEX; }
     else if (S[1] === 2) { enter(MENU_SETTINGS); rebuildVis(); }
-    else if (S[1] === 3) { enter(MENU_CREDITS); }
-    else if (S[1] === 4) { A[0] = ACT_QUIT; }
+    else if (S[1] === 3) { enter(MENU_ARMORY); S[17] = 0; S[18] = 0; }
+    else if (S[1] === 4) { enter(MENU_RECORD); S[19] = 0; }
+    else if (S[1] === 5) { enter(MENU_CREDITS); }
+    else if (S[1] === 6) { A[0] = ACT_QUIT; }
+    return;
+  }
+  if (S[0] === MENU_ARMORY) {
+    if (S[1] >= PROFILE.TRACKS) { back(); return; }
+    if (weaponOpen(S[17]) && PROFILE.buyUpgrade(S[17], S[1])) { MIX.uiStart(); S[18] = 0.6; }
+    else MIX.uiError();
+    return;
+  }
+  if (S[0] === MENU_RECORD) {
+    if (S[1] === 0) { back(); return; }
+    // RESET PROGRESS erases what was earned, so it has to be pressed twice.
+    if (S[19] === 0) { S[19] = 1; MIX.uiError(); }
+    else { PROFILE.resetProfile(); S[19] = 0; MIX.uiBack(); }
     return;
   }
   if (S[0] === MENU_PAUSE) {
@@ -495,12 +539,15 @@ function confirm(): void {
       A[0] = ACT_LEVEL;
     }
     else if (what === 3) { MIX.uiSelect(); enter(MENU_LEVELS); S[1] = ARENA_INDEX; }
+    else if (what === 5) { MIX.uiSelect(); enter(MENU_ARMORY); S[17] = 0; S[18] = 0; }
     else if (what === 4) { MIX.uiSelect(); A[0] = ACT_TITLE; }
     return;
   }
   if (S[0] === MENU_CREDITS) { back(); return; }
   if (S[0] === MENU_LEVELS) {
     if (S[1] >= ARENA_COUNT) { back(); return; }
+    // An arena opens when the stars earned in the others reach its number.
+    if (!PROFILE.arenaUnlocked(S[1])) { MIX.uiError(); return; }
     MIX.uiSelect();
     // Picking a level writes the choice and asks the game to restart into it: a mid-run swap
     // would mean tearing down every collider, scatter and GI proxy the world built at startup.
@@ -528,6 +575,7 @@ function move(dir: number): void {
   const n = rowCount();
   S[1] = (S[1] + dir + n) % n;
   S[12] = 0;
+  S[19] = 0;
   keepVisible();
   MIX.uiMove();
 }
@@ -546,9 +594,16 @@ function layout(sw: number, sh: number): void {
   const k = kOf(sh);
   L[0] = k;
   if (S[0] === MENU_MAIN || S[0] === MENU_PAUSE) {
-    L[1] = sw * 0.085; L[3] = 440 * k; L[4] = 58 * k;
-    L[2] = S[0] === MENU_MAIN ? sh * 0.47 : sh * 0.34;
+    L[1] = sw * 0.085; L[3] = 440 * k; L[4] = (S[0] === MENU_MAIN ? 52 : 58) * k;
+    L[2] = S[0] === MENU_MAIN ? sh * 0.43 : sh * 0.34;
     L[5] = rowCount();
+  } else if (S[0] === MENU_ARMORY) {
+    let w = sw * 0.62;
+    if (w > 860 * k) w = 860 * k;
+    if (w < 560 * k && sw * 0.94 >= 560 * k) w = 560 * k;
+    L[3] = w; L[1] = (sw - w) / 2; L[2] = sh * 0.20 + 196 * k; L[4] = 62 * k; L[5] = ARM_ROWS;
+  } else if (S[0] === MENU_RECORD) {
+    L[3] = 300 * k; L[1] = (sw - L[3]) / 2; L[4] = 50 * k; L[2] = sh * 0.80; L[5] = 2;
   } else if (S[0] === MENU_SETTINGS) {
     let w = sw * 0.66;
     if (w > 1180 * k) w = 1180 * k;
@@ -563,10 +618,11 @@ function layout(sw: number, sh: number): void {
   } else if (S[0] === MENU_RESULTS) {
     // Under the numbers panel, whose top depends on whether the stars row is there
     // (drawResults lays the same things out in the same order).
-    L[3] = 380 * k; L[1] = (sw - L[3]) / 2; L[4] = 50 * k;
+    // Tighter on a phone, where five rows have to fit under the numbers.
+    L[3] = 380 * k; L[1] = (sw - L[3]) / 2; L[4] = (k < 1 ? 44 : 52) * k;
     let cy = sh * 0.075 + 124 * k;
     cy = S[7] === 1 ? cy + 62 * k : cy + 10 * k;
-    L[2] = cy + 278 * k; L[5] = rowCount();
+    L[2] = cy + 282 * k; L[5] = rowCount();
   } else {
     // LEVELS and CREDITS: the BACK row sits centred under the content.
     L[3] = 300 * k; L[1] = (sw - L[3]) / 2; L[4] = 52 * k;
@@ -600,8 +656,26 @@ function rowRect(i: number, sw: number, sh: number): boolean {
     G[0] = L[1]; G[1] = L[2] + vi * L[4]; G[2] = L[3]; G[3] = L[4] - 4;
     return true;
   }
+  if (S[0] === MENU_ARMORY && i >= PROFILE.TRACKS) {
+    // BACK: a centred button under the four tracks.
+    G[2] = 300 * L[0]; G[0] = (sw - G[2]) / 2; G[1] = L[2] + i * L[4] + 12 * L[0]; G[3] = 46 * L[0];
+    return true;
+  }
+  if (S[0] === MENU_RECORD) {
+    // BACK and RESET PROGRESS side by side.
+    G[2] = L[3]; G[3] = L[4] - 6; G[1] = L[2];
+    G[0] = sw / 2 + (i === 0 ? -G[2] - 10 * L[0] : 10 * L[0]);
+    return true;
+  }
   G[0] = L[1]; G[1] = L[2] + i * L[4]; G[2] = L[3]; G[3] = L[4] - 6;
   return true;
+}
+
+/// Weapon card w of the armoury strip: x, y, w, h into G.
+function armCard(w: number, sw: number, sh: number): void {
+  const k = L[0];
+  const cw = L[3] / PROFILE.WEAPONS;
+  G[0] = L[1] + w * cw + 5 * k; G[1] = sh * 0.20; G[2] = cw - 10 * k; G[3] = 132 * k;
 }
 
 function keepVisible(): void {
@@ -676,6 +750,11 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
       MIX.uiToggle();
     }
   }
+  if (S[0] === MENU_ARMORY) {
+    if (isKeyPressed(Key.Q) || isKeyPressed(Key.PAGE_UP)) armWeapon(S[17] - 1);
+    if (isKeyPressed(Key.E) || isKeyPressed(Key.PAGE_DOWN) || isKeyPressed(Key.TAB)) armWeapon(S[17] + 1);
+    if (S[18] > 0) S[18] = S[18] - dt;
+  }
   if (isKeyPressed(Key.ENTER) || isKeyPressed(Key.SPACE)) confirm();
   if (isKeyPressed(Key.ESCAPE)) escape();
 
@@ -708,6 +787,10 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
     if (inSettings) {
       if (isGamepadButtonPressed(4)) setTab(S[4] - 1);   // LB
       if (isGamepadButtonPressed(5)) setTab(S[4] + 1);   // RB
+    }
+    if (S[0] === MENU_ARMORY) {
+      if (isGamepadButtonPressed(4)) armWeapon(S[17] - 1);
+      if (isGamepadButtonPressed(5)) armWeapon(S[17] + 1);
     }
     if (isGamepadButtonPressed(0)) confirm();            // A
     if (isGamepadButtonPressed(1)) escape();             // B
@@ -744,11 +827,21 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
     }
   }
 
+  if (S[0] === MENU_ARMORY && click) {
+    for (let w = 0; w < PROFILE.WEAPONS; w++) {
+      armCard(w, sw, sh);
+      if (mx >= G[0] && mx <= G[0] + G[2] && my >= G[1] && my <= G[1] + G[3]) {
+        if (w !== S[17]) armWeapon(w);
+        return A[0];
+      }
+    }
+  }
+
   const n = rowCount();
   for (let i = 0; i < n; i++) {
     if (!rowRect(i, sw, sh)) continue;
     if (!(mx >= G[0] && mx <= G[0] + G[2] && my >= G[1] && my <= G[1] + G[3])) continue;
-    if ((moved || click) && S[1] !== i) { S[1] = i; MIX.uiMove(); }
+    if ((moved || click) && S[1] !== i) { S[1] = i; S[19] = 0; MIX.uiMove(); }
     if (!click) break;
     if (inSettings) {
       const r = VIS[i];
@@ -806,7 +899,8 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
 function escape(): void {
   // On the title there is nothing behind to go back to, and the results screen has to be
   // answered: Escape does nothing on either rather than dumping the player into a dead run.
-  if (S[0] === MENU_SETTINGS || S[0] === MENU_LEVELS || S[0] === MENU_CREDITS) {
+  if (S[0] === MENU_SETTINGS || S[0] === MENU_LEVELS || S[0] === MENU_CREDITS
+      || S[0] === MENU_ARMORY || S[0] === MENU_RECORD) {
     back();
   } else if (S[0] === MENU_PAUSE) {
     MIX.uiBack();
@@ -911,7 +1005,7 @@ function drawHints(sw: number, sh: number): void {
     UI.textS(T(STR.S_HINT_BACK), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
     x = x + UI.textW(T(STR.S_HINT_BACK), fs) + gap;
   }
-  if (S[0] === MENU_SETTINGS) {
+  if (S[0] === MENU_SETTINGS || S[0] === MENU_ARMORY) {
     if (pad) {
       UI.drawPadGlyph(4, x, y, h, a); x = x + UI.padGlyphW(4, h) + 4 * k;
       UI.drawPadGlyph(5, x, y, h, a); x = x + UI.padGlyphW(5, h) + 6 * k;
@@ -919,9 +1013,9 @@ function drawHints(sw: number, sh: number): void {
       UI.drawKbGlyph(Key.Q, x, y, h, a); x = x + h + 4 * k;
       UI.drawKbGlyph(Key.E, x, y, h, a); x = x + h + 6 * k;
     }
-    UI.textS(T(STR.S_HINT_TAB), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
+    UI.textS(T(S[0] === MENU_ARMORY ? STR.S_HINT_WEAPON : STR.S_HINT_TAB), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
     x = x + UI.textW(T(STR.S_HINT_TAB), fs) + gap;
-    if (!pad && TABS_VIS[S[4]] === TAB_BINDS) {
+    if (!pad && S[0] === MENU_SETTINGS && TABS_VIS[S[4]] === TAB_BINDS) {
       UI.drawKbGlyph(Key.DELETE, x, y, h, a); x = x + UI.kbGlyphW(Key.DELETE, h) + 6 * k;
       UI.textS(T(STR.S_HINT_CLEAR), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
     }
@@ -945,6 +1039,7 @@ function drawMainOrPause(sw: number, sh: number): void {
     UI.textS('SHOOTER', x0 + es + 26 * k, ey + 60 * k, 62 * k, UI.C_ACCENT, 255 * t0);
     UI.spr(A_FADE_R, x0, ey + es + 16 * k, 520 * k, 2, UI.C_ACCENT, 190 * t0);
     UI.textS(T(STR.S_TAGLINE), x0, ey + es + 28 * k, 19 * k, UI.C_DIM, 230 * t0);
+    drawWallet(x0 + 540 * k, ey + es + 26 * k, k, 230 * t0, false);
   } else {
     UI.textS(T(STR.S_PAUSED), x0, sh * 0.19, 58 * k, UI.C_BRIGHT, 255 * t0);
     UI.spr(A_FADE_R, x0, sh * 0.19 + 76 * k, 420 * k, 2, UI.C_ACCENT, 190 * t0);
@@ -1149,6 +1244,15 @@ function drawLevels(sw: number, sh: number): void {
     const best = SET.bestScore(i);
     UI.text(best > 0 ? T(STR.S_BEST) + '  ' + best : T(STR.S_NO_SCORE),
             x + 16 * k, y + ph + 66 * k, 15 * k, best > 0 ? UI.C_ACCENT : UI.C_DIM, a);
+    drawStars(PROFILE.arenaStars(i), x + w - 16 * k - 3 * 26 * k, y + ph + 14 * k, 22 * k, a);
+    if (!PROFILE.arenaUnlocked(i)) {
+      // Locked: the picture goes dark under a padlock, and the card says what opens it.
+      drawRect(x + 8 * k, y + 8 * k, w - 16 * k, ph - 8 * k, UI.col(UI.C_BLACK, 170 * t));
+      const ls = 64 * k;
+      UI.spr(A_LOCK, x + w / 2 - ls / 2, y + ph / 2 - ls * 0.75, ls, ls, UI.C_BRIGHT, a);
+      UI.textCS(fmt(STR.S_NEED_STARS, '' + PROFILE.arenaNeed(i)), x + w / 2, y + ph / 2 + ls * 0.4,
+                17 * k, UI.C_ACCENT, a);
+    }
     if (i === ARENA_INDEX) {
       const tag = T(STR.S_CURRENT);
       const tw = UI.textW(tag, 14 * k);
@@ -1157,6 +1261,159 @@ function drawLevels(sw: number, sh: number): void {
     }
   }
   drawCentredRow(ARENA_COUNT, T(STR.S_BACK), sw, sh);
+  const tot = fmt(STR.S_STARS_TOTAL, '' + PROFILE.totalStars());
+  UI.textC(tot, sw / 2, sh * 0.07 + 62 * k, 17 * k, UI.C_DIM, 230 * UI.easeOut((S[5] - 0.2) / 0.3));
+}
+
+/// Up to three stars in a row from x: filled ones in the accent colour, the rest hollow.
+function drawStars(n: number, x: number, y: number, size: number, a: number): void {
+  for (let i = 0; i < 3; i++) {
+    UI.spr(A_STAR, x + i * (size + 4), y, size, size, i < n ? UI.C_ACCENT : UI.C_LINE, i < n ? a : a * 0.5);
+  }
+}
+
+/// The credit balance, right-aligned to rx when `right`, else from x.
+function drawWallet(x: number, y: number, k: number, a: number, right: boolean): void {
+  const txt = T(STR.S_CREDITS_BAL) + '  ' + PROFILE.credits();
+  const fs = 19 * k;
+  const w = UI.textW(txt, fs);
+  const x0 = right ? x - w - 28 * k : x - w;
+  UI.spr(A_DISC, x0 - 22 * k, y + 3 * k, 15 * k, 15 * k, UI.C_ACCENT, a);
+  UI.text(txt, x0, y, fs, UI.C_ACCENT, a);
+}
+
+function perkName(w: number): string { return T(STR.S_PERK_0 + w); }
+
+function drawArmory(sw: number, sh: number): void {
+  const k = L[0];
+  drawRect(0, 0, sw, sh, UI.col(UI.C_BLACK, UI.panelA(205)));
+  drawTitle(T(STR.S_ARMORY), sw, sh, sh * 0.06, 44 * k);
+  const ta = UI.easeOut((S[5] - 0.05) / 0.3);
+  drawWallet(L[1] + L[3], sh * 0.06 + 14 * k, k, 255 * ta, false);
+  const wsel = S[17];
+  const open = weaponOpen(wsel);
+  // the weapon strip
+  for (let w = 0; w < PROFILE.WEAPONS; w++) {
+    armCard(w, sw, sh);
+    const sel = w === wsel;
+    const wo = weaponOpen(w);
+    const t = UI.easeOut((S[5] - 0.05 - w * 0.05) / 0.3);
+    const a = 255 * t;
+    UI.nine(A_PANEL, G[0], G[1], G[2], G[3], 12 * k, UI.C_PANEL, UI.panelA(sel ? 240 : 195) * t);
+    UI.nine(A_PANEL_LINE, G[0], G[1], G[2], G[3], 12 * k, sel ? UI.C_ACCENT : UI.C_LINE, sel ? a : a * 0.6);
+    let iw = G[2] - 28 * k;
+    let ih = iw * 112 / 300;
+    if (ih > G[3] - 50 * k) { ih = G[3] - 50 * k; iw = ih * 300 / 112; }
+    UI.spr(A_WPN_RIFLE + w, G[0] + (G[2] - iw) / 2, G[1] + 10 * k, iw, ih,
+           wo ? (sel ? UI.C_BRIGHT : UI.C_TEXT) : UI.C_LINE, wo ? a : a * 0.7);
+    if (!wo) UI.spr(A_LOCK, G[0] + G[2] / 2 - 15 * k, G[1] + 10 * k + ih / 2 - 15 * k, 30 * k, 30 * k, UI.C_BRIGHT, a);
+    UI.textC(T(STR.S_WPN_0 + w), G[0] + G[2] / 2, G[1] + G[3] - 34 * k, 20 * k,
+             sel ? UI.C_BRIGHT : UI.C_TEXT, wo ? a : a * 0.6);
+  }
+  // what the weapon does now, with everything bought so far
+  const sy = sh * 0.20 + 146 * k;
+  const line = open
+    ? T(STR.S_UPG_0) + ' ' + WPN.damageOf(wsel).toFixed(1) + '      '
+      + T(STR.S_UPG_1) + ' ' + WPN.magSize(wsel) + '      '
+      + T(STR.S_UPG_2) + ' ' + (WPN.W_RELOAD[wsel] * PROFILE.reloadMul(wsel)).toFixed(2) + ' S'
+    : T(STR.S_ARM_LOCKED);
+  UI.textC(line, sw / 2, sy, 17 * k, open ? UI.C_DIM : UI.C_ACCENT, 240 * ta);
+
+  for (let i = 0; i < PROFILE.TRACKS; i++) {
+    if (!rowRect(i, sw, sh)) continue;
+    const t = rowIn(i);
+    const a = 255 * t * (open ? 1 : 0.45);
+    const sel = i === S[1];
+    const x = G[0], y = G[1], w = G[2], h = G[3];
+    const lvl = PROFILE.upgLevel(wsel, i);
+    const max = PROFILE.upgMax(i);
+    const cost = PROFILE.upgCost(wsel, i);
+    const flash = sel && S[18] > 0 ? S[18] / 0.6 : 0;
+    UI.nine(A_PANEL, x, y, w, h, 10 * k, UI.C_PANEL, UI.panelA(sel ? 235 : 180) * t);
+    if (sel) UI.nine(A_PANEL_LINE, x, y, w, h, 10 * k, UI.C_ACCENT, 255 * t);
+    if (flash > 0) UI.nine(A_PANEL, x, y, w, h, 10 * k, UI.C_GOOD, 110 * flash);
+    const name = i === PROFILE.T_PERK ? perkName(wsel) : T(STR.S_UPG_0 + i);
+    const desc = i === PROFILE.T_PERK ? T(STR.S_PERK_D0 + wsel) : T(STR.S_UPG_D0 + i);
+    UI.text(name, x + 20 * k, y + 8 * k, 23 * k, sel ? UI.C_BRIGHT : UI.C_TEXT, a);
+    let ds = 14 * k;
+    const dw = UI.textW(desc, ds);
+    if (dw > w * 0.60) ds = ds * w * 0.60 / dw;
+    UI.text(desc, x + 20 * k, y + 35 * k, ds, UI.C_DIM, a);
+    // level pips
+    const pw = 22 * k, pg = 6 * k;
+    const px0 = x + w * 0.66;
+    for (let q = 0; q < max; q++) {
+      drawRect(px0 + q * (pw + pg), y + h / 2 - 4 * k, pw, 8 * k,
+               UI.col(q < lvl ? UI.C_GOOD : UI.C_LINE, q < lvl ? a : a * 0.6));
+    }
+    // price, or that there is nothing left to buy
+    if (cost <= 0) {
+      UI.textR(T(STR.S_MAXED), x + w - 20 * k, y + (h - 20 * k) / 2, 20 * k, UI.C_GOOD, a);
+    } else {
+      const can = open && PROFILE.credits() >= cost;
+      UI.textR('' + cost, x + w - 20 * k, y + (h - 22 * k) / 2, 22 * k, can ? UI.C_ACCENT : UI.C_DANGER, a);
+    }
+  }
+  drawCentredRow(PROFILE.TRACKS, T(STR.S_BACK), sw, sh);
+}
+
+function drawRecord(sw: number, sh: number): void {
+  const k = L[0];
+  drawRect(0, 0, sw, sh, UI.col(UI.C_BLACK, UI.panelA(205)));
+  drawTitle(T(STR.S_RECORD), sw, sh, sh * 0.06, 44 * k);
+  const pw = 900 * k < sw * 0.92 ? 900 * k : sw * 0.92;
+  const px = (sw - pw) / 2;
+  let cy = sh * 0.19;
+  const ta = UI.easeOut((S[5] - 0.1) / 0.35);
+  const a = 255 * ta;
+  const step = 40 * k;
+  UI.panel(px, cy, pw, step * 6 + 34 * k, 215 * ta);
+  const colW = pw / 2 - 52 * k;
+  const lx = px + 30 * k, rx = px + pw / 2 + 22 * k;
+  let ry = cy + 16 * k;
+  statRow(T(STR.S_ST_RUNS), '' + PROFILE.statRuns(), lx, ry, colW, k, a, false);
+  statRow(T(STR.S_ST_WINS), '' + PROFILE.statWins(), rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_KILLS), '' + PROFILE.statKills(), lx, ry, colW, k, a, false);
+  statRow(T(STR.S_ST_ELITES), '' + PROFILE.statElites(), rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_ACCURACY), '' + Math.round(PROFILE.statAccuracy() * 100) + '%', lx, ry, colW, k, a, false);
+  statRow(T(STR.S_HEADSHOTS), '' + PROFILE.statCrits(), rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_BEST_COMBO), 'x' + PROFILE.statBestCombo().toFixed(2), lx, ry, colW, k, a, false);
+  statRow(T(STR.S_ST_OBJECTIVES), '' + PROFILE.statObjectives(), rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_ST_TIME), timeText(PROFILE.statSeconds()), lx, ry, colW, k, a, false);
+  statRow(T(STR.S_ST_DEATHS), '' + PROFILE.statDeaths(), rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_CREDITS_BAL), '' + PROFILE.credits(), lx, ry, colW, k, a, true);
+  statRow(T(STR.S_ST_EARNED), '' + PROFILE.statEarned(), rx, ry, colW, k, a, false);
+  cy = cy + step * 6 + 34 * k + 14 * k;
+  // kills by kind, one line
+  let line = '';
+  for (let kd = 0; kd < 7; kd++) {
+    const c = PROFILE.statKind(kd);
+    if (c <= 0) continue;
+    if (line.length > 0) line = line + '    ';
+    line = line + KIND_NAME[kd] + ' ' + c;
+  }
+  if (line.length > 0) {
+    let fs = 15 * k;
+    const lw = UI.textW(line, fs);
+    if (lw > pw - 20 * k) fs = fs * (pw - 20 * k) / lw;
+    UI.textC(line, sw / 2, cy, fs, UI.C_DIM, a);
+  }
+  cy = cy + 30 * k;
+  // each arena: its stars and best score
+  for (let i = 0; i < ARENA_COUNT; i++) {
+    const y = cy + i * 34 * k;
+    UI.text(ARENAS[i].name, px + 30 * k, y, 19 * k, UI.C_TEXT, a);
+    drawStars(PROFILE.arenaStars(i), sw / 2 - 40 * k, y - 1 * k, 21 * k, a);
+    const b = SET.bestScore(i);
+    UI.textR(b > 0 ? '' + b : '-', px + pw - 30 * k, y, 19 * k, b > 0 ? UI.C_ACCENT : UI.C_DIM, a);
+  }
+  drawCentredRow(0, T(STR.S_BACK), sw, sh);
+  drawCentredRow(1, T(S[19] === 1 ? STR.S_RESET_SURE : STR.S_RESET_PROGRESS), sw, sh);
 }
 
 /// A centred button row (BACK under the cards and the credits, the results rows).
@@ -1221,8 +1478,7 @@ function drawResults(sw: number, sh: number): void {
   // things a player can aim for on the next run, shown as shapes, filled or hollow.
   let cy = sh * 0.075 + 124 * k;
   if (won) {
-    const acc = SCORE.accuracy();
-    const stars = 1 + (acc >= 0.5 ? 1 : 0) + (SCORE.damageTaken() < 100 ? 1 : 0);
+    const stars = PROFILE.starsFor(true, SCORE.accuracy(), SCORE.damageTaken());
     const ss = 46 * k;
     for (let i = 0; i < 3; i++) {
       const ts = UI.easeBack((S[5] - 0.45 - i * 0.16) / 0.3);
@@ -1240,14 +1496,14 @@ function drawResults(sw: number, sh: number): void {
   // the numbers: two columns
   const pw = 860 * k < sw * 0.92 ? 860 * k : sw * 0.92;
   const px = (sw - pw) / 2;
-  const ph = 252 * k;
+  const ph = 256 * k;
   const ta = UI.easeOut((S[5] - 0.25) / 0.35);
   const a = 255 * ta;
   UI.panel(px, cy, pw, ph, 215 * ta);
   const colW = pw / 2 - 52 * k;
   const lx = px + 30 * k, rx = px + pw / 2 + 22 * k;
   let ry = cy + 20 * k;
-  const step = 44 * k;
+  const step = 40 * k;
   const best = SET.bestScore(ARENA_INDEX);
   // The score counts up: the eye follows a number that moves.
   const shown = Math.floor(SCORE.score() * UI.easeOut((S[5] - 0.3) / 0.9));
@@ -1262,7 +1518,11 @@ function drawResults(sw: number, sh: number): void {
   ry = ry + step;
   statRow(T(STR.S_BEST_COMBO), 'x' + SCORE.comboPeak().toFixed(2), lx, ry, colW, k, a, false);
   statRow(T(STR.S_DAMAGE_TAKEN), '' + SCORE.damageTaken(), rx, ry, colW, k, a, false);
-  ry = ry + step + 6 * k;
+  ry = ry + step;
+  // what the run paid, and what is in the bank to spend in the armoury
+  statRow(T(STR.S_CREDITS_EARNED), '+' + PROFILE.lastCredits(), lx, ry, colW, k, a, true);
+  statRow(T(STR.S_CREDITS_BAL), '' + PROFILE.credits(), rx, ry, colW, k, a, false);
+  ry = ry + step + 4 * k;
   // kills by kind, one line
   let line = '';
   for (let kd = 0; kd < 7; kd++) {
@@ -1291,6 +1551,7 @@ function drawResults(sw: number, sh: number): void {
     if (w === 1) label = T(won ? STR.S_PLAY_AGAIN : STR.S_RETRY);
     else if (w === 2) label = T(STR.S_NEXT_ARENA);
     else if (w === 3) label = T(STR.S_LEVEL_SELECT);
+    else if (w === 5) label = T(STR.S_ARMORY);
     drawCentredRow(i, label, sw, sh);
   }
 }
@@ -1303,5 +1564,7 @@ export function drawMenu(sw: number, sh: number): void {
   else if (S[0] === MENU_LEVELS) drawLevels(sw, sh);
   else if (S[0] === MENU_CREDITS) drawCredits(sw, sh);
   else if (S[0] === MENU_RESULTS) drawResults(sw, sh);
+  else if (S[0] === MENU_ARMORY) drawArmory(sw, sh);
+  else if (S[0] === MENU_RECORD) drawRecord(sw, sh);
   drawHints(sw, sh);
 }

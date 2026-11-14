@@ -25,7 +25,7 @@ import {
   HSJ_ULEG_R, HSJ_LEG_R, HSJ_FOOT_R, HSJ_WEAK,
   KIND_HEAD_OFF_X, KIND_HEAD_OFF_Y, KIND_HEAD_R, KIND_TORSO_R, KIND_ARM_R, KIND_LEG_R,
   KIND_HEIGHT, KIND_WEAK_X, KIND_WEAK_Y, KIND_WEAK_Z, KIND_WEAK_R, KIND_WEAK_FRONT,
-  KIND_SHELL, KIND_SCALE,
+  KIND_SHELL, KIND_SCALE, enScale,
   LOC_LIMB, LOC_BODY, LOC_HEAD, LOC_WEAK, LOC_SHELL,
 } from './enemies';
 
@@ -60,7 +60,7 @@ function refresh(i: number): void {
   const pz = posed ? enPoseZ[i] : enZ[i];
   const yaw = posed ? enPoseYaw[i] : Math.PI / 2 - enHeading[i];
   const cM = Math.cos(yaw), sM = Math.sin(yaw);
-  const sc = KIND_SCALE[k];
+  const sc = enScale(i);
   for (let j = 0; j < HS_J; j++) {
     const jn = KIND_HS_JOINT[k * HS_J + j];
     let mx = 0, my = KIND_HEIGHT[k] * 0.55, mz = 0;

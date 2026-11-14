@@ -86621,7 +86621,7 @@
       ],
       "userData": {
         "kind": "wave_config",
-        "waves": "[{\"count\": 6, \"enemy\": \"skitter,skitter,stalker,skitter,skitter,skitter\"}, {\"count\": 10, \"enemy\": \"skitter,skitter,skitter,skitter,stalker,ravager,spitter,stalker,skitter,ravager\"}, {\"count\": 19, \"enemy\": \"skitter,skitter,skitter,skitter,skitter,skitter,skitter,skitter,ravager,spitter,bruiser,bombard,stalker,spitter,ravager,bruiser,skitter,bombard,colossus\"}]"
+        "waves": "[{\"count\": 6, \"enemy\": \"skitter,skitter,skitter,skitter,stalker,stalker\", \"groups\": \"4:front:0,2:flank:6\", \"type\": \"kill\"}, {\"count\": 9, \"enemy\": \"skitter,skitter,skitter,skitter,skitter,spitter,spitter,stalker,stalker\", \"groups\": \"5:surround:0,2:far:4,2:ambush:8\", \"type\": \"kill\"}, {\"count\": 10, \"enemy\": \"ravager,ravager,skitter,skitter,skitter,skitter,skitter,skitter,spitter,spitter\", \"groups\": \"2:flank:0,6:near:3,2:far:9\", \"type\": \"kill\"}, {\"count\": 10, \"enemy\": \"skitter,skitter,skitter,skitter,stalker,stalker,spitter,skitter,skitter,ravager\", \"groups\": \"4:near:0,2:flank:6,1:far:5,3:ambush:7\", \"type\": \"hold\", \"secs\": 40}, {\"count\": 12, \"enemy\": \"bruiser,skitter,skitter,skitter,skitter,stalker,stalker,stalker,spitter,spitter,ravager,ravager\", \"groups\": \"5:front:0,3:ambush:7,2:far:5,2:flank:8\", \"type\": \"kill\"}, {\"count\": 12, \"enemy\": \"stalker!,skitter,skitter,skitter,skitter,skitter,skitter,bombard,ravager,ravager,stalker,stalker\", \"groups\": \"7:surround:0,1:far:6,2:flank:7,2:ambush:9\", \"type\": \"kill\"}, {\"count\": 13, \"enemy\": \"bruiser,bruiser,skitter,skitter,skitter,skitter,skitter,skitter,bombard,spitter,spitter,ravager!,ravager\", \"groups\": \"2:flank:0,6:near:4,3:far:6,2:ambush:9\", \"type\": \"kill\"}, {\"count\": 14, \"enemy\": \"colossus,skitter,skitter,skitter,skitter,skitter,skitter,skitter,skitter,spitter,spitter,spitter,bruiser!,ravager\", \"groups\": \"1:front:0,8:surround:3,3:far:8,2:flank:10\", \"type\": \"kill\"}, {\"count\": 19, \"enemy\": \"stalker,stalker,stalker,stalker,ravager,ravager,ravager,ravager!,bombard,bombard,spitter,skitter,skitter,skitter,skitter,skitter,skitter,bruiser,bruiser\", \"groups\": \"4:ambush:0,4:flank:5,3:far:6,6:near:6,2:front:9\", \"type\": \"kill\"}, {\"count\": 22, \"enemy\": \"colossus!,colossus,skitter,skitter,skitter,skitter,skitter,skitter,skitter,skitter,bombard,bombard,spitter,spitter,bruiser,bruiser,ravager,ravager,stalker,stalker,stalker,stalker!\", \"groups\": \"2:front:0,8:surround:4,4:far:7,4:flank:9,4:ambush:10\", \"type\": \"kill\"}]"
       }
     },
     {
@@ -99170,6 +99170,158 @@
         "kind": "building_trim",
         "halfExtents": "0.020, 0.020, 0.320",
         "slice": "metal"
+      }
+    },
+    {
+      "id": "spawner_x0",
+      "name": "spawner_x0",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          34,
+          1.1,
+          -8.6
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "spawner_x1",
+      "name": "spawner_x1",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          19.8,
+          2.84,
+          -27.3
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "spawner_x2",
+      "name": "spawner_x2",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          34,
+          1.51,
+          20.6
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "spawner_x3",
+      "name": "spawner_x3",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -20.6,
+          1.4,
+          -34
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "enemy_spawner"
+      }
+    },
+    {
+      "id": "obj_hold",
+      "name": "obj_hold",
+      "modelRef": "assets/models/_gizmo_box.glb",
+      "prefabRef": null,
+      "transform": {
+        "position": [
+          -6.6,
+          0.0,
+          -5.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "tint": null,
+      "tags": [
+        "logic"
+      ],
+      "userData": {
+        "kind": "objective",
+        "role": "hold",
+        "radius": "6.5"
       }
     }
   ],

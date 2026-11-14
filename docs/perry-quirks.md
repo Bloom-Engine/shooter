@@ -288,3 +288,43 @@ failures are worth more than the finding:
   does not have "proved" that `saveWorld` corrupted every boolean. It does not.
 
 Change one variable per probe, and make each probe capable of failing.
+
+---
+
+## 6. `native IR construction failed ... unknown type { double, i64 }` on `src/main.ts`
+
+**Seen 2026-11-14 on Perry 0.5.1664** (the `perry` on PATH), while adding Phase 6. The whole
+of `src/main.ts` stops compiling:
+
+```
+[perry] codegen: shooter_src_main_ts: LLVM unit 1/2 failed ...: native IR construction failed in
+@main: in line: %r344 = getelementptr inbounds { double, i64 }, ptr %r343, i64 0: unknown type `{ double, i64 }`
+```
+
+**What it is.** `{ double, i64 }` is the entry type of Perry's "thread global transfer" cache
+(`crates/perry-codegen/src/codegen/global_transfer.rs`): a per-thread copy of a module-level
+binding that might hold a string. Any single-assignment module-level binding whose type the
+compiler has not PROVEN is a candidate. The code it emits for a candidate indexes that cache
+with a literal struct type, and the in-process LLVM backend's reader does not accept it. Other
+modules are unaffected; `main.ts` has hundreds of module-level bindings.
+
+**What triggers it is not the line you just wrote.** Adding a log line triggered it, removing an
+unrelated block cured it, importing two arrays brought it back. A long bisect produced
+three wrong theories (the tenth call site of one function, `.toFixed` on an untyped property,
+the command-line string constants). The module had simply grown past the point where the
+compiler proves those types. Do not bisect it again.
+
+**The fix is the build, not the source:**
+
+```
+PERRY_LLVM_INPROCESS=0 perry compile src/main.ts -o main
+```
+
+That routes code generation through Perry's external LLVM tools, which read the same IR without
+complaint. `npm run build`, `npm run dev`, `tools/deploy-ios.sh`, `tools/build-android.sh` and
+`tools/release/release.py` set it (only the macOS native build was run with it). On Windows set
+the variable in the shell first (`$env:PERRY_LLVM_INPROCESS = "0"`).
+
+**Upstream.** Not reported yet. The honest report is: the in-process reader rejects
+`getelementptr inbounds { double, i64 }, ptr %x, i64 N`.
+

@@ -30,8 +30,11 @@ import { MOBILE } from './input';
 import { CAM } from './camera';
 import {
   MAX_ENEMIES, KIND_NAME, AI_WINDUP, AI_CHARGE, AI_STRIKE_WIND, AI_STRIKE_HIT,
-  enAlive, enKind, enAIState, enAware, enX, enZ,
+  enAlive, enKind, enAIState, enAware, enX, enZ, enElite,
 } from './enemies';
+import { OBJ, OBJ_HOLD, OBJ_NESTS, NEST_N, nestX, nestZ, nestHP } from './objective';
+import * as W from './world-runtime';
+import * as TUTOR from './tutor';
 import * as WPN from './weapons';
 import * as SCORE from './score';
 import * as SET from './settings';
@@ -297,6 +300,23 @@ function drawThreats(sw: number, sh: number, k: number): void {
   }
 }
 
+/// An objective's mark on the bearing strip, with its distance under it when it is in view.
+function objPip(cx: number, y: number, k: number, ppr: number, span: number, yaw: number,
+                ox: number, oz: number, px: number, pz: number): void {
+  const rel = wrapPi(Math.atan2(ox - px, -(oz - pz)) - yaw);
+  let r = rel;
+  if (r > span) r = span;
+  if (r < -span) r = -span;
+  const s = 16 * k;
+  const x = cx + r * ppr;
+  UI.sprRot(A_DISC, x, y + 15 * k, s, s, s / 2, s / 2, 45, UI.C_INFO, r !== rel ? 150 : 255);
+  UI.sprRot(A_RING, x, y + 15 * k, s * 1.5, s * 1.5, s * 0.75, s * 0.75, 0, UI.C_INFO, r !== rel ? 110 : 220);
+  if (r === rel) {
+    const d = Math.sqrt((ox - px) * (ox - px) + (oz - pz) * (oz - pz));
+    UI.textCS('' + Math.round(d) + ' M', x, y + 58 * k, 13 * k, UI.C_INFO, 235);
+  }
+}
+
 /// Top centre: bearing strip, wave tracker, seen/unseen.
 function drawTop(sw: number, sh: number, k: number): void {
   const cx = sw / 2;
@@ -332,10 +352,18 @@ function drawTop(sw: number, sh: number, k: number): void {
       if (r > span) r = span;
       if (r < -span) r = -span;
       const aware = enAware[i] === 1;
-      const s = (aware ? 13 : 9) * k;
+      const elite = enElite[i] === 1;
+      const s = (elite ? 18 : (aware ? 13 : 9)) * k;
       const out = r !== rel;
-      UI.sprRot(A_CHEV, cx + r * ppr, y + 39 * k, s, s, s / 2, s / 2, out ? (rel > 0 ? 90 : -90) : 180,
-                aware ? UI.C_DANGER : UI.C_DIM, out ? 170 : 235);
+      UI.sprRot(A_CHEV, cx + r * ppr, y + (elite ? 41 : 39) * k, s, s, s / 2, s / 2, out ? (rel > 0 ? 90 : -90) : 180,
+                elite ? UI.C_ACCENT : (aware ? UI.C_DANGER : UI.C_DIM), out ? 170 : 235);
+    }
+    // ...and the objective: the ring, or each nest still standing, as a diamond ON the strip.
+    if (OBJ.type === OBJ_HOLD && !OBJ.done) objPip(cx, y, k, ppr, span, yaw, W.HOLD_SITE[0], W.HOLD_SITE[2], pp.x, pp.z);
+    if (OBJ.type === OBJ_NESTS) {
+      for (let i = 0; i < NEST_N; i++) {
+        if (nestHP[i] > 0) objPip(cx, y, k, ppr, span, yaw, nestX[i], nestZ[i], pp.x, pp.z);
+      }
     }
     y = y + 56 * k;
   }
@@ -354,18 +382,39 @@ function drawTop(sw: number, sh: number, k: number): void {
   y = y + 11 * k;
   if (DIR.waveIdx >= nW) return;
   if (DIR.waveBreakTimer > 0) {
-    UI.textCS(fmt(STR.S_WAVE_IN, DIR.waveBreakTimer.toFixed(1)), cx, y, 20 * k, UI.C_ACCENT, 240);
+    // The tutorial holds the first countdown: a frozen number would only puzzle.
+    if (!TUTOR.tutorialActive()) UI.textCS(fmt(STR.S_WAVE_IN, DIR.waveBreakTimer.toFixed(1)), cx, y, 20 * k, UI.C_ACCENT, 240);
     return;
   }
   const size = wavePlan[DIR.waveIdx];
   const left = (size - DIR.waveSpawned) + countAlive();
-  const label = fmt(STR.S_WAVE_N, '' + (DIR.waveIdx + 1)) + '   ' + left + ' ' + T(STR.S_REMAINING);
-  UI.textCS(label, cx, y, 20 * k, UI.C_BRIGHT, 240);
-  y = y + 28 * k;
   const bw = 210 * k;
-  drawRect(cx - bw / 2 - 1, y - 1, bw + 2, 4 * k + 2, UI.col(UI.C_BLACK, 150));
-  drawRect(cx - bw / 2, y, bw * (left / Math.max(1, size)), 4 * k, UI.col(UI.C_ACCENT, 235));
-  y = y + 11 * k;
+  if (OBJ.type === OBJ_HOLD || OBJ.type === OBJ_NESTS) {
+    // An objective wave says what to DO, and how far along it is, in place of a head count.
+    const hold = OBJ.type === OBJ_HOLD;
+    const frac = OBJ.need > 0 ? OBJ.prog / OBJ.need : 1;
+    let label = fmt(STR.S_WAVE_N, '' + (DIR.waveIdx + 1)) + '   ';
+    if (OBJ.done) label = label + T(STR.S_OBJ_MOPUP) + '   ' + countAlive();
+    else if (hold) label = label + T(OBJ.inside ? STR.S_OBJ_HOLDING : STR.S_OBJ_HOLD) + '   ' + Math.floor(frac * 100) + '%';
+    else label = label + T(STR.S_OBJ_NESTS) + '   ' + Math.floor(OBJ.prog) + ' / ' + Math.floor(OBJ.need);
+    const col = OBJ.done ? UI.C_GOOD : (hold && !OBJ.inside ? UI.C_ACCENT : UI.C_INFO);
+    UI.textCS(label, cx, y, 20 * k, col, 245);
+    y = y + 28 * k;
+    drawRect(cx - bw / 2 - 1, y - 1, bw + 2, 5 * k + 2, UI.col(UI.C_BLACK, 150));
+    drawRect(cx - bw / 2, y, bw * UI.clamp01(frac), 5 * k, UI.col(OBJ.done ? UI.C_GOOD : UI.C_INFO, 240));
+    y = y + 12 * k;
+  } else {
+    const label = fmt(STR.S_WAVE_N, '' + (DIR.waveIdx + 1)) + '   ' + left + ' ' + T(STR.S_REMAINING);
+    UI.textCS(label, cx, y, 20 * k, UI.C_BRIGHT, 240);
+    y = y + 28 * k;
+    drawRect(cx - bw / 2 - 1, y - 1, bw + 2, 4 * k + 2, UI.col(UI.C_BLACK, 150));
+    drawRect(cx - bw / 2, y, bw * (left / Math.max(1, size)), 4 * k, UI.col(UI.C_ACCENT, 235));
+    y = y + 11 * k;
+  }
+  if (DIR.eliteCount > 0) {
+    UI.textCS(fmt(STR.S_ELITE_N, '' + DIR.eliteCount), cx, y, 15 * k, UI.C_ACCENT, 240);
+    y = y + 20 * k;
+  }
   // Plan 2.1 - whether anything knows where you are: an eye (open, or struck out) and the
   // word, so it rests on neither colour nor icon alone.
   if (DIR.aliveCount > 0) {
@@ -563,7 +612,10 @@ function drawBanners(sw: number, sh: number, dt: number, k: number): void {
     UI.spr(A_FADE_H, cx - bandW / 2, y + 82 * k, bandW, 2, UI.C_ACCENT, a);
     const txt = fmt(STR.S_WAVE_N, '' + H[5]);
     UI.textCS(txt, cx + (1 - tin) * 60 * k, y, 58 * k, UI.C_BRIGHT, a);
-    UI.textCS(T(STR.S_OBJECTIVE), cx - (1 - tin) * 60 * k, y + 58 * k, 17 * k, UI.C_ACCENT, a);
+    const wty = H[5] >= 1 && H[5] <= wavePlan.length ? W.WAVE_TYPE[H[5] - 1] : 0;
+    const what = wty === W.WAVE_HOLD && W.HOLD_SITE[4] === 1 ? STR.S_OBJ_HOLD_LONG
+      : (wty === W.WAVE_NESTS && NEST_N > 0 ? STR.S_OBJ_NESTS_LONG : STR.S_OBJECTIVE);
+    UI.textCS(T(what), cx - (1 - tin) * 60 * k, y + 58 * k, 17 * k, UI.C_ACCENT, a);
   }
 
   // SH-041 - the end-of-wave card: what the wave EARNED, which is what turns "I survived"
@@ -625,6 +677,7 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
     drawWeapon(sw, sh, dt, k);
   }
   drawBanners(sw, sh, dt, k);
+  if (!ended && currentMenu() === MENU_NONE) TUTOR.drawTutor(sw, sh, k);
 
   // Render-pass debug status line (F1): no function keys on a phone, so not there.
   if (!MOBILE && GS.debugHud) {
