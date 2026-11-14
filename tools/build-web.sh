@@ -85,6 +85,9 @@ fi
 
 echo "[4/5] Copying assets + writing manifest..."
 cp -R "$SHOOTER_DIR/assets" "$OUT/assets"
+# Same exclusion list as the TestFlight and Android bundles (no build inputs, no
+# unused models). Plain GLBs: browsers do not decode ASTC.
+"$PY" "$SHOOTER_DIR/tools/release/assets_bundle.py" "$OUT/assets" --no-astc
 # Manifest: every file under assets/, forward slashes, relative to dist/web.
 # The glue prefetches these and treats the list as authoritative for
 # fileExists — so it must be complete.

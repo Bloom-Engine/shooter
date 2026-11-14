@@ -51,8 +51,11 @@ const WHITE = { r: 255, g: 255, b: 255, a: 255 };
 // WEAPON_DRAW_SCALE — the weapon models and their ABI columns (declared next
 // to the loadModel calls in main so they stay in sync with the art);
 // sfxFireRifle, sfxFireBlaster, sfxRicochet, sfxPlayerDie, stingDeath,
+// sfxFireByWeapon (W_* order), sfxFireRifleB (the rifle's alternate), sfxExplosion,
 // musicMenu, musicCalm, musicCombat — audio handles.
 const DEPS: any = { o: null };
+// RUN[0] = 1 while a run is live this frame (updateCombat's `playing`).
+const RUN = [0];
 export function setCombatDeps(deps: any): void { DEPS.o = deps; }
 
 // ---- Weapon + combat state (M4 / M5 / M6 / M7) ----------------------------
@@ -188,7 +191,7 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   FEEL.addTrauma(0.6);
   FEEL.requestHitstop(0.06);
   gamepadRumble(0.9, 0.6, 0.3);
-  playSound3D(DEPS.o.sfxFireBlaster, x, y, z);
+  playSound3D(DEPS.o.sfxExplosion, x, y, z);
 
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enAlive[i] === 0) continue;
@@ -206,20 +209,32 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   const pdx = pp.x - x;
   const pdz = pp.z - z;
   const pd = Math.sqrt(pdx * pdx + pdz * pdz);
-  if (pd < radius && !GS.gameOver) {
+  // Only while a run is live (RUN[0], set by updateCombat): a shell still in
+  // flight when the arena is cleared, the menu opens or the run resets used to
+  // be able to kill the player on a screen that was no longer the game. And the
+  // hit is reported like any other: direction arc, pain or death voice, trauma.
+  if (pd < radius && RUN[0] === 1 && !GS.gameOver) {
     const selfDmg = Math.floor(dmg * 2.5 * (1 - pd / radius));
     if (selfDmg > 0) {
       GS.playerHP = GS.playerHP - selfDmg;
       FEEL.damageFlash(1);
       GS.damageFlashT = 0.5;
       MIX.duckMusicOnDamage();
+      let rel = Math.atan2(-pdx, pdz) - DEPS.o.CAM[0];
+      while (rel > Math.PI) rel = rel - Math.PI * 2;
+      while (rel < -Math.PI) rel = rel + Math.PI * 2;
+      GS.lastHitAngle = rel;
+      GS.lastHitT = 1.4;
       if (GS.playerHP <= 0) {
         GS.playerHP = 0;
         GS.gameOver = true;
         playSound(DEPS.o.sfxPlayerDie[0]);
+        FEEL.addTrauma(1.0);
         playSound(DEPS.o.stingDeath);   // SH-036
         SCORE.commitRun(W.ARENA_INDEX);
         SET.saveSettings();
+      } else {
+        playSound(DEPS.o.sfxPlayerPain[0]);
       }
     }
   }
@@ -291,6 +306,7 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
                              fireDown: boolean, firePressed: boolean,
                              forceFire: boolean): void {
   const CAM = DEPS.o.CAM;
+  RUN[0] = playing ? 1 : 0;
   const combatActive = playing && cursorLocked;
   const wpn = WPN.currentWeapon();
   const isProjectile = WPN.W_PROJ_SPEED[wpn] > 0;
@@ -327,7 +343,9 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     FEEL.addTrauma(0.05 + kick[0] * 0.02);
     gamepadRumble(0.25 + kick[0] * 0.1, 0.15, 0.05);
 
-    playSound(wpn === WPN.W_BLASTER ? DEPS.o.sfxFireBlaster : DEPS.o.sfxFireRifle);
+    // One sound per weapon; the rifle alternates its two samples.
+    if (wpn === WPN.W_RIFLE && Math.random() < 0.5) playSound(DEPS.o.sfxFireRifleB);
+    else playSound(DEPS.o.sfxFireByWeapon[wpn]);
 
     // Third-person aiming: the crosshair is at screen centre, so trace the
     // camera-forward line out to a far point, treat that as the aim target, and

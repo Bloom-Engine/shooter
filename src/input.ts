@@ -45,7 +45,7 @@ const MOUSE_SENSITIVITY = 0.004;
 // native/windows). Sticks are 0..3, triggers 4..5.
 const GP_LX = 0, GP_LY = 1, GP_RX = 2, GP_RY = 3, GP_LT = 4, GP_RT = 5;
 const GP_A = 0, GP_B = 1, GP_X = 2, GP_Y = 3;
-const GP_LB = 4, GP_RB = 5, GP_BACK = 6, GP_START = 7, GP_LS = 8;
+const GP_LB = 4, GP_RB = 5, GP_BACK = 6, GP_START = 7, GP_LS = 8, GP_RS = 9;
 
 const STICK_DEADZONE = 0.18;
 const PAD_LOOK_RATE = 2.6;    // radians/sec at full deflection
@@ -112,11 +112,21 @@ let firePrev = false;
 let jumpPrev = false;
 let reloadPrev = false;
 let swapPrev = false;
+let dodgePrev = false;
+let pausePrev = false;
+let aimBtnPrev = false;
+let crouchBtnPrev = false;
+// AIM and CROUCH are latches on touch: a thumb cannot hold a button and steer.
+let touchAimOn = false;
+let touchCrouchOn = false;
+// Crouch on a pad is a latch too (right-stick click), kept apart from the
+// keyboard's hold-C so the two cannot fight.
+let padCrouchOn = false;
 
 // Control geometry, recomputed each frame from the screen size and shared with
 // the draw pass — the circles you see are hit-tested from these same numbers,
 // so what you press is always what you touched.
-const CTRL = new Array<number>(14);
+const CTRL = new Array<number>(26);
 const C_SCALE = 0;
 const C_JOY_R = 1;
 const C_FIRE_X = 2;
@@ -131,6 +141,18 @@ const C_RELOAD_R = 10;
 const C_SWAP_X = 11;
 const C_SWAP_Y = 12;
 const C_SWAP_R = 13;
+const C_AIM_X = 14;
+const C_AIM_Y = 15;
+const C_AIM_R = 16;
+const C_DODGE_X = 17;
+const C_DODGE_Y = 18;
+const C_DODGE_R = 19;
+const C_CROUCH_X = 20;
+const C_CROUCH_Y = 21;
+const C_CROUCH_R = 22;
+const C_PAUSE_X = 23;
+const C_PAUSE_Y = 24;
+const C_PAUSE_R = 25;
 
 function layoutControls(sw: number, sh: number): void {
   // Size everything off the screen height, capped so the controls don't balloon
@@ -154,6 +176,23 @@ function layoutControls(sw: number, sh: number): void {
   CTRL[C_SWAP_R] = s * 0.078;
   CTRL[C_SWAP_X] = sw - s * 0.42;
   CTRL[C_SWAP_Y] = sh - s * 0.40;
+
+  // Second ring (2026-11): every action the keyboard has is reachable on glass.
+  CTRL[C_AIM_R] = s * 0.078;
+  CTRL[C_AIM_X] = sw - s * 0.17;
+  CTRL[C_AIM_Y] = sh - s * 0.66;
+
+  CTRL[C_DODGE_R] = s * 0.078;
+  CTRL[C_DODGE_X] = sw - s * 0.64;
+  CTRL[C_DODGE_Y] = sh - s * 0.13;
+
+  CTRL[C_CROUCH_R] = s * 0.07;
+  CTRL[C_CROUCH_X] = sw - s * 0.63;
+  CTRL[C_CROUCH_Y] = sh - s * 0.33;
+
+  CTRL[C_PAUSE_R] = s * 0.055;
+  CTRL[C_PAUSE_X] = sw - s * 0.09;
+  CTRL[C_PAUSE_Y] = s * 0.09;
 }
 
 function hits(x: number, y: number, cx: number, cy: number, r: number): boolean {
@@ -201,6 +240,9 @@ function applyToggle(raw: boolean, toggleMode: boolean, slot: number): boolean {
 export function resetInputToggles(): void {
   TOG_LATCHED[T_AIM] = 0;
   TOG_LATCHED[T_SPRINT] = 0;
+  touchAimOn = false;
+  touchCrouchOn = false;
+  padCrouchOn = false;
 }
 
 function readTouch(): InputState {
@@ -211,6 +253,10 @@ function readTouch(): InputState {
   let jumpDown = false;
   let reloadDown = false;
   let swapDown = false;
+  let dodgeDown = false;
+  let pauseDown = false;
+  let aimBtnDown = false;
+  let crouchBtnDown = false;
   let fireDown = false;
   let lookX = 0;
   let lookY = 0;
@@ -265,6 +311,22 @@ function readTouch(): InputState {
       swapDown = true;
       continue;
     }
+    if (hits(tx, ty, CTRL[C_AIM_X], CTRL[C_AIM_Y], CTRL[C_AIM_R])) {
+      aimBtnDown = true;
+      continue;
+    }
+    if (hits(tx, ty, CTRL[C_DODGE_X], CTRL[C_DODGE_Y], CTRL[C_DODGE_R])) {
+      dodgeDown = true;
+      continue;
+    }
+    if (hits(tx, ty, CTRL[C_CROUCH_X], CTRL[C_CROUCH_Y], CTRL[C_CROUCH_R])) {
+      crouchBtnDown = true;
+      continue;
+    }
+    if (hits(tx, ty, CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R])) {
+      pauseDown = true;
+      continue;
+    }
 
     // Left of the split moves, right of it looks. The stick's origin is
     // wherever the thumb lands, so there's no fixed circle to hunt for by feel.
@@ -309,6 +371,14 @@ function readTouch(): InputState {
   jumpPrev = jumpDown;
   reloadPrev = reloadDown;
   swapPrev = swapDown;
+  const dodgePressedNow = dodgeDown && !dodgePrev;
+  const pausePressedNow = pauseDown && !pausePrev;
+  if (aimBtnDown && !aimBtnPrev) touchAimOn = !touchAimOn;
+  if (crouchBtnDown && !crouchBtnPrev) touchCrouchOn = !touchCrouchOn;
+  dodgePrev = dodgeDown;
+  pausePrev = pauseDown;
+  aimBtnPrev = aimBtnDown;
+  crouchBtnPrev = crouchBtnDown;
 
   // Sprint on touch is a stick gesture, not another button: push the thumb to
   // the rim and you run. Adding a fifth circle to a phone screen already
@@ -326,11 +396,11 @@ function readTouch(): InputState {
     fireDown: fireDown,
     reloadPressed: reloadPressedNow,
     swapWeapon: swapPressedNow,
-    aimDown: false,
-    sprintDown: sprinting,
-    crouchDown: false,        // no touch crouch control yet
-    dodgePressed: false,
-    pausePressed: false,
+    aimDown: touchAimOn,
+    sprintDown: sprinting && !touchCrouchOn,
+    crouchDown: touchCrouchOn,
+    dodgePressed: dodgePressedNow,
+    pausePressed: pausePressedNow,
     padActive: false,
   };
 }
@@ -413,6 +483,11 @@ export function readInput(dt: number): InputState {
     if (isGamepadButtonPressed(GP_X)) { reloadPressed = true; padUsed = true; }
     if (isGamepadButtonPressed(GP_Y)) { swapWeapon = true; padUsed = true; }
     if (isGamepadButtonPressed(GP_START)) { pausePressed = true; padUsed = true; }
+    // Crouch: click the right stick to drop, click again (or sprint, or jump) to
+    // stand. Until 2026-11 crouch had no pad binding at all.
+    if (isGamepadButtonPressed(GP_RS)) { padCrouchOn = !padCrouchOn; padUsed = true; }
+    if (sprintDown || jump) padCrouchOn = false;
+    if (padCrouchOn) crouchDown = true;
   }
   if (padUsed) padWasActive = true;
   // Any mouse movement hands the "last input" crown back to the keyboard, so
@@ -488,6 +563,18 @@ export function drawTouchControls(): void {
 
   drawCircle(CTRL[C_SWAP_X], CTRL[C_SWAP_Y], CTRL[C_SWAP_R], idle);
   labelAt('GUN', CTRL[C_SWAP_X], CTRL[C_SWAP_Y], CTRL[C_SWAP_R] * 0.52, ink);
+
+  drawCircle(CTRL[C_AIM_X], CTRL[C_AIM_Y], CTRL[C_AIM_R], touchAimOn ? live : idle);
+  labelAt('AIM', CTRL[C_AIM_X], CTRL[C_AIM_Y], CTRL[C_AIM_R] * 0.52, ink);
+
+  drawCircle(CTRL[C_DODGE_X], CTRL[C_DODGE_Y], CTRL[C_DODGE_R], idle);
+  labelAt('DASH', CTRL[C_DODGE_X], CTRL[C_DODGE_Y], CTRL[C_DODGE_R] * 0.46, ink);
+
+  drawCircle(CTRL[C_CROUCH_X], CTRL[C_CROUCH_Y], CTRL[C_CROUCH_R], touchCrouchOn ? live : idle);
+  labelAt('DUCK', CTRL[C_CROUCH_X], CTRL[C_CROUCH_Y], CTRL[C_CROUCH_R] * 0.46, ink);
+
+  drawCircle(CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R], idle);
+  labelAt('II', CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R] * 0.80, ink);
 }
 
 function labelAt(text: string, cx: number, cy: number, size: number,

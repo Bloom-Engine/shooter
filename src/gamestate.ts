@@ -30,14 +30,20 @@ export const GS: any = {
   waveBonus: 0,
   waveBonusT: 0,
   unlockBannerT: 0,
+  unlockBannerWeapon: 2,   // which weapon the banner names (a WPN.W_* index)
   muzzleX: 0,
   muzzleY: 0,
   muzzleZ: 0,
   // SH-043 — hit marker. A white tick + a sound, so a colourblind player
   // gets the same confirmation everyone else does.
   hitMarkT: 0,
-  // SH-040 — seconds left on the "restart to load the new arena" notice.
+  // SH-040 — seconds left on the arena-change notice, and what it says:
+  //   1 loading (full-screen cover; the game relaunches into the arena)
+  //   2 this platform cannot relaunch itself - ask the player to reopen
+  //   3 the chosen arena is the one already loaded
   levelChangeT: 0,
+  levelChangeMode: 0,
+  levelChangeArena: 0,
   // Seconds since the run began — drives the wave clock and score bonuses.
   runElapsed: 0,
   // Round-9 obstacle-circle count (the arrays stay in main; the count

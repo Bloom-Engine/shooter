@@ -1,5 +1,5 @@
 import {
-  initWindow, windowShouldClose, closeWindow, runGame,
+  initWindow, windowShouldClose, closeWindow, runGame, restartApp,
   beginDrawing, endDrawing, clearBackground,
   setTargetFPS, getDeltaTime, getFPS, getTime,
   beginMode3D, endMode3D,
@@ -74,7 +74,7 @@ import {
   CAM, TP_PITCH_MIN, TP_PITCH_MAX, TP_FOVY, CAMDBG,
   updateCameraLook, updateCameraOrbit,
 } from './camera';
-import { drawHud, drawOverlays } from './hud';
+import { drawHud, drawOverlays, drawArenaNotice } from './hud';
 import {
   // KIND_COUNT + ALIEN_GLB re-added by the EN-055 merge: the boot-time
   // stageModels batch needs the kind GLB paths (a green Perry compile would
@@ -191,20 +191,34 @@ bootSplash(1.1);
 // ---- M8 polish: audio -----------------------------------------------------
 bootStage(BOOT_AUDIO);
 initAudio();
-const sfxFire = loadSound('assets/sounds/rifle_fire.wav');
 const sfxAttack = loadSound('assets/sounds/dretch_attack.wav');
 const sfxPickup = loadSound('assets/sounds/pickup.wav');
-setSoundVolume(sfxFire, 0.35);
 setSoundVolume(sfxAttack, 0.6);
 setSoundVolume(sfxPickup, 0.8);
-// Round-7 audio (see assets/sounds/SOURCES.md): Sonniss weapon/water
-// shots + the aliens' ORIGINAL Unvanquished vocals (same GPL asset
-// line as the models). Alien deaths/attacks/pain play positionally via
-// playSound3D; the listener follows the camera every frame.
+// Weapon shots (see assets/sounds/SOURCES.md). Alien deaths/attacks/pain play
+// positionally via playSound3D; the listener follows the camera every frame.
+//
+// One fire sound PER WEAPON, in WPN.W_* order (rifle, blaster, chaingun,
+// cannon), plus a real explosion. Until 2026-11 the chaingun and the cannon
+// fired the rifle sample and the cannon's blast was the blaster shot. The rifle
+// alternates two samples so full-auto is not one file on repeat. The three new
+// files are optional: a checkout without them falls back to the old sharing.
 const sfxFireRifle   = loadSound('assets/sounds/rifle_fire2.wav');
+const sfxFireRifleB  = loadSound('assets/sounds/rifle_fire.wav');
 const sfxFireBlaster = loadSound('assets/sounds/blaster_fire.wav');
+const sfxFireChain   = fileExists('assets/sounds/chain_fire.wav')
+  ? loadSound('assets/sounds/chain_fire.wav') : sfxFireRifle;
+const sfxFireCannon  = fileExists('assets/sounds/cannon_fire.wav')
+  ? loadSound('assets/sounds/cannon_fire.wav') : sfxFireRifle;
+const sfxExplosion   = fileExists('assets/sounds/explosion.wav')
+  ? loadSound('assets/sounds/explosion.wav') : sfxFireBlaster;
 setSoundVolume(sfxFireRifle, 0.40);
+setSoundVolume(sfxFireRifleB, 0.36);
 setSoundVolume(sfxFireBlaster, 0.45);
+if (sfxFireChain !== sfxFireRifle) setSoundVolume(sfxFireChain, 0.38);
+if (sfxFireCannon !== sfxFireRifle) setSoundVolume(sfxFireCannon, 0.60);
+if (sfxExplosion !== sfxFireBlaster) setSoundVolume(sfxExplosion, 0.85);
+const sfxFireByWeapon = [sfxFireRifle, sfxFireBlaster, sfxFireChain, sfxFireCannon];
 const sfxImpactFlesh = loadSound('assets/sounds/impact_flesh.wav');
 setSoundVolume(sfxImpactFlesh, 0.45);
 const sfxRicochet = [loadSound('assets/sounds/ricochet1.wav'),
@@ -263,16 +277,13 @@ bootStage(BOOT_MUSIC);
 // extension + sniffing, and the game already shipped ambient.ogg). The WAV
 // masters stay in assets/music/src (untracked); tools/encode-music.ts
 // re-encodes after tools/music-master.ts.
-const musicMenu = loadMusic(
-  fileExists('assets/music/music_menu.ogg') ? 'assets/music/music_menu.ogg'
-                                            : 'assets/sounds/menu.ogg');
-
-const HAS_STEMS = fileExists('assets/music/music_calm.ogg')
-               && fileExists('assets/music/music_combat.ogg');
-const musicCalm = loadMusic(HAS_STEMS ? 'assets/music/music_calm.ogg'
-                                      : 'assets/sounds/game.ogg');
-const musicCombat = loadMusic(HAS_STEMS ? 'assets/music/music_combat.ogg'
-                                        : 'assets/sounds/game.ogg');
+// (The old single-bed fallbacks assets/sounds/{menu,game}.ogg were files of
+// unrecorded origin and left the repository with the MIT relicensing,
+// 2026-11-14. The three stems are committed, so they are simply required.)
+const HAS_STEMS = true;   // kept as a name: the crossfade code reads it
+const musicMenu = loadMusic('assets/music/music_menu.ogg');
+const musicCalm = loadMusic('assets/music/music_calm.ogg');
+const musicCombat = loadMusic('assets/music/music_combat.ogg');
 // Decode verification on the boot log — a bed that failed to decode is a
 // handle of 0, and music failing SILENTLY is exactly how a format change
 // would otherwise ship broken (post-init engine stderr is dead on Windows).
@@ -786,6 +797,31 @@ let BLDG_CX = 0, BLDG_CZ = 0, BLDG_HX = 0, BLDG_HZ = 0;
   }
 }
 
+// Footstep surface from the PAINTED terrain layers: true where a layer whose
+// texture is dirt, mud or rock carries more than half the weight of the cell.
+// Which layers count is decided once here (string tests at load, never per
+// frame); the per-step query is one array read and a little arithmetic.
+const SPLAT_HARD = [0, 0, 0, 0];
+for (let l = 0; l < W.TERRAIN_SPLAT_COUNT; l++) {
+  const ref = W.TERRAIN_SPLAT_TEX[l];
+  if (ref.indexOf('dirt') >= 0 || ref.indexOf('mud') >= 0 || ref.indexOf('rock') >= 0) SPLAT_HARD[l] = 1;
+}
+function paintedHardGround(x: number, z: number): boolean {
+  if (W.TERRAIN_SPLAT_COUNT === 0) return false;
+  const n = W.TERRAIN_SPLAT_W;
+  const cx = Math.round((x - W.TERRAIN_ORIGIN_X) / W.TERRAIN_CELL_SIZE);
+  const cz = Math.round((z - W.TERRAIN_ORIGIN_Z) / W.TERRAIN_CELL_SIZE);
+  if (cx < 0 || cz < 0 || cx >= n || cz >= W.TERRAIN_SPLAT_H) return false;
+  let packed = W.TERRAIN_SPLAT_DATA[cz * n + cx];
+  let hard = 0;
+  for (let l = 0; l < W.TERRAIN_SPLAT_COUNT; l++) {
+    const v = packed % 256;
+    packed = Math.floor(packed / 256);
+    if (SPLAT_HARD[l] === 1) hard = hard + v;
+  }
+  return hard > 127;
+}
+
 // Tier 2a — terrain colour material. Compile via the file-based
 // API for hot-reload, then push the param UBO via setMaterialParams
 // directly (loadMaterial's array-length pass-through is unreliable
@@ -976,8 +1012,17 @@ const animPlayer = loadModelAnimation('assets/models/player_trooper.glb');
 // The ground speed each locomotion clip was AUTHORED to travel at. The playback
 // rate is (actual speed / this), which is what plants the feet — get these wrong
 // and the character skates.
-const ANIM_WALK_SPEED = 1.6;   // a steady tactical walk
-const ANIM_RUN_SPEED  = 5.5;   // a sprint
+//
+// MEASURED 2026-11-14 in Blender, not estimated: the median speed of a foot
+// relative to the hips over the frames it is planted. The run value used to be
+// 5.5 (a guess, 70% too high) and normal movement played the WALK clip, which
+// at 4.5 m/s wanted 2.8x and hit the clamp: that was the foot-slide.
+const ANIM_WALK_SPEED = 1.7;   // a steady tactical walk
+const ANIM_RUN_SPEED  = 3.25;  // a jog; sped up it carries the sprint too
+// Below this ground speed the walk clip is used, above it the run clip. It sits
+// between the speeds the game actually produces (crouch 2.0, walk 4.5, sprint
+// 9.0), so there is no boundary to flicker on.
+const ANIM_RUN_ABOVE = 2.8;
 
 const PLAYER_ANIM_IDLE   = 2;
 const PLAYER_ANIM_WALK   = 4;
@@ -989,9 +1034,11 @@ const PLAYER_ANIM_ATTACK = 2;   // unused; the aim pose is part of every clip
 // the directional crouch_left/right/back clips (20/21/19) are not needed.
 const PLAYER_ANIM_CROUCH     = 0;    // crouch idle
 const PLAYER_ANIM_CROUCH_FWD = 1;    // crouch walk
-// Authored ground speed of the crouch_forward clip, for foot-planting (see the
-// note on ANIM_WALK_SPEED). A guess until measured; tune if the feet slide.
-const ANIM_CROUCH_SPEED = 1.0;
+// Authored ground speed of the crouch_walk clip, measured the same way. The
+// game's crouch speed is 2.0 m/s, four times this, and no playback rate makes a
+// creep look like that: the rate is capped (see the clamp) and some slide
+// remains until the Trooper gets a faster crouch clip (docs/aaa-plan.md 1.1).
+const ANIM_CROUCH_SPEED = 0.5;
 const PLAYER_SCALE = 1.0;
 const PLAYER_MODEL_Y_OFFSET = -0.95;    // character capsule center -> feet
 let playerAnimT = 0;
@@ -1106,6 +1153,9 @@ let splatCooldown = 0;
 // now — yet its decay and draw loops still ran every frame.)
 
 let cursorLocked = true;
+// Frames until the arena relaunch fires (0 = none pending). A countdown so the
+// LOADING cover is on screen before the process is replaced.
+let arenaRestartIn = 0;
 let screenshotSeq = 0;
 let perfOverlayOn = false;
 // ---- Render-pass debug toggles --------------------------------------------
@@ -1497,6 +1547,7 @@ setCombatDeps({
   animPlayer, playerHandJoint, PLAYER_SCALE, PLAYER_MODEL_Y_OFFSET,
   mdlWeapons, WEAPON_MUZZLE_Z, WEAPON_DRAW_SCALE,
   sfxFireRifle, sfxFireBlaster, sfxRicochet, sfxPlayerDie, stingDeath,
+  sfxFireByWeapon, sfxFireRifleB, sfxExplosion, sfxPlayerPain,
   musicMenu, musicCalm, musicCombat,
 });
 
@@ -1539,7 +1590,14 @@ function gameFrame(_hostDt: number): void {
   // swPx/shPx stay the real pixels, which is what touch coordinates arrive in.
   const swPx = getScreenWidth();
   const shPx = getScreenHeight();
-  const uiScale = MOBILE ? swPx / 1000 : 1;
+  // Desktop and web: the HUD is authored for a 1080-unit-tall screen and scales
+  // with the real height, so it is the same fraction of a 4K panel as of a
+  // 1080p one. Within 10% of 1 it snaps to exactly 1 (no camera, crisp text).
+  let uiScale = MOBILE ? swPx / 1000 : shPx / 1080;
+  if (!MOBILE) {
+    if (uiScale < 0.75) uiScale = 0.75;
+    if (uiScale > 0.9 && uiScale < 1.1) uiScale = 1;
+  }
   const sw = swPx / uiScale;
   const sh = shPx / uiScale;
   // Both beds must be pumped every frame while they are playing, or the one that
@@ -1728,13 +1786,35 @@ function gameFrame(_hostDt: number): void {
       startRun();
       cursorLocked = true;
       disableCursor();
-    } else if (act === 4) {               // ACT_LEVEL — chosen, needs a relaunch
-      // The whole world (colliders, heightfield, 20k grass instances, 267 GI
-      // proxies, the forest's trunk bodies) is built once at startup, so
-      // swapping levels in place means tearing all of it down. Until EN-032's
-      // async load makes that seamless, be honest: the choice is saved and the
-      // next launch is in it.
-      GS.levelChangeT = 4.0;
+    } else if (act === 4) {               // ACT_LEVEL — an arena was chosen
+      // The whole world (colliders, heightfield, grass instances, GI proxies,
+      // the forest's trunk bodies) is built once at startup from module-level
+      // tables, so the arena is applied by relaunching the game into it: the
+      // choice is already in level.txt (selectArena), and restartApp() fires a
+      // few frames from now, once the LOADING cover has actually been drawn.
+      // Until 2026-11 this just told the player to restart the game.
+      GS.levelChangeArena = W.PICKED.index;
+      if (W.PICKED.index === W.ARENA_INDEX) {
+        GS.levelChangeMode = 3;
+        GS.levelChangeT = 2.5;
+      } else {
+        GS.levelChangeMode = 1;
+        GS.levelChangeT = 9999;
+        arenaRestartIn = 3;
+        SET.saveSettings();
+      }
+    }
+  }
+  if (arenaRestartIn > 0) {
+    arenaRestartIn = arenaRestartIn - 1;
+    if (arenaRestartIn === 0) {
+      // Desktop: does not return. Web: returns true and the page reloads after
+      // this frame (the cover stays up). Phones, tablets and TV boxes cannot
+      // relaunch an app from inside it: say so instead.
+      if (!restartApp()) {
+        GS.levelChangeMode = 2;
+        GS.levelChangeT = 6.0;
+      }
     }
   }
 
@@ -2064,7 +2144,25 @@ function gameFrame(_hostDt: number): void {
     // and walk for free. Firing a step also kicks dust (SH-033), which is the
     // pairing that sells a footfall: you hear it AND the ground reacts.
     if (playing) {
-      const surface = inRiver ? 2 : 0;
+      // What is underfoot. Until 2026-11 this was `inRiver ? 2 : 0`, so the dirt
+      // samples never played and the house floor sounded like a meadow.
+      //   water    - in the river band
+      //   concrete - inside the house footprint (either floor)
+      //   dirt     - the damp bank the terrain shader paints brown beside the
+      //              river, or a cell the editor painted with a dirt/mud/rock layer
+      //   grass    - everything else
+      let surface = 0;
+      if (inRiver) {
+        surface = 2;
+      } else if (BLDG_HX > 0 && Math.abs(pp.x - BLDG_CX) < BLDG_HX
+                             && Math.abs(pp.z - BLDG_CZ) < BLDG_HZ) {
+        surface = 3;
+      } else if (Math.abs(pp.x) < ENV.WATER_W * 0.5
+                 && Math.abs(pp.z - ENV.WATER_CZ) < ENV.WATER_D * 0.5 + 2.2) {
+        surface = 1;
+      } else if (paintedHardGround(pp.x, pp.z)) {
+        surface = 1;
+      }
       const stepped = MIX.updateFootsteps(
         playerSpeed() * dt, surface, playerGrounded(), pp.x, pp.y - 0.9, pp.z);
       if (stepped && !inRiver) {
@@ -2531,7 +2629,7 @@ function gameFrame(_hostDt: number): void {
     const moving = spd > 0.4;
     const wantClip = crouching
       ? (moving ? PLAYER_ANIM_CROUCH_FWD : PLAYER_ANIM_CROUCH)
-      : (moving ? (sprinting ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
+      : (moving ? (spd > ANIM_RUN_ABOVE ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
                 : PLAYER_ANIM_IDLE);
 
     // Playback rate = actual speed / the speed the clip was authored to travel
@@ -2547,7 +2645,7 @@ function gameFrame(_hostDt: number): void {
     // Idle poses (standing idle, crouch idle) play at 1×; the moving clips scale.
     const rate = (wantClip === PLAYER_ANIM_IDLE || wantClip === PLAYER_ANIM_CROUCH)
       ? 1
-      : Math.max(0.5, Math.min(1.8, spd / authored));
+      : Math.max(0.5, Math.min(wantClip === PLAYER_ANIM_RUN ? 2.9 : 2.4, spd / authored));
     animPlay(animPlayer, wantClip, 0.15, rate, true);
     animUpdate(animPlayer, dt, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
@@ -2766,8 +2864,9 @@ function gameFrame(_hostDt: number): void {
   if (PERFTEST) perfTC = getTime();
 
   // Everything from here to endMode2D() is laid out in the logical HUD space
-  // established above. On desktop uiScale is 1 and this is a no-op.
-  if (MOBILE) beginMode2DRaw(0, 0, 0, 0, 0, uiScale);
+  // established above. At uiScale 1 the camera is skipped entirely.
+  const uiCam = uiScale !== 1;
+  if (uiCam) beginMode2DRaw(0, 0, 0, 0, 0, uiScale);
 
   // The in-run HUD - crosshair/spread, hit marker, damage vignette + arc,
   // HP + dodge, score + combo, render-toggle status, ammo/reload/charge,
@@ -2785,6 +2884,7 @@ function gameFrame(_hostDt: number): void {
 
   // SH-038 — the pause / settings menu draws LAST so it sits over the HUD.
   drawMenu(sw, sh);
+  drawArenaNotice(sw, sh);
 
   // Diagnostic HUD — helps verify input is reaching the game. The desktop
   // version is a full-width bar along the bottom, which on a phone lands
@@ -2870,7 +2970,7 @@ function gameFrame(_hostDt: number): void {
     }
   }
 
-  if (MOBILE) endMode2D();
+  if (uiCam) endMode2D();
 
   // The touch controls are drawn *outside* the scaled camera, in raw pixels —
   // they have to land on exactly the coordinates input.ts hit-tests, and it

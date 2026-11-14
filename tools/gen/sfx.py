@@ -58,10 +58,16 @@ SFX.update({
     "blaster_tail":  (1.0, f"The decaying electric hiss and ring after an energy pistol shot, no initial shot, only the fading tail. {NO}"),
     "chain_tail":    (1.6, f"A rotary machine gun spinning down after firing: barrels whirring to a stop with fading echo. {NO}"),
     "cannon_tail":   (2.6, f"The long deep rumbling echo after a heavy cannon blast rolling across hills, no initial blast, only the decaying thunder. {NO}"),
+    # --- third pass (2026-11-14): one fire sound per weapon and a real explosion. Until now the
+    # chaingun and the cannon fired the rifle sample and the cannon's blast was the blaster shot.
+    "chain_fire":    (0.5, f"One single shot from a heavy rotary machine gun: a short, fat, mechanical bark with a hard metallic clack, very short tail. {NO}"),
+    "cannon_fire":   (1.2, f"A heavy energy cannon discharging one charged shot: a deep concussive thump with a crackling electric snap and a low bass punch. {NO}"),
+    "explosion":     (2.0, f"A large explosion at medium distance outdoors: a hard initial crack, a deep booming body, then debris and dirt raining down. {NO}"),
     "step_heavy1":   (0.8, f"One enormous heavy footfall of a giant creature landing on soft earth: deep ground-shaking thud with a little debris. {NO}"),
 })
 for i in range(1, 5):
     SFX[f"step_grass{i}"] = (0.5, f"One single footstep of a booted soldier on dry grass, variation {i}: short soft crunch and rustle. {NO}")
+    SFX[f"step_concrete{i}"] = (0.5, f"One single footstep of a booted soldier on a bare concrete floor indoors, variation {i}: short hard tap with a slight scuff. {NO}")
     SFX[f"step_dirt{i}"] = (0.5, f"One single footstep of a booted soldier on packed dirt and gravel, variation {i}: short gritty crunch. {NO}")
     SFX[f"skitter_light{i}"] = (0.5, f"One quick light claw scrabble of a small creature on hard dirt, variation {i}: a short dry scratchy tick. {NO}")
     SFX[f"skitter_heavy{i}"] = (0.5, f"One heavy clawed footfall of a large creature on dirt, variation {i}: a dull thump with claws scraping. {NO}")

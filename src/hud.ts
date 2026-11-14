@@ -16,7 +16,7 @@
 import { drawRect, drawCircle, getTime } from 'bloom';
 import { drawText, measureText } from './ui-text';
 import { GS } from './gamestate';
-import { ARENA_INDEX } from './world-runtime';
+import { ARENA_INDEX, ARENAS } from './world-runtime';
 import { DIR, wavePlan, countAlive } from './director';
 import { PLAYER_HP_MAX } from './combat';
 import { dodgeCooldownFrac } from './player';
@@ -216,23 +216,29 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
     // On touch the ammo readout sits above the fire button rather than in the
     // corner, where the thumb would cover it.
     const wy = MOBILE ? sh - 210 : sh - 68;
-    drawRect(sw - 260, wy, 250, 18, { r: 0, g: 0, b: 0, a: 150 });
     // Empty mags read red — the one piece of info you need at a glance.
     const ammoCol = curAmmo === 0
       ? { r: 235, g: 90, b: 70, a: 255 }
       : { r: 240, g: 230, b: 180, a: 255 };
     const hint = MOBILE ? '' : (padActive ? '   [Y switch  X reload]' : '   [1-4 switch  R reload]');
-    drawText(wtxt + hint, sw - 252, wy + 3, 13, ammoCol);
+    // Right-anchored and MEASURED: the old fixed 250-unit box was laid out for
+    // the monospace debug font and the line ran off the screen edge.
+    const ammoSize = 16;
+    const ammoLine = wtxt + hint;
+    const ammoW = measureText(ammoLine, ammoSize);
+    const ammoX = sw - 18 - ammoW;
+    drawRect(ammoX - 8, wy - 2, ammoW + 16, 22, { r: 0, g: 0, b: 0, a: 150 });
+    drawText(ammoLine, ammoX, wy, ammoSize, ammoCol);
 
     // Reload progress. A timed reload the player cannot SEE is just an
     // unexplained dead trigger; the bar is what turns it into a decision about
     // when to take cover.
     if (WPN.isReloading()) {
       const rp = WPN.reloadProgress();
-      drawRect(sw - 260, wy - 12, 250, 8, { r: 25, g: 25, b: 30, a: 200 });
-      drawRect(sw - 260, wy - 12, 250 * rp, 8, { r: 120, g: 200, b: 235, a: 240 });
+      drawRect(sw - 268, wy - 12, 250, 8, { r: 25, g: 25, b: 30, a: 200 });
+      drawRect(sw - 268, wy - 12, 250 * rp, 8, { r: 120, g: 200, b: 235, a: 240 });
       const rt = 'RELOADING';
-      drawText(rt, sw - 260, wy - 32, 15, { r: 190, g: 225, b: 245, a: 230 });
+      drawText(rt, sw - 268, wy - 32, 15, { r: 190, g: 225, b: 245, a: 230 });
     }
 
     // Charge meter (cannon). Turns red-hot at full so you can feel the release
@@ -301,7 +307,7 @@ export function drawHud(sw: number, sh: number, padActive: boolean,
   // Unlock banner.
   if (GS.unlockBannerT > 0) {
     const a = Math.floor(Math.min(1, GS.unlockBannerT / 1.0) * 245);
-    const msg = 'CHAINGUN UNLOCKED';
+    const msg = WPN.WEAPON_NAMES[GS.unlockBannerWeapon] + ' UNLOCKED';
     const mw = measureText(msg, 30);
     drawText(msg, (sw - mw) / 2, sh * 0.20, 30, { r: 255, g: 215, b: 120, a: a });
   }
@@ -338,11 +344,24 @@ export function drawOverlays(sw: number, sh: number): void {
     drawText(sub, (sw - sww) / 2, sh * 0.28 + 206, 22, { r: 220, g: 220, b: 220, a: 230 });
   }
 
-  // SH-040 — level chosen, but it loads on the next launch. Say so plainly
-  // rather than letting the player wonder why nothing happened.
-  if (GS.levelChangeT > 0) {
+}
+
+/// The arena-change cover / notice. Its own call, AFTER drawMenu(), because the
+/// LOADING cover has to hide the menu the choice was made in.
+export function drawArenaNotice(sw: number, sh: number): void {
+  // SH-040 — an arena was chosen. Normally the game relaunches into it behind a
+  // full-screen LOADING cover (mode 1). Where the OS does not let an app
+  // relaunch itself (mode 2) say what to do, plainly.
+  if (GS.levelChangeT > 0 && GS.levelChangeMode === 1) {
+    drawRect(0, 0, sw, sh, { r: 6, g: 7, b: 10, a: 255 });
+    const lm = 'LOADING ' + ARENAS[GS.levelChangeArena].name.toUpperCase();
+    const lw = measureText(lm, 34);
+    drawText(lm, (sw - lw) / 2, sh * 0.46, 34, { r: 235, g: 225, b: 180, a: 255 });
+  } else if (GS.levelChangeT > 0) {
     const a = Math.floor(Math.min(1, GS.levelChangeT / 0.5) * 240);
-    const msg = 'ARENA SET - RESTART THE GAME TO PLAY IT';
+    const msg = GS.levelChangeMode === 3
+      ? ARENAS[GS.levelChangeArena].name.toUpperCase() + ' IS ALREADY LOADED'
+      : 'ARENA SAVED - CLOSE AND REOPEN THE GAME TO PLAY IT';
     const mw = measureText(msg, 22);
     drawRect((sw - mw) / 2 - 16, sh * 0.16 - 8, mw + 32, 40,
              { r: 10, g: 10, b: 14, a: Math.floor(a * 0.8) });

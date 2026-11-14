@@ -1803,3 +1803,37 @@ probe is the single source; `river` skips the probe. Top-centre HUD line
 shows the mode + live geometry. Dormant unless the flag is passed (same
 contract as the other harnesses); verified live — probe voice id 8, orbit
 angle advancing, all three modes + the normal no-flag path boot clean.
+
+---
+
+## SH-054 — The shooter runs in the browser (WASM + WebGPU) ✅ *(shipped 2026-07-18, PR #38)*
+
+Registered after the fact: the work landed without an entry here. `tools/build-web.sh`
+produces `dist/web`; the frame body runs through `runGame(gameFrame)` (blocking loop on
+native, rAF on web). Notes: `CLAUDE.md`, "Web (browser, WASM + WebGPU)". Engine side: EN-063.
+
+## SH-055 — AAA plan, Phase 0: bugs and hygiene ✅ *(shipped 2026-11-14)*
+
+The first phase of `docs/aaa-plan.md`, which came out of the 2026-11-14 audit. (The November
+overhaul itself — original cast, regenerated sounds, release tooling, MIT — was committed the
+same day as `3d814a0` and has no ticket of its own.)
+
+| Plan item | What changed | Checked how |
+|---|---|---|
+| 0.1 HUD clipping | Desktop and web lay the HUD out against a 1080-unit-tall space (`src/main.ts`), and the ammo line is measured and right-anchored (`src/hud.ts`) | COMBATSHOT capture at 3456x2168: the whole line is on screen. The scaled path (uiScale != 1) is the mobile one; not seen on a 4K-at-100% desktop here |
+| 0.2 Cannon unreachable | First arena unlocks the chaingun, any later one the cannon; the banner names the weapon | read, compiled; not played to a victory |
+| 0.3 Arena select | Relaunches into the chosen arena behind a LOADING cover, via the new engine `restartApp()` | temporary build: picked arena_03 from arena_02, the process came back up with arena_03's world. **iOS / tvOS / Android cannot relaunch an app and still ask the player to reopen it** — a true in-process reload stays open |
+| 0.4 Foot-slide | Clip speeds measured in Blender (walk 1.7, run 3.25, crouch-walk 0.5 m/s); normal movement now uses the run clip at 1.4x instead of the walk clip clamped at 1.8x of a needed 2.8x | measured + compiled; **crouch still slides** (the clip is 4x too slow for the 2.0 m/s crouch) until the Trooper gets a faster one |
+| 0.5 Weapon sounds | `chain_fire`, `cannon_fire`, `explosion` generated; one sound per weapon, the rifle alternates two | boots with the files loaded; **nobody has listened to the new sounds yet** |
+| 0.6 Ranged line of sight | A ray against the static world gates the wind-up | read, compiled; not observed in play |
+| 0.7 Explosion death path | Self-damage only while a run is live, and reported like any other hit | read, compiled |
+| 0.8 Footstep surfaces | water / concrete (house footprint) / dirt (river bank, painted dirt-mud-rock layers) / grass; `step_concrete1-4` generated | read, compiled; not listened to |
+| 0.9 Touch + pad | Touch gains AIM, DASH, DUCK and pause; the pad crouches on right-stick click | compiled; **not tried on a device or with a pad** |
+| 0.10 Colossus slam | 0.6 s rooted wind-up, lands on whoever is still in reach | temporary build: wind-up 0.62 s, hit for 35, stepping 6 m away during the wind-up made it miss |
+| 0.11 Android script | Refuses to run with uncommitted asset changes | `bash -n`; the guard itself not exercised |
+| 0.12 Bundle exclusions | One list, `tools/release/assets_bundle.py`, used by TestFlight, web and Android | pruning tested on a throwaway tree; no full web/Android/TestFlight build was made |
+| 0.13 GPL leftovers | Unvanquished models, their converters and three old music files deleted from the tree | game boots and plays without them |
+| 0.14 Docs | README rewritten, July documents bannered as historical, enemy names migrated in the world files (old names still accepted) | boots with the migrated arenas |
+| 0.15 Leftovers | Dead constants, stale comments, the retired colour-blind key | compiled |
+
+Engine: `restartApp()` / `bloom_restart_app` on all nine platform crates.

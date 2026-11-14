@@ -23,7 +23,6 @@ import { existsSync, mkdirSync } from 'fs';
 import { requireFfmpeg } from './imgutil';
 
 const OUT_DIR = 'assets/sounds';
-const VENDOR  = 'vendor/unvanquished';
 
 interface Sfx {
   /// Output filename under assets/sounds/.
@@ -51,38 +50,15 @@ interface Sfx {
 }
 
 // ---- the manifest -----------------------------------------------------------
-// Kinds are 0..4 = dretch, mantis, marauder, dragoon, tyrant, matching
-// KIND_NAME in main.ts and the Unvanquished level0..level4 classes.
 
 const SOUNDS: Sfx[] = [];
 
 function add(s: Sfx) { SOUNDS.push(s); }
 
-// Alien vocals — the same GPL asset line as the models.
-for (let k = 0; k < 5; k++) {
-  for (let v = 1; v <= 3; v++) {
-    add({ out: `alien${k}_die${v}.wav`,
-          src: `${VENDOR}/pkg/res-legacy_src.dpkdir/sound/player/level${k}/death${v}.flac`,
-          channels: 1 });
-  }
-  add({ out: `alien${k}_pain.wav`,
-        src: `${VENDOR}/pkg/res-legacy_src.dpkdir/sound/player/level${k}/pain50_1.flac`,
-        channels: 1 });
-}
-// Attacks come from different places per class (grab vs muzzle flash) — this
-// asymmetry is precisely the sort of thing that was living only in a shell
-// history.
-add({ out: 'alien0_attack.wav', src: `${VENDOR}/pkg/res-legacy_src.dpkdir/models/weapons/level0/flash0.flac`, channels: 1 });
-add({ out: 'alien1_attack.wav', src: `${VENDOR}/pkg/res-legacy_src.dpkdir/sound/player/level1/grab.flac`,     channels: 1 });
-for (let k = 2; k <= 4; k++) {
-  add({ out: `alien${k}_attack.wav`,
-        src: `${VENDOR}/pkg/res-legacy_src.dpkdir/models/weapons/level${k}/flash0.flac`,
-        channels: 1 });
-}
-
-add({ out: 'impact_flesh.wav', src: `${VENDOR}/pkg/res-legacy_src.dpkdir/models/weapons/level2/impactflesh0.flac`, channels: 1 });
-add({ out: 'ricochet1.wav',    src: `${VENDOR}/pkg/res-legacy_src.dpkdir/models/weapons/rifle/ricochet0.flac`,     channels: 1 });
-add({ out: 'ricochet2.wav',    src: `${VENDOR}/pkg/res-legacy_src.dpkdir/models/weapons/rifle/ricochet1.flac`,     channels: 1 });
+// (The alien vocals, the flesh impact and the ricochets used to be converted
+// here from the Unvanquished packs (GPLv3). They are generated sounds now —
+// tools/gen/sfx.py — and those rows were removed with the relicensing to MIT
+// on 2026-11-14, so this tool can no longer put GPL audio back.)
 
 // ---- Sonniss GDC 2024 (royalty-free game use; see assets/sounds/SOURCES.md) --
 // Not a submodule: extract the needed packs from the bundle zip into
@@ -189,10 +165,8 @@ console.log(`\n${done} converted, ${skipped} already present, ${missing} missing
 if (missing > 0) {
   console.log(
     `\n${missing} source file(s) are not on disk. This is expected on a fresh\n` +
-    `clone: the Unvanquished sources are a submodule and are NOT vendored here.\n` +
+    `clone: the Sonniss packs are not vendored (see assets/sounds/SOURCES.md).\n` +
     `The committed .wav files in assets/sounds/ are the shipped result — you only\n` +
-    `need these sources to RE-cut them.\n\n` +
-    `  git clone --recurse-submodules \\\n` +
-    `      https://github.com/UnvanquishedAssets/UnvanquishedAssets ${VENDOR}\n`);
+    `need the sources to RE-cut them.\n`);
   if (list) for (const m of missingSrcs) console.log('  ' + m);
 }

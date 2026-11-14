@@ -1,5 +1,7 @@
 # Asset TODO — things only you can do
 
+> **Historical (banner added 2026-11-14).** This document describes July 2026. The "synthesised stand-in" sounds (A1, A2, A5, A6, A8, A9) are generated files now (`tools/gen/sfx.py`), M1/M2 (Unvanquished weapons and advanced kinds) were replaced by the original cast, `arena_03` exists, and EN-033/EN-039 shipped. Still true: A3 (the wind bed is muted) and M3 (a third playable arena). The current plan is `docs/aaa-plan.md`.
+
 Running tab of work that is **not** a software problem: assets I could
 not source or generate myself, and decisions that need a human. Kept
 in priority order. Everything else in `docs/tickets.md` is being done

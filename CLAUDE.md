@@ -42,9 +42,10 @@ see SH-052) — runnable with
   standard world schema (`engine/src/world/types.ts`). The editor at
   `../editor/` round-trips these files unmodified.
 - `tools/` — offline converters + glTF diagnostics. Run with `bun`.
-- `assets/models/` — committed GLBs. Regenerate via
-  `bun tools/convert-aliens-anim.ts` (skinned aliens + player) and
-  `bun tools/build-props.ts` (trees/props).
+- `assets/models/` — committed GLBs, built by the asset pipeline below
+  (`tools/gen/`, `tools/blender/`).
+- `docs/aaa-plan.md` — the current plan: what is missing for AAA quality, in
+  order. Phase 0 (bugs and hygiene) landed 2026-11-14.
 
 ## Read before changing things
 
@@ -79,7 +80,6 @@ npm run build                          # compile only
 npm run assets                         # rebuild props + terrain visual mesh
 perry compile src/main.ts -o main      # raw compile
 ./main                                  # play
-bun tools/convert-aliens-anim.ts       # regenerate animated alien GLBs
 bun tools/validate-glb.ts <path>       # glTF-validator report
 bun tools/fetch-external-textures.ts   # re-download the CC0 photoscan sources
 bun tools/build-terrain-textures.ts    # rebuild the 4 terrain splat layers
@@ -90,6 +90,11 @@ bun tools/build-building-textures.ts   # rebuild the building wall/slab slices
 bun tools/web-check.ts                 # headless-Edge boot check (console + screenshot)
 bun tools/web-play-check.ts            # drives PLAY, walks, fires, screenshots gameplay
 ```
+
+Every bundle (TestFlight, web, Android) trims its COPY of `assets/` through one list,
+`tools/release/assets_bundle.py`: add an exclusion there, not in a build script.
+`tools/build-android.sh` refuses to start while `assets/` has uncommitted changes, because it
+restores that folder from git after Perry's bundling step.
 
 ### Web (browser, WASM + WebGPU)
 
@@ -131,7 +136,9 @@ Four things about this target are load-bearing and non-obvious:
 - **The screen is reported in pixels, not points** (engine EN-024). Every
   hardcoded HUD offset would come out a third of its intended size on a 3x
   phone, so `main.ts` lays the HUD out in a ~1000-unit logical space and scales
-  the whole 2D pass through `beginMode2DRaw`'s zoom. The touch controls are
+  the whole 2D pass through `beginMode2DRaw`'s zoom. (Desktop and web do the same
+  against a 1080-unit-tall space, so the HUD holds its size at 4K; anchor
+  right-edge text with `measureText`, never a fixed offset.) The touch controls are
   drawn *outside* that camera, in raw pixels, because they have to land on
   exactly the coordinates `input.ts` hit-tests.
 - **Touch slots are sparse.** Scan `0..getMaxTouchPoints()` and skip slots
@@ -176,8 +183,9 @@ the view moves, and the phone has no headroom to absorb the stall.
 
 Characters, weapons and props are generated, not converted: a photoreal concept image, Tripo Studio
 (Ralph's account, through his Chrome with the Claude in Chrome extension), then Blender. The older
-Unvanquished-derived GLBs and their converters (`tools/convert-*.ts`) are being retired; do not run
-`npm run assets` or `bun tools/convert-aliens-anim.ts` without reading what they overwrite.
+Unvanquished-derived GLBs and their converters were removed from the tree on 2026-11-14. Do not run
+`npm run assets` without reading what it overwrites: `build-props.ts`, `build-weapons.ts` and
+`build-vfx-textures.ts` are the older procedural generators and write over the generated models.
 
 1. **Concept**: `art/style/photoreal/<name>/prompt.txt` -> `front-1.png` with
    `tools/gen/codex_image.sh <out.png> <WxH> <prompt.txt> [reference images]` (Codex CLI image
@@ -268,6 +276,16 @@ What lives in the world file:
 Adding a new kind = bucket it in `src/world-runtime.ts` and consume the
 array in `main.ts`. Nothing to regenerate.
 
+**Changing arena relaunches the game.** Everything above is read into module-level tables at
+startup, so the level select writes the choice to `level.txt` and calls the engine's `restartApp()`
+(exec in place on macOS/Linux, successor process on Windows, page reload on web). iOS, tvOS and
+Android cannot relaunch an app: there the game asks the player to reopen it. A true in-process
+reload would need those tables to become reloadable state and an engine teardown path for
+colliders, scatters and GI proxies.
+
+Wave configs name enemies by their current names (`skitter`, `stalker`, `ravager`, `bruiser`,
+`colossus`, `spitter`, `bombard`); the old Unvanquished class names are still accepted.
+
 **Terrain painting.** `terrain.layers` is a splat map: layer i's `weights`
 (one per grid cell) become channel i of an RGBA8 texture, and `terrain.wgsl`
 mixes it OVER its procedural slope/moisture/riverbed blend by *coverage* (the
@@ -312,6 +330,6 @@ editor, hit Play, and it is there — no bake step.
 
 ## License
 
-The repository is MIT (`LICENSE`, since 2026-11-14). Release builds contain no Unvanquished-derived
-assets; the legacy GLBs still in `assets/models/` stay GPLv3, are not covered by the MIT licence and
-must not ship (see `assets/LICENSE.md`).
+The repository is MIT (`LICENSE`, since 2026-11-14). The Unvanquished-derived (GPLv3) models and
+their converters were deleted from the tree the same day; do not restore them from history. What
+ships and under which terms: `assets/LICENSE.md`.

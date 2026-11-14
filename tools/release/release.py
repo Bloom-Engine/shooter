@@ -249,33 +249,9 @@ def compress_assets():
         run([str(script)])
 
 
-# Models the game no longer loads (the Unvanquished-derived originals, superseded by the
-# photoreal cast) and build inputs. Remove a name here once its file is deleted from the repo.
-UNUSED_MODELS = ("enemy_dretch", "enemy_mantis", "enemy_marauder", "enemy_adv_marauder",
-                 "enemy_dragoon", "enemy_tyrant", "player_bsuit",
-                 "prop_flower", "prop_grasstuft")
-
-
-def prune_assets(assets):
-    """Trim a bundle's COPY of assets/ to what the game loads. Every model that has an ASTC copy
-    ships as that copy under the plain name: the game asks for <model>.glb, and the engine reads
-    KTX2/ASTC images from a GLB like any other (the GPU keeps them compressed)."""
-    if assets.is_symlink() or assets.resolve() == (ROOT / "assets").resolve():
-        sys.exit(f"refusing to prune {assets}: it is the repository's assets folder, not a copy")
-    for name in UNUSED_MODELS:
-        for f in assets.glob(f"models/{name}*.glb"):
-            f.unlink()
-    for astc in assets.rglob("*.astc.glb"):
-        astc.replace(astc.with_name(astc.name.replace(".astc.glb", ".glb")))
-    for pattern in ("*.report.json", ".DS_Store", ".gitkeep", "SOURCES.md", "SUNO-PROMPTS.md"):
-        for junk in assets.rglob(pattern):
-            junk.unlink()
-    for junk_dir in ("music/src", "textures/external"):   # build inputs, never loaded at runtime
-        shutil.rmtree(assets / junk_dir, ignore_errors=True)
-    # Old music/ambience of unrecorded origin: only a fallback for missing assets/music stems.
-    if (assets / "music/music_calm.ogg").exists() and (assets / "music/music_menu.ogg").exists():
-        for old in ("menu.ogg", "game.ogg", "ambient.ogg", ".generated"):
-            (assets / "sounds" / old).unlink(missing_ok=True)
+# What a bundle's copy of assets/ keeps is decided in ONE place, shared with the web and Android
+# builds: tools/release/assets_bundle.py.
+from assets_bundle import prune_assets  # noqa: E402
 
 
 def perry_compile(platform, out_path):

@@ -1,5 +1,7 @@
 # Round-2 Audit — Bloom Shooter + Engine (2026-07-04)
 
+> **Historical (banner added 2026-11-14).** This document describes the game and engine as of 2026-07-04. The current plan is `docs/aaa-plan.md`.
+
 Second full audit of the shooter (`main` @ af98dbe) and engine (`main` @
 f8614c6) after the round-1 merge. Goal unchanged: **Unreal-level graphics
 with raylib/Unity simplicity.**

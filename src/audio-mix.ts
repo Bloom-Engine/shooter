@@ -49,6 +49,7 @@ function play3d(s: Sound, x: number, y: number, z: number): void {
 const STEP_VARIANTS = 4;
 const stepGrass = new Array<Sound>(STEP_VARIANTS);
 const stepDirt  = new Array<Sound>(STEP_VARIANTS);
+const stepConcrete = new Array<Sound>(STEP_VARIANTS);
 let stepWater: Sound = NO_SOUND;
 let stepHeavy: Sound = NO_SOUND;   // tyrant
 
@@ -134,6 +135,8 @@ export function initAudioMix(): void {
   for (let i = 0; i < STEP_VARIANTS; i++) {
     stepGrass[i] = optional('assets/sounds/step_grass' + (i + 1) + '.wav', 0.30, BUS_SFX, 0.15);
     stepDirt[i]  = optional('assets/sounds/step_dirt' + (i + 1) + '.wav',  0.30, BUS_SFX, 0.15);
+    // Indoors: more of it goes to the reverb send, which is what makes a room.
+    stepConcrete[i] = optional('assets/sounds/step_concrete' + (i + 1) + '.wav', 0.30, BUS_SFX, 0.35);
   }
   stepWater = optional('assets/sounds/splash1.wav', 0.30, BUS_SFX, 0.1);
   stepHeavy = optional('assets/sounds/step_heavy1.wav', 0.55, BUS_SFX, 0.25);
@@ -196,7 +199,8 @@ export function applyVolumes(): void {
 /// (not timer-based) so the cadence automatically matches sprinting, walking
 /// and being slowed, without a single extra branch.
 ///
-/// `surface`: 0 grass, 1 dirt, 2 water.
+/// `surface`: 0 grass, 1 dirt, 2 water, 3 concrete (falls back to dirt if the
+/// concrete files are missing).
 /// Returns true on the frames a step actually fired, so the caller can kick up
 /// dust in the same instant (SH-033).
 export function updateFootsteps(
@@ -212,7 +216,9 @@ export function updateFootsteps(
   const v = Math.floor(Math.random() * STEP_VARIANTS);
   if (surface === 2) {
     play3d(stepWater, x, y, z);
-  } else if (surface === 1) {
+  } else if (surface === 3 && stepConcrete[v].handle !== 0) {
+    play3d(stepConcrete[v], x, y, z);
+  } else if (surface === 1 || surface === 3) {
     play3d(stepDirt[v], x, y, z);
   } else {
     play3d(stepGrass[v], x, y, z);

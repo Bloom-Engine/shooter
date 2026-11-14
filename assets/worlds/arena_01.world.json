@@ -268,7 +268,7 @@
       ],
       "userData": {
         "kind": "enemy_spawner",
-        "enemyType": "dretch",
+        "enemyType": "skitter",
         "waveBits": "1,2,3",
         "maxAlive": "3",
         "cooldown": "1.2"
@@ -302,7 +302,7 @@
       ],
       "userData": {
         "kind": "wave_config",
-        "waves": "[{\"count\":5,\"enemy\":\"dretch\"},{\"count\":10,\"enemy\":\"dretch\"},{\"count\":20,\"enemy\":\"dretch\"}]"
+        "waves": "[{\"count\":5,\"enemy\":\"skitter\"},{\"count\":10,\"enemy\":\"skitter\"},{\"count\":20,\"enemy\":\"skitter\"}]"
       }
     }
   ],

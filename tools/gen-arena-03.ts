@@ -226,9 +226,9 @@ while (placed < TREES && attempts < 4000) {
 
 // Waves — ranged pressure from wave 1 (SH-042 acceptance).
 const waves = [
-  { count: 5, enemy: 'dretch,dretch,mantis,adv_marauder,dretch' },
-  { count: 8, enemy: 'mantis,marauder,adv_marauder,dretch,dragoon,adv_marauder,mantis,marauder' },
-  { count: 12, enemy: 'dragoon,adv_dragoon,marauder,adv_marauder,mantis,adv_dragoon,marauder,adv_marauder,dretch,dragoon,mantis,tyrant' },
+  { count: 5, enemy: 'skitter,skitter,stalker,spitter,skitter' },
+  { count: 8, enemy: 'stalker,ravager,spitter,skitter,bruiser,spitter,stalker,ravager' },
+  { count: 12, enemy: 'bruiser,bombard,ravager,spitter,stalker,bombard,ravager,spitter,skitter,bruiser,stalker,colossus' },
 ];
 entities.push(ent('waves', GIZMO, [0, 0, 0], 0, 1, null, ['logic'],
   { kind: 'wave_config', waves: JSON.stringify(waves) }));

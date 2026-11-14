@@ -64,13 +64,10 @@ export const ALIEN_GLB = [
   'assets/models/enemy_bombard.glb',
 ];
 
-// 2026-07-16 audit — per-kind base tint (an albedo multiplier; shading and
-// normal maps are untouched). Exists for one reason: the adv dragoon is the
-// only RANGED heavy in the game and, with upstream art identical to the melee
-// dragoon, a player could not tell which threat was closing until the barb
-// was already in the air. The violet shift reads at combat distance and
-// matches the "upgrade classes run cooler" language the adv marauder's real
-// recolour already speaks. Everyone else stays white (multiplier of 1).
+// Per-kind base tint (an albedo multiplier; shading and normal maps are
+// untouched). All white since the 2026-11 cast: every kind has its own model
+// now, so nothing needs a recolour to be told apart. The table stays because
+// the draw path multiplies by it and a tint is the cheapest elite/variant hook.
 export const KIND_TINT_R = [255, 255, 255, 255, 255, 255, 255];
 export const KIND_TINT_G = [255, 255, 255, 255, 255, 255, 255];
 export const KIND_TINT_B = [255, 255, 255, 255, 255, 255, 255];
@@ -120,13 +117,6 @@ export const KIND_IDLE_IDX    = [ 5,  5,  5,  5,  5,  5,  5];
 // time (t % duration), so death playback clamps just short of these to
 // freeze on the final collapsed pose instead of re-looping the fall.
 export const ANIM_DIE_DUR    = [2.35, 2.35, 2.35, 2.35, 2.35, 2.35, 2.35];
-// Procedural motion parameters (cheap substitute for skeletal animation).
-// Each enemy has a phase accumulator — sinusoids on top give a bob + side-
-// sway while walking, and a forward-lunge while attacking.
-export const WALK_BOB_Y = 0.12;       // metres
-export const WALK_BOB_RATE = 9.0;     // rad/s
-export const WALK_TILT = 0.06;        // unused; kept for future side-sway
-export const ATTACK_LUNGE_AMP = 0.25; // m forward during attack
 // Per-kind tuning. Collider half-extents are generous (taller than the visual
 // model) so horizontal aim at any range connects.
 // Round-6 rescale — the GLBs have wildly different native sizes (engine

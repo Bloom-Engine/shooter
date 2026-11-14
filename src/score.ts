@@ -10,8 +10,8 @@
 
 import { setBestScore, bestScore } from './settings';
 
-// Points per kind, in enemies.ts kind order (dretch, mantis, marauder,
-// dragoon, tyrant, adv marauder, adv dragoon), scaled by the combo
+// Points per kind, in enemies.ts kind order (skitter, stalker, ravager,
+// bruiser, colossus, spitter, bombard), scaled by the combo
 // multiplier. The two SH-042 upgrade kinds are RANGED and tougher than their
 // base classes — they pay ~1.5x. (This table sat at 5 entries for a while,
 // so both adv kinds fell to the 10-point fallback: less than a mantis.)

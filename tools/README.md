@@ -26,13 +26,10 @@ cd ../..
 
 ## Converters
 
-| Script                       | Purpose                                                    |
-|------------------------------|------------------------------------------------------------|
-| `convert-aliens-anim.ts`     | The main one. Parses all 5 alien IQEs and emits skinned + animated `.glb`s with 18-24 animations each. Applies Z-up → Y-up via X90 rotation on root joints + vertices. |
-| `convert-aliens.ts`          | Older static-only version, superseded by `convert-aliens-anim.ts`. Kept as the simplest working reference for IQE → glTF with multi-primitive meshes. |
-
-(`convert-arena.ts` and its `arena.glb` were removed in the 2026-07-16 audit:
-the runtime world replaced the textured hall long ago and nothing loaded it.)
+The Unvanquished converters (`convert-aliens-anim.ts`, `convert-aliens.ts`,
+`convert-weapons.ts`) were removed on 2026-11-14 together with the models they
+produced. The cast, weapons and props are built by `tools/gen/` and
+`tools/blender/` now; see "Asset pipeline" in `../CLAUDE.md`.
 
 ## Diagnostics
 
@@ -43,12 +40,8 @@ the runtime world replaced the textured hall long ago and nothing loaded it.)
 | `dump-nodes.ts <path>`       | One line per node with name + mesh/skin flags + children. Useful for comparing against a reference GLB. |
 | `diag-skin.ts [<path>]`      | For each joint, prints `|rest_world · IBM − I|_∞`. A good IBM should be numerically close to identity (≲ 1e-7). |
 
-## Typical regeneration flow
+## Typical check
 
 ```sh
-bun tools/convert-aliens-anim.ts
-bun tools/validate-glb.ts assets/models/enemy_dretch.glb    # sanity check
+bun tools/validate-glb.ts assets/models/enemy_skitter.glb
 ```
-
-Assets regenerated in `assets/models/` should be bit-close to the
-committed ones (deterministic modulo float noise in the IBMs).

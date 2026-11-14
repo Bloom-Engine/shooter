@@ -1,5 +1,7 @@
 # Asset pipeline
 
+> **Historical (banner added 2026-11-14).** This document describes the Unvanquished IQE to glTF conversion the game used until November 2026. The converters and their output were removed from the tree on 2026-11-14; the current pipeline is in CLAUDE.md under "Asset pipeline". Kept for the Z-up to Y-up and skinning notes. The current plan is `docs/aaa-plan.md`.
+
 All runtime art is generated offline by TypeScript scripts in `tools/`
 from the Unvanquished source packs cloned under `vendor/unvanquished/`.
 The converters produce glTF 2.0 `.glb` files that Bloom loads via

@@ -103,12 +103,18 @@ function worldFromArgs(): string {
 const ARG_WORLD = worldFromArgs();
 const WORLD_PATH = ARG_WORLD.length > 0 ? ARG_WORLD : ARENAS[ARENA_INDEX].path;
 
-/// Called by the level-select UI. Writes the choice and returns true; the game
-/// re-reads it on the next launch (the world's colliders, scatters and GI
-/// proxies are all built at startup, so a mid-run swap would mean tearing all
-/// of that down — EN-032's async load is the ticket that makes it seamless).
+/// Called by the level-select UI. Writes the choice; the game re-reads it when
+/// it starts. The world's colliders, scatters and GI proxies are all built once
+/// at startup from module-level tables, so the arena is applied by RELAUNCHING
+/// (main.ts calls the engine's restartApp() right after this) rather than by
+/// tearing the running world down. PICKED.index is what was just chosen, so the
+/// caller can tell "a different arena" from "the one already loaded".
+export const PICKED = { index: ARENA_INDEX };
 export function selectArena(id: string): void {
   writeFileRaw(SELECTED_PATH, id);
+  for (let i = 0; i < ARENA_COUNT; i++) {
+    if (ARENAS[i].id === id) PICKED.index = i;
+  }
 }
 
 // Small local wrapper so the import list above stays honest about what it uses.
@@ -445,11 +451,15 @@ for (let i = 0; i < PICKUP_COUNT; i++) {
 // where `enemy` may be a comma-separated sequence so one wave can mix kinds.
 // Expanded here into two flat arrays, once, so the wave director never parses.
 
-// SH-042 — order IS the kind index (main.ts's KIND_NAME / KIND_* tables index
-// by it). The last two are Unvanquished's upgrade classes, and they are the
-// game's only RANGED enemies.
-const ENEMY_KIND_NAMES = ['dretch', 'mantis', 'marauder', 'dragoon', 'tyrant',
-                          'adv_marauder', 'adv_dragoon'];
+// SH-042 — order IS the kind index (the KIND_* tables in enemies.ts index by
+// it). The last two are the game's only RANGED enemies.
+const ENEMY_KIND_NAMES = ['skitter', 'stalker', 'ravager', 'bruiser', 'colossus',
+                          'spitter', 'bombard'];
+// The names world files used before the 2026-11 cast (the Unvanquished class
+// each slot started as). Still accepted, so an older or hand-edited world
+// loads the same waves; the shipped arenas were migrated on 2026-11-14.
+const ENEMY_KIND_LEGACY = ['dretch', 'mantis', 'marauder', 'dragoon', 'tyrant',
+                           'adv_marauder', 'adv_dragoon'];
 
 const waveEnts = bucket('wave_config');
 let planCount = 0;
@@ -482,10 +492,10 @@ if (waveEnts.length > 0) {
       const names = w.enemy.split(',');
       const nameCount = names.length;
       for (let k = 0; k < count; k++) {
-        const name = nameCount > 0 ? names[k % nameCount].trim() : 'dretch';
+        const name = nameCount > 0 ? names[k % nameCount].trim() : 'skitter';
         let id = 0;
         for (let n = 0; n < ENEMY_KIND_NAMES.length; n++) {
-          if (ENEMY_KIND_NAMES[n] === name) { id = n; break; }
+          if (ENEMY_KIND_NAMES[n] === name || ENEMY_KIND_LEGACY[n] === name) { id = n; break; }
         }
         waveKind[off + k] = id;
       }

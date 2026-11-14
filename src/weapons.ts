@@ -6,7 +6,8 @@
 //
 // The four systems that give a shooter its gunfeel all interact, so they live
 // together: spread grows as you hold the trigger and recovers when you stop;
-// recoil walks the camera and recovers toward where you were aiming; aiming
+// recoil walks the camera (and stays where it walked it: there is no automatic
+// return to the original aim yet, the player pulls it back down); aiming
 // tightens both; reloading takes time you can be punished for.
 //
 // Every weapon is a ROW in the stat table, not a branch in the code — adding
@@ -16,8 +17,8 @@ const MAX_WEAPONS = 4;
 
 export const W_RIFLE   = 0;
 export const W_BLASTER = 1;
-export const W_CHAIN   = 2;   // unlocked by clearing arena_01 (SH-041)
-export const W_CANNON  = 3;   // unlocked by clearing arena_02
+export const W_CHAIN   = 2;   // unlocked by clearing the first arena in arenas.json
+export const W_CANNON  = 3;   // unlocked by clearing any later arena (director.ts)
 
 export const WEAPON_COUNT = MAX_WEAPONS;
 export const WEAPON_NAMES = ['RIFLE', 'BLASTER', 'CHAINGUN', 'CANNON'];

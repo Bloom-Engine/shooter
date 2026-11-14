@@ -1,5 +1,7 @@
 # Performance audit — July 2026 (35 fps investigation)
 
+> **Historical (banner added 2026-11-14).** This document describes measurements from July 2026 on the Windows dev box, before the new cast, the 4K bakes and the 80k grass tufts. Nothing here has been re-measured since; see docs/aaa-plan.md 7.1. The current plan is `docs/aaa-plan.md`.
+
 > ## Re-measured 2026-07-15 — the shipped defaults are at ~28 fps, and enemies are not why
 >
 > Everything below was measured at **render scale 0.5**. The default has since

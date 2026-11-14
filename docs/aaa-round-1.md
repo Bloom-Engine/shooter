@@ -1,5 +1,7 @@
 # AAA round 1 — feel, VFX, audio, structure
 
+> **Historical (banner added 2026-11-14).** This document describes the round that landed 2026-07-12. Its "assets missing" rows (footsteps, tails, music stems) have since been filled, and EN-039 is fixed. The current plan is `docs/aaa-plan.md`.
+
 What landed against the gap audit (`docs/tickets.md`), what is verified, and
 what is honestly still open. Written 2026-07-12.
 

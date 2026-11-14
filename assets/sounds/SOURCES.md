@@ -33,9 +33,11 @@ files whose origin was never recorded. Prompts are in the tool; file names are u
 | `reload_start.wav`, `reload_end.wav`, `ui_move.wav`, `ui_select.wav` | reload and interface |
 | `rifle_tail.wav`, `blaster_tail.wav`, `chain_tail.wav`, `cannon_tail.wav` | weapon echo tails |
 | `ambient_wind.wav` | wind bed (seamless loop) |
+| `chain_fire.wav`, `cannon_fire.wav`, `explosion.wav` | one shot per weapon and the cannon's blast (2026-11-14; before that the chaingun and cannon fired the rifle sample) |
+| `step_concrete{1-4}.wav` | footsteps inside the house (2026-11-14) |
 
-`tools/convert-audio.ts` still lists the Unvanquished sources for these names: do not run it with
-`--force`, it would put the GPL files back.
+`tools/convert-audio.ts` no longer lists the Unvanquished sources for these names (removed
+2026-11-14); it only cuts the Sonniss river loop now.
 
 ## Sonniss GDC 2024 Game Audio Bundle (royalty-free game-use license)
 
@@ -49,11 +51,6 @@ game-ready files are committed, never pack folders.
 | `blaster_fire.wav` | BluezoneCorp — Sci Fi Weapon, gun_shot_008 |
 | `splash1.wav` | BluezoneCorp — Designed Water, impact_006 (first 1.2 s) |
 | `river_loop.wav` | Bolt — Immersive Creek (Vermont), Babbling Brook XY pair; 32 s seamless loop cut at 49 s by `tools/convert-audio.ts` (SH-052b — window chosen by RMS/brightness variance scan, equal-power tail-over-head loop fade) |
-
-## Pre-existing (provenance predates this file)
-
-`menu.ogg`, `game.ogg`, `ambient.ogg`: old music/ambience, only used as a fallback when
-`assets/music/music_*.ogg` are missing; release bundles leave them out.
 
 ## Synthesised by `tools/gen-sfx.ts` — superseded
 

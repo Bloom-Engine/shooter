@@ -25,10 +25,13 @@ alien4_die3
 alien4_pain
 ambient_wind
 blaster_tail
+cannon_fire
 cannon_tail
+chain_fire
 chain_tail
 crawl_loop
 dretch_attack
+explosion
 impact_flesh
 pickup
 player_die1
@@ -49,6 +52,10 @@ skitter_light1
 skitter_light2
 skitter_light3
 skitter_light4
+step_concrete1
+step_concrete2
+step_concrete3
+step_concrete4
 step_dirt1
 step_dirt2
 step_dirt3

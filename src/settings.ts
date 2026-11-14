@@ -197,7 +197,6 @@ export function loadSettings(): void {
 
   const ac: any = o['access'];
   V[SET_SHAKE]      = num(ac, 'shake',      V[SET_SHAKE]);
-  V[SET_COLORBLIND] = num(ac, 'colorblind', V[SET_COLORBLIND]);
   V[SET_CAPTIONS]   = num(ac, 'captions',   V[SET_CAPTIONS]);
 
   const m: any = o['meta'];
@@ -229,7 +228,6 @@ export function saveSettings(): void {
         + ', "bloom": ' + V[SET_BLOOM]
         + ', "pathTracing": ' + V[SET_PT] + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]
-        + ', "colorblind": ' + V[SET_COLORBLIND]
         + ', "captions": ' + V[SET_CAPTIONS] + ' },\n';
   s = s + '  "meta": { "unlocks": ' + M[0];
   for (let i = 0; i < MAX_ARENAS; i++) {

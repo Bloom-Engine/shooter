@@ -5,11 +5,10 @@ A third-person arena wave shooter built in TypeScript on the
 [Perry](https://github.com/PerryTS/perry). MIT licensed; the art and
 audio are original to this game (see [assets/LICENSE.md](assets/LICENSE.md)).
 
-Built as an end-to-end stress test of the engine — exercising the
-character controller, physics raycasts, spatial audio, skeletal
-animation, bloom/vignette post-FX, and the retained-mode scene graph —
-and as a reference implementation for games that convert
-Quake-family (`.iqe`) assets.
+Built as an end-to-end test of the engine (character controller, physics
+raycasts, spatial audio, skeletal animation, the deferred renderer and its
+post stack, the runtime world format) and as a reference for a complete
+Perry + Bloom game on desktop, iOS, tvOS, Android and the web.
 
 ## Play
 
@@ -47,8 +46,9 @@ Controls:
 
 Runs at ~50 fps on an iPhone 16 Pro, landscape. Touch controls: the left half
 of the screen is a movement stick that appears under your thumb wherever it
-lands, the right half is drag-to-look, and FIRE / JUMP / R / GUN sit along the
-right edge. Holding FIRE still steers, so you can shoot and aim with the same
+lands, the right half is drag-to-look, and FIRE / JUMP / R / GUN / AIM / DASH /
+DUCK sit along the right edge, with pause in the top-right corner. AIM and DUCK
+are toggles. Holding FIRE still steers, so you can shoot and aim with the same
 thumb.
 
 The mobile branch drops the screen-space GI, reflections and ambient occlusion
@@ -59,89 +59,78 @@ actually rests on.
 Requires a paid Apple developer account (Perry's signing flow is App Store
 Connect API-only). See `CLAUDE.md` for the provisioning details.
 
-Survive three waves — dretches, mantises, marauders, dragoons, a tyrant, and the
-advanced marauder and dragoon (seven kinds; the two advanced ones are RANGED, so
-closing the distance stops being the universal answer). Ammo crates respawn at
-the four arena corners.
+### Gamepad
+
+Left stick moves, right stick looks, RT fires, LT aims, A jumps, B dodges,
+X reloads, Y cycles weapons, click the left stick to sprint and the right stick
+to crouch, Start pauses.
+
+### The game
+
+Two arenas (Outdoor Plaza, Riverbend Ravine), three waves each, against seven
+alien kinds: Skitter, Stalker, Ravager, Bruiser and the Colossus up close, and
+the Spitter and Bombard at range, so closing the distance is not the universal
+answer. Rifle and blaster from the start; clearing the first arena unlocks the
+chaingun and clearing the second the cannon. Picking another arena in the menu
+relaunches the game into it (on phones and TV boxes, which cannot relaunch an
+app, it asks you to reopen it). Ammo crates respawn around the arena.
 
 ## Prerequisites
 
-- **Perry** `0.5.158+` on `$PATH`.
+- **Perry** `0.5.16xx` on `$PATH`.
 - **Bloom engine** at `../engine/` relative to this repo, built at
-  commit `0137335` (drop debug-green hardcode in `fs_main_3d`) or
-  later. The Jolt/`libc++` link requirements are committed in the
+  a commit that has `restartApp()` (November 2026) or later. The Jolt/`libc++` link requirements are committed in the
   engine repo these days — [docs/engine-notes.md](docs/engine-notes.md)
   records why they exist. On Windows, prefer
   `perry compile src/main.ts -o main --debug-symbols` so crash
   reports symbolize (see `CLAUDE.md`).
-- **Bun** for the asset converters and dev scripts.
-- **ffmpeg** and macOS's `sips` for audio + texture resizing during
-  asset conversion.
+- **Bun** for the asset and dev scripts in `tools/`.
+- **Blender**, **ffmpeg** and macOS's `sips` only if you rebuild assets.
 
-## Building assets from Unvanquished sources
+## Assets
 
-The repo ships with converted `.glb` / `.wav` / `.ogg` so you can play
-immediately. To regenerate from sources:
+Everything the game loads is committed, so you can play straight away. The
+cast, weapons and props are original to this game: a concept image, a
+generated mesh, then Blender (`tools/gen/`, `tools/blender/`); sounds come from
+`tools/gen/sfx.py`; terrain, building and bark textures are CC0 scans. The
+pipeline, step by step, is in [CLAUDE.md](CLAUDE.md) under "Asset pipeline";
+sources and licences are in [assets/LICENSE.md](assets/LICENSE.md).
 
-```
-git clone --recurse-submodules https://github.com/UnvanquishedAssets/UnvanquishedAssets vendor/unvanquished
-cd vendor/unvanquished
-git submodule update --init --depth 1 \
-    pkg/res-players_src.dpkdir \
-    pkg/res-weapons_src.dpkdir \
-    pkg/res-ambient_src.dpkdir \
-    pkg/tex-tech_src.dpkdir
-cd ../..
-
-bun tools/convert-aliens-anim.ts   # 5 skinned + animated alien GLBs
-bun tools/convert-arena.ts         # textured arena
-# (SFX were converted ad-hoc via ffmpeg — see docs/asset-pipeline.md)
-```
-
-See [docs/asset-pipeline.md](docs/asset-pipeline.md) for the full
-conversion pipeline (IQE skeletal parsing, Y-up conversion quirks,
-glTF skin layout, texture resizing).
+(Until November 2026 the art was converted from the Unvanquished project. Those
+files and their converters are gone from the tree; `docs/asset-pipeline.md` is
+kept as the record of how the IQE to glTF conversion worked.)
 
 ## Layout
 
 ```
 shooter/
   src/                TypeScript game code (Perry-compiled)
-    main.ts           entry + game loop
-    input.ts          WASD / mouse / touch / fire input aggregator
-    player.ts         Jolt character-controller wrapper
+    main.ts           boot sequence + frame loop and their wiring
+    enemies.ts        kind tables + pool        director.ts  waves, AI, enemy projectiles
+    combat.ts         firing, player projectiles, pickups     weapons.ts   stat table
+    player.ts         character controller      camera.ts    orbit camera
+    hud.ts menu.ts settings.ts score.ts         UI and persistence
+    audio-mix.ts vfx.ts feel.ts environment.ts  presentation
     world-runtime.ts  runtime world loader (world.json -> flat arrays)
   assets/             committed runtime assets
-    models/           .glb (arena + 5 alien classes)
-    sounds/           .wav SFX + .ogg ambient
-    worlds/           JSON world format, loaded at runtime (edit with ../editor)
-    LICENSE.md        Unvanquished asset attribution
-  tools/              Bun scripts for offline asset conversion + diagnostics
-    convert-aliens-anim.ts   IQE → glTF skeletal with skinning + animations
-    convert-aliens.ts        IQE → glTF static (kept as a simpler reference)
-    convert-arena.ts         programmatic textured arena .glb
-    validate-glb.ts          runs gltf-validator against a GLB
-    inspect-glb.ts           human-readable GLB structure dump
-    dump-nodes.ts            one-line-per-node tree dump
-    diag-skin.ts             numerical IBM × rest-world = I check
-  vendor/             gitignored — Unvanquished source packs cloned here
+    models/ sounds/ music/ textures/ materials/ fonts/ env/
+    worlds/           JSON worlds, loaded at runtime (edit with ../editor)
+    LICENSE.md        what ships and under which terms
+  art/                concept images and provenance for the generated cast
+  tools/              asset pipeline, build + release scripts, diagnostics
+  android/            Gradle project for the Android build
   docs/
-    asset-pipeline.md         IQE/IQM format notes + converter design
-    engine-notes.md           engine-side changes needed to build this game
-    perry-quirks.md           Perry 0.5.158 codegen issues and workarounds
-    engine-issue-green-gbuffer.md  historical post-mortem of the green-screen bug
+    aaa-plan.md       the current plan: what is missing, in order
+    tickets.md        the ticket registry
+    perry-quirks.md   Perry codegen issues and workarounds (read before refactoring)
+    RELEASE.md        TestFlight builds
+    engine-notes.md, asset-pipeline.md, audits   background and history
 ```
 
 ## Key engineering notes
 
 Short version of findings accumulated while building this:
 
-- **IQE is Z-up, glTF is Y-up.** Apply X90 rotation to vertex positions +
-  normals and to the root joint's rest pose + every animation keyframe of
-  that root. Child joints inherit through the hierarchy unchanged. IBMs
-  are plain inverses of the resulting world matrices. Conjugating every
-  joint individually (a reasonable-looking alternative) conflicts with
-  bloom's Y-axis yaw that the renderer applies on top of skin matrices.
 - **Perry has a running list of codegen bugs** we work around — and the list
   has moved, so treat any specific version number here as history rather than
   as current advice. Fixed since: reachable `throw new Error` segfaulting at
@@ -159,18 +148,14 @@ Short version of findings accumulated while building this:
   Perry-compiled builds on macOS. Fixed upstream in engine commit
   `0137335`. Bisect story in
   [docs/engine-issue-green-gbuffer.md](docs/engine-issue-green-gbuffer.md).
-- **glTF skinned mesh nodes shouldn't have parent transforms** —
-  bloom's skeleton walker in
-  `engine/native/shared/src/models.rs:478` starts hierarchy
-  traversal at `mat4_identity()`, so any armature node above the
-  skeleton root is a no-op. We put mesh + skeleton roots at the
-  scene root and bake the Z-up→Y-up rotation into the root joint's
-  transforms instead.
+- **The asset conventions the code relies on** (models face +X, clips are
+  addressed by index, `Root` stays joint 0, the 1024 joint-matrix budget) are
+  listed in [CLAUDE.md](CLAUDE.md).
 
 ## Licence
 
 MIT — see [LICENSE](LICENSE). That covers the code and the assets made
 for this game. Third-party assets keep their own terms, listed in
-[assets/LICENSE.md](assets/LICENSE.md); in particular the legacy
-Unvanquished-derived models still in the repository (unused, unshipped)
-remain GPLv3 and are not covered by the MIT licence.
+[assets/LICENSE.md](assets/LICENSE.md). The Unvanquished-derived (GPLv3)
+models the game started with were removed from the tree on 2026-11-14;
+they remain in the git history under their original licence.

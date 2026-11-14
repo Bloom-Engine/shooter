@@ -21056,7 +21056,7 @@
       ],
       "userData": {
         "kind": "wave_config",
-        "waves": "[{\"count\": 4, \"enemy\": \"dretch,dretch,mantis,dretch\"}, {\"count\": 7, \"enemy\": \"mantis,dretch,marauder,adv_marauder,mantis,dretch,marauder\"}, {\"count\": 11, \"enemy\": \"marauder,adv_marauder,dragoon,adv_dragoon,mantis,adv_marauder,marauder,dragoon,dretch,adv_dragoon,tyrant\"}]"
+        "waves": "[{\"count\": 4, \"enemy\": \"skitter,skitter,stalker,skitter\"}, {\"count\": 7, \"enemy\": \"stalker,skitter,ravager,spitter,stalker,skitter,ravager\"}, {\"count\": 11, \"enemy\": \"ravager,spitter,bruiser,bombard,stalker,spitter,ravager,bruiser,skitter,bombard,colossus\"}]"
       }
     },
     {

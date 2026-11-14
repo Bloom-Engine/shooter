@@ -1,5 +1,7 @@
 # Where better models can actually come from
 
+> **Historical (banner added 2026-11-14).** This document describes the July 2026 search for better models. Moot since the cast is generated (see CLAUDE.md, "Asset pipeline"). The current plan is `docs/aaa-plan.md`.
+
 Researched 2026-07-13, after D3 ("the licence does not matter — this is a demo that
 should be as good as it can possibly get").
 

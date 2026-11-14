@@ -63,6 +63,18 @@ ASSETS_DST="android/app/src/main/assets/assets"
 PACKAGE="com.bloomengine.shooter"
 ACTIVITY="com.bloomengine.shooter.BloomActivity"
 
+# ── Step 0: Refuse to run over uncommitted asset work ─
+# Step 2 below runs `git checkout -- assets` to undo Perry's truncation, and that
+# would silently throw away any modified sound, model or texture. (In November
+# 2026 the whole regenerated asset set sat uncommitted next to this script.)
+if [ -n "$(git status --porcelain -- "$ASSETS_SRC")" ]; then
+    echo "ERROR: $ASSETS_SRC/ has uncommitted changes:" >&2
+    git status --short -- "$ASSETS_SRC" | head -10 >&2
+    echo "This build restores $ASSETS_SRC/ from git afterwards and would discard them." >&2
+    echo "Commit or stash them first." >&2
+    exit 1
+fi
+
 # ── Step 1: Compile with Perry ───────────────
 # PERRY_BIN lets a patched/worktree perry be used (e.g. the ELF-TLS build).
 # PERRY_ANDROID_TARGET_JSON (read by perry itself) opts into the has-thread-local
@@ -71,6 +83,7 @@ echo "==> Compiling with Perry (target: android)... [${PERRY_BIN:-perry}]"
 "${PERRY_BIN:-perry}" compile --target android src/main.ts -o "$SO_OUTPUT"
 
 # ── Step 2: Restore any assets Perry truncated while bundling ─
+# Only safe because Step 0 refused to start with uncommitted asset changes.
 echo "==> Restoring source assets from git (if perry disturbed them)..."
 git checkout -- "$ASSETS_SRC" 2>/dev/null || true
 
@@ -88,6 +101,8 @@ mkdir -p "$ASSETS_DST"
 rsync -a --delete --checksum \
     --exclude '.DS_Store' --exclude '*.md' \
     "$ASSETS_SRC/" "$ASSETS_DST/"
+# Same exclusion list as the TestFlight and web bundles (tools/release/assets_bundle.py).
+python3 tools/release/assets_bundle.py "$ASSETS_DST" --no-astc
 
 # ── Step 5: Build APK ───────────────────────
 echo "==> Building APK ($BUILD_TYPE)..."

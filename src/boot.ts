@@ -70,7 +70,7 @@ const LABELS = [
   'arena geometry',
   'growing the forest',
   'terrain',
-  'the marine',
+  'the trooper',
   'weapons',
   'particles and decals',
   'water',

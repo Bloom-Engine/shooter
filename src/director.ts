@@ -68,6 +68,9 @@ export const DIR: any = {
 /// main.ts-owned dependencies, handed over once by initDirector.
 const DEPS: any = { o: null };
 
+/// Seconds the Colossus stands rooted before its slam lands: the dodge window.
+const SLAM_WINDUP = 0.6;
+
 /// SH-051 — scratch for navGoal's [x, z, active] result. One shared array,
 /// written every call: allocating a fresh one per enemy per frame is exactly the
 /// per-frame garbage the hot paths here avoid, and Perry's object-shorthand
@@ -521,7 +524,23 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         enSpeedMul[i] = Math.max(0.7, Math.min(2.6, enSpeedMul[i] + accel * dt));
         const hdX = Math.sin(enHeading[i]);
         const hdZ = -Math.cos(enHeading[i]);
-        if (dist > KIND_MELEE[k] * 0.8 || aligned < 0.5) {
+        // The SLAM. In reach and off cooldown it roots and rears up for
+        // SLAM_WINDUP seconds (AI_WINDUP: the attack clip plays, the HUD caption
+        // fires), and the blow lands when that expires, on whoever is still in
+        // reach. Stepping or dashing out during the wind-up makes it miss. Until
+        // 2026-11 the damage landed the instant the player came into range, so
+        // the telegraph caption described an attack that had no telegraph.
+        if (enAIState[i] === AI_WINDUP) {
+          if (enStateT[i] <= 0) enAIState[i] = AI_CHARGE;     // lands this frame (melee block)
+        } else if (enAIState[i] === AI_CHARGE) {
+          enAIState[i] = AI_APPROACH;                         // hit or miss, it is spent
+          enAttackCD[i] = KIND_CD[k];
+          enSpeedMul[i] = 0.7;
+        } else if (sameFloor && dist <= KIND_MELEE[k] && enAttackCD[i] <= 0) {
+          enAIState[i] = AI_WINDUP;
+          enStateT[i] = SLAM_WINDUP;
+          playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1.5, enZ[i]);   // the roar
+        } else if (dist > KIND_MELEE[k] * 0.8 || aligned < 0.5) {
           vx = hdX * KIND_SPEED[k] * enSpeedMul[i];
           vz = hdZ * KIND_SPEED[k] * enSpeedMul[i];
         }
@@ -595,11 +614,31 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             enOrbitDir[i] = -enOrbitDir[i];
             enStateT[i] = 1.5 + Math.random() * 2.0;
           }
-          // In the band, with a clear-ish line and off cooldown -> telegraph.
+          // In the band, with a CLEAR line and off cooldown -> telegraph. The
+          // line is a real ray against the static world, muzzle to chest: until
+          // 2026-11 this only checked range, so volleys were thrown at walls.
+          // One ray per ready shooter, and a blocked one waits 0.25 s before
+          // asking again, so this is a handful of casts a second at most.
           if (enRangedCD[i] <= 0 && dist >= lo * 0.8 && dist <= hi * 1.15) {
-            enAIState[i] = AI_WINDUP;
-            enStateT[i] = RANGED_WINDUP[k];
-            playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);   // hiss/tell
+            const losY = enY[i] + KIND_Y_OFF[k] * 0.8;
+            const lx = pp.x - enX[i];
+            const ly = (pp.y + 0.2) - losY;
+            const lz = pp.z - enZ[i];
+            const ll = Math.sqrt(lx * lx + ly * ly + lz * lz);
+            let clear = true;
+            if (ll > 0.5) {
+              const blocked = raycast(DEPS.o.physics, vec3(enX[i], losY, enZ[i]),
+                                      vec3(lx / ll, ly / ll, lz / ll),
+                                      ll - 0.4, 1 << Layer.NON_MOVING);
+              if (blocked) clear = false;
+            }
+            if (clear) {
+              enAIState[i] = AI_WINDUP;
+              enStateT[i] = RANGED_WINDUP[k];
+              playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);   // hiss/tell
+            } else {
+              enRangedCD[i] = 0.25;
+            }
           }
         }
       }
@@ -728,9 +767,15 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
       // needs the player within arm's reach in ALL THREE axes; `dist` only ever
       // knew about two. A claw that lands on someone standing on the floor above
       // is not a difficulty setting, it is a bug.
-      if (KIND_RANGED[k] === 0 && sameFloor &&
-          dist <= KIND_MELEE[k] && enAttackCD[i] <= 0 &&
-          enAIState[i] !== AI_WINDUP && enAIState[i] !== AI_FLINCH) {
+      // The Colossus (k 4) only connects on the frame its slam wind-up expires
+      // (AI_CHARGE, set in its steering branch above), with a little extra reach
+      // so backing straight up does not beat it but a sidestep or a dash does.
+      const slamKind = k === 4;
+      const meleeNow = slamKind
+        ? (enAIState[i] === AI_CHARGE && dist <= KIND_MELEE[k] * 1.1)
+        : (dist <= KIND_MELEE[k] && enAIState[i] !== AI_WINDUP);
+      if (KIND_RANGED[k] === 0 && sameFloor && meleeNow && enAttackCD[i] <= 0 &&
+          enAIState[i] !== AI_FLINCH) {
         GS.playerHP = GS.playerHP - KIND_DMG[k];
         GS.damageFlashT = 0.5;
         enAttackCD[i] = KIND_CD[k];
@@ -848,11 +893,15 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             // one rather than stacking on top of it.
             playSound(DEPS.o.stingVictory);
             // Clearing the arena unlocks the next weapon and persists it.
-            const nextUnlock = WPN.W_CHAIN;
+            // Each arena has its own prize: the first in the manifest gives the
+            // chaingun, any later one the cannon. (Until 2026-11 this line was a
+            // constant W_CHAIN, so the cannon could never be unlocked at all.)
+            const nextUnlock = W.ARENA_INDEX === 0 ? WPN.W_CHAIN : WPN.W_CANNON;
             if (!WPN.isUnlocked(nextUnlock)) {
               WPN.unlock(nextUnlock);
               SET.setUnlockMask(SET.unlockMask() | (1 << nextUnlock));
               GS.unlockBannerT = 5.0;
+              GS.unlockBannerWeapon = nextUnlock;
             }
             SCORE.commitRun(W.ARENA_INDEX);
             SET.saveSettings();

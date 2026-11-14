@@ -1,5 +1,7 @@
 # Engine fix: multiple skinned models per frame
 
+> **Historical (banner added 2026-11-14).** This document describes an engine fix for the old multi-skin Unvanquished models, which are no longer in the tree. The current plan is `docs/aaa-plan.md`.
+
 **Fixed** in a local engine change to `native/shared/src/renderer/`
 while debugging "player marine disappears ~3 seconds after death +
 R-restart." Not yet upstreamed. Record here so the shooter's asset
