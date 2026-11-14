@@ -154,8 +154,10 @@ export function updateCameraLook(lookX: number, lookY: number, padActive: boolea
         const dpit = pitT - AST[2];
         // A jump this large is a teleport or a new target, not motion to follow.
         if (dyaw < 0.06 && dyaw > -0.06 && dpit < 0.06 && dpit > -0.06) {
-          CAM[0] = CAM[0] + dyaw * ROT_ASSIST;
-          CAM[1] = CAM[1] - dpit * ROT_ASSIST;
+          // Plan 4.4: scaled by the assist STRENGTH setting (0..1).
+          const rk = ROT_ASSIST * SET.get(SET.SET_AIM_ASSIST);
+          CAM[0] = CAM[0] + dyaw * rk;
+          CAM[1] = CAM[1] - dpit * rk;
         }
       }
       AST[0] = ti; AST[1] = yawT; AST[2] = pitT;

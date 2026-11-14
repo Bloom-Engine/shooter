@@ -23,13 +23,17 @@ see SH-052) — runnable with
   state per Perry convention. The dormant test harnesses
   (SELFTEST/AITEST/ANIMDBG/MENUTEST/FACETEST/LOCOPROBE/KEYPROBE/
   COMBATSHOT/PLAYERSHOT/P2TEST/P2BOT/PERFTEST) and the
-  diagnostics (diag bar, profiler overlay) live here too.
+  diagnostics (diag bar, profiler overlay) live here too. UISHOT captures every menu screen and
+  HUD state; MENUTEST drives the menus with injected keys and logs pass/fail lines.
 - The game is split by subsystem, one module each: `enemies.ts`
   (kind tables + pool), `director.ts` (waves + per-kind AI + enemy
   projectiles), `combat.ts` (weapons/fire/player projectiles/pickups/grenades/melee),
   `hitshapes.ts` (where a shot lands on a creature: shapes on its live skeleton),
   `flora.ts` (plant cards and the far tree line, scattered at load, instanced),
-  `camera.ts` (orbit + canopy occlusion), `hud.ts`, `environment.ts`
+  `camera.ts` (orbit + canopy occlusion), `hud.ts`, `menu.ts` (title, pause, tabbed settings,
+  arena cards, results, credits), `ui.ts` (the UI kit: atlas sprites, palette, panels, button
+  glyphs), `binds.ts` (which key / mouse button / pad button each action is on),
+  `strings.ts` (GENERATED string table, four languages), `environment.ts`
   (water/grass/building/glass/GI proxies), `gamestate.ts` (shared run
   scalars as `const GS`), plus `feel/vfx/weapons/menu/settings/score/
   audio-mix/boot/terrain`. Module headers state the Perry rules each
@@ -47,8 +51,9 @@ see SH-052) — runnable with
 - `assets/models/` — committed GLBs, built by the asset pipeline below
   (`tools/gen/`, `tools/blender/`).
 - `docs/aaa-plan.md` — the current plan: what is missing for AAA quality, in
-  order. Phases 0 (bugs and hygiene), 1 (the player on screen), 2 (combat) and 3 (world art
-  and lighting) landed 2026-11-14; each phase's header says what it left open.
+  order. Phases 0 (bugs and hygiene), 1 (the player on screen), 2 (combat), 3 (world art
+  and lighting) and 4 (UI and front end) landed 2026-11-14; each phase's header says what it
+  left open.
 
 ## Read before changing things
 
@@ -235,7 +240,14 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
    seeded the Checkpoint arena (re-running it overwrites the world file). Plant cards are
    generated on magenta like the tree leaves and keyed into `assets/textures/flora_*.png`; the far
    tree card is rendered from the tree model by `tools/blender/tree_impostor.py`.
-9. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
+9. **UI** (Phase 4, SH-059): `python3 tools/gen/ui_atlas.py` draws `assets/ui/atlas.png` (white
+   shapes, tinted where drawn) and writes `src/ui-atlas.ts`; add a sprite to its `SPRITES` list,
+   never index the atlas by hand. The weapon silhouettes in it are renders of the weapon models
+   (`tools/blender/weapon_silhouette.py` into `art/ui/`). `python3 tools/gen/strings_table.py`
+   holds every string in four languages and writes `src/strings.ts`: edit the table, not the
+   generated file. `tools/gen/ui_sfx.py` synthesises the interface sounds. Arena pictures for the
+   menu are `assets/ui/<arena_id>.png`, 640 x 360.
+10. **Compress**: `tools/gen/compress_assets.sh` writes `<model>.astc.glb` (git-ignored); release
    bundles ship those under the plain names.
 Check anything visually with `tools/blender/model_sheet.py` (four views with axes) and
 `tools/blender/clip_sheet.py` (frames of one clip), and in-game with the COMBATSHOT harness, which
@@ -290,6 +302,18 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   (`| 0` on products past 2^53) for noise: compiled by Perry they came out nearly constant;
   `flora.ts` has a Park-Miller cell hash that works. Judge world changes with SCENESHOT
   (a view table per arena, `SCENE_VIEWS_0x` in `src/main.ts`; pick the arena with `level.txt`).
+- UI rules the code rests on (Phase 4, SH-059). Nothing the player reads is a string literal:
+  it is `T(STR.S_...)` from the table, upper case, Latin script only (the font has no other).
+  Colours are meanings (`UI.col(UI.C_DANGER, alpha)`), never RGB, so the four palettes work.
+  A key hint is `UI.drawGlyph(action, ...)` from `binds.ts`, never a typed "[R]"; gameplay reads
+  input through `binds.ts` (`kbDown(ACT_...)`), and only the menus and the developer keys use
+  fixed keys. Settings rows are one table (`addRow` in `menu.ts`); a new setting is an index in
+  `settings.ts` (load + save + default) plus one row, and `applyLive` if it must act at once.
+  One function (`rowRect`) says where a row is, for drawing and for the pointer alike. A menu
+  ignores input on the frame it opens (the key that opened it is still pressed). The engine's
+  `drawTexturePro` origin is an absolute pivot; use `UI.sprRot`. The HUD is authored for a
+  1080-unit-tall space and drawn at 0.62 on phones. A harness screenshot is skipped while the
+  window is covered, so rerun if pictures are missing.
 - No vertex colours (the engine multiplies `COLOR_0` into albedo).
 - Weapons: barrel along +Z, rear at z = 0, metres. Props: origin at the base centre, drawn unrotated.
 

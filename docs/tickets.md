@@ -1943,3 +1943,41 @@ one and are probably flatter than intended: not fixed here.
 
 Tripo: 660 credits (twelve generations at 55), twelve exports downloaded. Concept images and the
 five plant photographs came from the Codex image tool.
+
+---
+
+## SH-059 — AAA plan, Phase 4: UI and front end ✅ *(landed 2026-11-14; judged from captures and a scripted key test, not used by a person)*
+
+Checked with two harnesses in `src/main.ts`. UISHOT opens every screen through `menu.ts`'s own
+entry points and captures it (19 pictures: title, six settings tabs, arena select, credits, the
+title and a settings tab in German, the arena select in French, the HUD plain / hit at low health
+with subtitles / with pad glyphs in the red-green-safe palette / with the wave card and unlock
+banner, pause, both results screens). MENUTEST drives the real key path with injected keys and
+logs 14 checks, all passing on the final build: title, settings, tab switch, a capture starting,
+a key binding, a swap when the key was already taken, back to the title, PLAY, the rebound keys
+working in the run, the results screen opening by itself after a death, its first row restarting
+the run, pause, and MAIN MENU returning to the title.
+
+| Plan item | What changed | Checked how |
+|---|---|---|
+| 4.1 HUD | Redrawn with the UI kit. Centre: crosshair with a dark under-stroke, three hit markers told apart by shape (ticks; ticks in a ring for a critical; ticks flying outward with a skull for a kill), reload / charge / spool meters, a reload prompt on an empty magazine. Edges: a damage vignette, a wedge pointing at the source of each hit, chevrons for creatures striking or closing from outside the view. Top: a compass strip with a pip per creature, wave pips, the count left with a bar, an eye with UNSEEN / HUNTED BY n. Top left: score, the points of the last kill rising off it, the combo with its drain bar. Bottom left: health in ten segments with the regeneration notch and a chunk that lingers where health was just lost, the dodge cooldown. Bottom right: weapon silhouette (rendered from the game's own models), magazine as pips, reserve, the four weapon slots with locks, grenades, glyph prompts. Banners for a wave starting, a wave cleared and a weapon unlocked animate in. | UISHOT captures 12-15. The kill marker, the threat chevrons and the banners' motion were not captured. |
+| 4.2 Menus | Title with an emblem, the arena's picture and best score; pause; a results screen (verdict, up to three stars on a win, eight numbers, kills per kind, PLAY AGAIN / NEXT ARENA / ARENAS / MAIN MENU) that opens 2.3 s after a death and 3.4 s after a win; arena select as picture cards; credits. Rows slide in on every screen change. Eight interface sounds (six new, synthesised by `tools/gen/ui_sfx.py`): move, select, back, tab, slider tick, toggle, error, start. MAIN MENU leaves a run for the title. | UISHOT 00, 07, 08, 16-18; MENUTEST. Sounds were not listened to. |
+| 4.3 Settings | Six tabs built from one row table (`addRow` in `menu.ts`): GAME, CONTROLS, BINDINGS, VIDEO, AUDIO, ACCESSIBILITY. New: difficulty, language, HUD size, compass, stick dead zone and response curve, vibration, quality presets (low / medium / high / ultra / custom), window mode, vsync, frame-rate limit, per-action rebinding for keyboard / mouse and pad (`src/binds.ts`: a key already in use is swapped, Delete clears, Esc cancels, reset to defaults; pause and the menu keys are fixed). Phones and the browser read the video settings now: their fixed profile became the file's defaults there, and a settings file from before is not trusted for video on those platforms (`meta.v`). | UISHOT 01-06; MENUTEST for the bindings. A saved "windowed" boots into a window (one run). Presets, vsync and the frame-rate limit were not exercised; the limit row says so while vertical sync is on, because the engine only applies its limit when the display is not pacing the frames. |
+| 4.4 Accessibility | Subtitles for eight sound events, three sizes, optional dark plate. Four palettes (standard, red-green safe, blue-yellow safe, high contrast) that re-colour every HUD and menu element, because colours are chosen by meaning (`UI.col(UI.C_DANGER, ..)`). Hold / toggle for aim, sprint and now crouch. Aim assist is a strength from 0 to 100% (it was a switch) and scales the slowdown, the rotation and the magnetism together. | UISHOT 06, 13, 14. |
+| 4.5 Localization | `tools/gen/strings_table.py` holds 190 strings in English, German, French and Spanish and writes `src/strings.ts`; nothing the player reads in the HUD or menus is a literal any more. First run starts in the system language when it is one of the four. | UISHOT 09-11 (umlauts and accents render). Translations are mine and were not reviewed by native speakers. |
+| 4.6 Glyphs | Keys are keycaps with the key's name, mouse buttons a mouse with the button filled, pad buttons discs / bumpers / triggers / sticks / a D-pad with the arm marked. Every hint is drawn from the binding table, so a rebound key changes its hint everywhere. | UISHOT 03, 12, 14. |
+
+Found on the way. **Esc never paused the game on desktop:** the key press that opened the pause
+menu was still "pressed" when the menu updated a few lines later in the same frame, and closed it
+again (the same code was there before this phase). A screen now ignores input on the frame it
+opens. Esc inside settings opened from pause used to drop straight into the fight; the open menu
+owns Esc now. The engine's `drawTexturePro` origin is an absolute pivot, not raylib's offset into
+the rectangle (`UI.sprRot` wraps it). Screenshots are skipped while the game window is covered
+("surface acquire occluded" in the log): a harness run with missing pictures means that.
+
+Gameplay regression: P2BOT cleared arena_02 on the final build in 101 s with 35 kills (the same
+as before the phase), reading its input through the new binding table.
+
+Cost: nothing bought. The atlas is drawn by a script, the weapon silhouettes are Blender renders
+of the game's models, the six sounds are synthesised, the arena pictures are crops of Phase 3
+captures.

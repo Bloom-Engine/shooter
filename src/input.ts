@@ -13,8 +13,14 @@ import {
 import { drawText, measureText } from './ui-text';
 import {
   get, SET_SENS, SET_PAD_SENS, SET_INVERT_Y,
-  SET_AIM_TOGGLE, SET_SPRINT_TOGGLE,
+  SET_AIM_TOGGLE, SET_SPRINT_TOGGLE, SET_CROUCH_TOGGLE, SET_DEADZONE, SET_CURVE, SET_AIM_ASSIST,
 } from './settings';
+import {
+  kbDown, kbPressed, padDown, padPressed,
+  ACT_FWD, ACT_BACK, ACT_LEFT, ACT_RIGHT, ACT_JUMP, ACT_FIRE, ACT_AIM, ACT_SPRINT, ACT_CROUCH,
+  ACT_DODGE, ACT_RELOAD, ACT_SWAP, ACT_MELEE, ACT_GRENADE, ACT_SHOULDER,
+  ACT_WPN1, ACT_WPN2, ACT_WPN3, ACT_WPN4,
+} from './binds';
 
 export interface InputState {
   moveX: number;
@@ -37,6 +43,8 @@ export interface InputState {
   shoulderPressed: boolean; // V / RB — camera to the other shoulder
   meleePressed: boolean;    // F / LB — rifle-butt strike (plan 2.7)
   grenadePressed: boolean;  // G / Back — throw a grenade (plan 2.7)
+  /// 0, or 1..4: a weapon asked for directly (number keys, D-pad). Plan 4.3: these are bindings.
+  weaponSlot: number;
   /// True when a pad was the last thing touched — the HUD swaps its glyphs.
   padActive: boolean;
 }
@@ -50,22 +58,27 @@ const GP_LX = 0, GP_LY = 1, GP_RX = 2, GP_RY = 3, GP_LT = 4, GP_RT = 5;
 const GP_A = 0, GP_B = 1, GP_X = 2, GP_Y = 3;
 const GP_LB = 4, GP_RB = 5, GP_BACK = 6, GP_START = 7, GP_LS = 8, GP_RS = 9;
 
-const STICK_DEADZONE = 0.18;
 const PAD_LOOK_RATE = 2.6;    // radians/sec at full deflection
-const TRIGGER_THRESHOLD = 0.4;
 
 let padWasActive = false;
-let padTriggerPrev = false;
 
 /// Radial deadzone + a squared response curve. Linear sticks feel twitchy at
 /// small deflections and sluggish at large ones; x·|x| gives fine control near
 /// centre without giving up the top end.
+/// Plan 4.3: both are the player's now (SET_DEADZONE, SET_CURVE: linear, squared, cubed).
 function stick(ax: number, ay: number, out: number[]): void {
   const m = Math.sqrt(ax * ax + ay * ay);
-  if (m < STICK_DEADZONE) { out[0] = 0; out[1] = 0; return; }
-  // Rescale so the deadzone edge is 0, not a jump to 0.18.
-  const s = (m - STICK_DEADZONE) / (1 - STICK_DEADZONE);
-  const curved = s * s;
+  let dz = get(SET_DEADZONE);
+  if (!(dz >= 0.02)) dz = 0.02;
+  if (dz > 0.6) dz = 0.6;
+  if (m < dz) { out[0] = 0; out[1] = 0; return; }
+  // Rescale so the deadzone edge is 0, not a jump.
+  let s = (m - dz) / (1 - dz);
+  if (s > 1) s = 1;
+  const cv = get(SET_CURVE);
+  let curved = s * s;
+  if (cv === 0) curved = s;
+  else if (cv === 2) curved = s * s * s;
   out[0] = (ax / m) * curved;
   out[1] = (ay / m) * curved;
 }
@@ -239,8 +252,9 @@ export function initInput(): void {
 // exactly the failure that would hide.
 const T_AIM = 0;
 const T_SPRINT = 1;
-const TOG_LATCHED = [0, 0];
-const TOG_PREV = [0, 0];
+const T_CROUCH = 2;
+const TOG_LATCHED = [0, 0, 0];
+const TOG_PREV = [0, 0, 0];
 
 /// In HOLD mode this is a pass-through. In TOGGLE mode the RISING EDGE of the
 /// raw button flips a latch that persists until the next press.
@@ -266,6 +280,7 @@ function applyToggle(raw: boolean, toggleMode: boolean, slot: number): boolean {
 export function resetInputToggles(): void {
   TOG_LATCHED[T_AIM] = 0;
   TOG_LATCHED[T_SPRINT] = 0;
+  TOG_LATCHED[T_CROUCH] = 0;
   touchAimOn = false;
   touchCrouchOn = false;
   padCrouchOn = false;
@@ -451,6 +466,7 @@ function readTouch(): InputState {
     shoulderPressed: sidePressedNow,
     meleePressed: meleePressedNow,
     grenadePressed: nadePressedNow,
+    weaponSlot: 0,
     padActive: false,
   };
 }
@@ -461,10 +477,12 @@ export function readInput(dt: number): InputState {
   let moveX = 0;
   let moveZ = 0;
 
-  if (isKeyDown(Key.W) || isKeyDown(Key.UP)) moveZ -= 1;
-  if (isKeyDown(Key.S) || isKeyDown(Key.DOWN)) moveZ += 1;
-  if (isKeyDown(Key.A) || isKeyDown(Key.LEFT)) moveX -= 1;
-  if (isKeyDown(Key.D) || isKeyDown(Key.RIGHT)) moveX += 1;
+  // Plan 4.3: every verb below is read through the binding table (binds.ts). The arrow keys
+  // always move too, whatever W/A/S/D have been rebound to.
+  if (kbDown(ACT_FWD) || isKeyDown(Key.UP)) moveZ -= 1;
+  if (kbDown(ACT_BACK) || isKeyDown(Key.DOWN)) moveZ += 1;
+  if (kbDown(ACT_LEFT) || isKeyDown(Key.LEFT)) moveX -= 1;
+  if (kbDown(ACT_RIGHT) || isKeyDown(Key.RIGHT)) moveX += 1;
 
   const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
   if (len > 1) { moveX /= len; moveZ /= len; }
@@ -474,28 +492,24 @@ export function readInput(dt: number): InputState {
   let lookX = getMouseDeltaX() * MOUSE_SENSITIVITY * sens;
   let lookY = getMouseDeltaY() * MOUSE_SENSITIVITY * sens * invert;
 
-  let jump = isKeyPressed(Key.SPACE);
-  let firePressed = isMouseButtonPressed(0);
-  let fireDown = isMouseButtonDown(0);
-  let aimDown = isMouseButtonDown(1);
-  let sprintDown = isKeyDown(Key.LEFT_SHIFT) || isKeyDown(Key.RIGHT_SHIFT);
-  let crouchDown = isKeyDown(Key.C);
-  // SH-037 — AIM: HOLD/TOGGLE and SPRINT: HOLD/TOGGLE. Both rows have existed in
-  // the settings menu since SH-038, adjustable and persisted, and NOTHING read
-  // them: the game was hold-only whatever the player chose. Toggle is an
-  // accessibility setting first — holding a button for a whole firefight is a
-  // real barrier — so a row that claims to offer it and doesn't is worse than no
-  // row at all. Applied here, at the source, so every consumer downstream (and
-  // the pad path below, which OR-folds into these same verbs) gets it for free.
-  aimDown = applyToggle(aimDown, get(SET_AIM_TOGGLE) !== 0, T_AIM);
-  sprintDown = applyToggle(sprintDown, get(SET_SPRINT_TOGGLE) !== 0, T_SPRINT);
-  let dodgePressed = isKeyPressed(Key.LEFT_CONTROL) || isKeyPressed(Key.RIGHT_CONTROL);
-  let reloadPressed = isKeyPressed(Key.R);
-  let swapWeapon = isKeyPressed(Key.Q);
+  let jump = kbPressed(ACT_JUMP);
+  let firePressed = kbPressed(ACT_FIRE);
+  let fireDown = kbDown(ACT_FIRE);
+  let aimDown = kbDown(ACT_AIM);
+  let sprintDown = kbDown(ACT_SPRINT);
+  let crouchDown = kbDown(ACT_CROUCH);
+  let dodgePressed = kbPressed(ACT_DODGE);
+  let reloadPressed = kbPressed(ACT_RELOAD);
+  let swapWeapon = kbPressed(ACT_SWAP);
   let pausePressed = isKeyPressed(Key.ESCAPE);
-  let shoulderPressed = isKeyPressed(Key.V);
-  let meleePressed = isKeyPressed(Key.F);
-  let grenadePressed = isKeyPressed(Key.G);
+  let shoulderPressed = kbPressed(ACT_SHOULDER);
+  let meleePressed = kbPressed(ACT_MELEE);
+  let grenadePressed = kbPressed(ACT_GRENADE);
+  let weaponSlot = 0;
+  if (kbPressed(ACT_WPN1)) weaponSlot = 1;
+  if (kbPressed(ACT_WPN2)) weaponSlot = 2;
+  if (kbPressed(ACT_WPN3)) weaponSlot = 3;
+  if (kbPressed(ACT_WPN4)) weaponSlot = 4;
 
   // --- gamepad, folded into the same verbs ---------------------------------
   // Anything the pad reports is OR'd in rather than replacing the keyboard, so
@@ -524,27 +538,35 @@ export function readInput(dt: number): InputState {
       padUsed = true;
     }
 
-    const rt = getGamepadAxis(GP_RT) > TRIGGER_THRESHOLD;
-    if (rt) { fireDown = true; padUsed = true; }
-    if (rt && !padTriggerPrev) firePressed = true;
-    padTriggerPrev = rt;
-
-    if (getGamepadAxis(GP_LT) > TRIGGER_THRESHOLD) { aimDown = true; padUsed = true; }
-    if (isGamepadButtonDown(GP_LS)) { sprintDown = true; padUsed = true; }
-    if (isGamepadButtonPressed(GP_A)) { jump = true; padUsed = true; }
-    if (isGamepadButtonPressed(GP_B)) { dodgePressed = true; padUsed = true; }
-    if (isGamepadButtonPressed(GP_X)) { reloadPressed = true; padUsed = true; }
-    if (isGamepadButtonPressed(GP_Y)) { swapWeapon = true; padUsed = true; }
+    if (padDown(ACT_FIRE)) { fireDown = true; padUsed = true; }
+    if (padPressed(ACT_FIRE)) firePressed = true;
+    if (padDown(ACT_AIM)) { aimDown = true; padUsed = true; }
+    if (padDown(ACT_SPRINT)) { sprintDown = true; padUsed = true; }
+    if (padPressed(ACT_JUMP)) { jump = true; padUsed = true; }
+    if (padPressed(ACT_DODGE)) { dodgePressed = true; padUsed = true; }
+    if (padPressed(ACT_RELOAD)) { reloadPressed = true; padUsed = true; }
+    if (padPressed(ACT_SWAP)) { swapWeapon = true; padUsed = true; }
     if (isGamepadButtonPressed(GP_START)) { pausePressed = true; padUsed = true; }
-    if (isGamepadButtonPressed(GP_RB)) { shoulderPressed = true; padUsed = true; }
-    if (isGamepadButtonPressed(GP_LB)) { meleePressed = true; padUsed = true; }
-    if (isGamepadButtonPressed(GP_BACK)) { grenadePressed = true; padUsed = true; }
-    // Crouch: click the right stick to drop, click again (or sprint, or jump) to
-    // stand. Until 2026-11 crouch had no pad binding at all.
-    if (isGamepadButtonPressed(GP_RS)) { padCrouchOn = !padCrouchOn; padUsed = true; }
+    if (padPressed(ACT_SHOULDER)) { shoulderPressed = true; padUsed = true; }
+    if (padPressed(ACT_MELEE)) { meleePressed = true; padUsed = true; }
+    if (padPressed(ACT_GRENADE)) { grenadePressed = true; padUsed = true; }
+    if (padPressed(ACT_WPN1)) { weaponSlot = 1; padUsed = true; }
+    if (padPressed(ACT_WPN2)) { weaponSlot = 2; padUsed = true; }
+    if (padPressed(ACT_WPN3)) { weaponSlot = 3; padUsed = true; }
+    if (padPressed(ACT_WPN4)) { weaponSlot = 4; padUsed = true; }
+    // Crouch on the pad is a latch whatever the hold/toggle setting says: the default button
+    // is a stick click, which nobody can hold while steering. Sprinting or jumping stands up.
+    if (padPressed(ACT_CROUCH)) { padCrouchOn = !padCrouchOn; padUsed = true; }
     if (sprintDown || jump) padCrouchOn = false;
-    if (padCrouchOn) crouchDown = true;
   }
+  // SH-037 / plan 4.4 — hold or toggle, for aim, sprint and (new) crouch. Applied after the
+  // pad has been folded in, so the setting means the same on every device; toggle is an
+  // accessibility setting first (holding a button for a whole fight is a real barrier).
+  aimDown = applyToggle(aimDown, get(SET_AIM_TOGGLE) !== 0, T_AIM);
+  sprintDown = applyToggle(sprintDown, get(SET_SPRINT_TOGGLE) !== 0, T_SPRINT);
+  crouchDown = applyToggle(crouchDown, get(SET_CROUCH_TOGGLE) !== 0, T_CROUCH);
+  if (sprintDown || jump) TOG_LATCHED[T_CROUCH] = 0;
+  if (padCrouchOn) crouchDown = true;
   if (padUsed) padWasActive = true;
   // Any mouse movement hands the "last input" crown back to the keyboard, so
   // the HUD's glyphs follow whatever the player is actually holding.
@@ -568,6 +590,7 @@ export function readInput(dt: number): InputState {
     shoulderPressed: shoulderPressed,
     meleePressed: meleePressed,
     grenadePressed: grenadePressed,
+    weaponSlot: weaponSlot,
     padActive: padWasActive,
   };
 }
@@ -581,9 +604,11 @@ export function padIsActive(): boolean { return padWasActive; }
 /// in which fine adjustment is possible with a thumb.
 export function aimAssistScale(cosToNearestEnemy: number): number {
   if (!padWasActive) return 1;
-  // 6° cone.
+  // 6° cone. Plan 4.4: the setting is a strength now (0..1), not a switch: at 1 the look
+  // slows to 65%, as before; at 0.5 to 82%.
   const COS_6DEG = 0.9945;
-  return cosToNearestEnemy > COS_6DEG ? 0.65 : 1;
+  const k = get(SET_AIM_ASSIST);
+  return cosToNearestEnemy > COS_6DEG ? 1 - 0.35 * k : 1;
 }
 
 // Drawn in raw screen pixels, deliberately outside the HUD's scaled 2D camera:

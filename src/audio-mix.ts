@@ -58,6 +58,13 @@ let sfxReloadStart: Sound = NO_SOUND;
 let sfxReloadEnd: Sound = NO_SOUND;
 let sfxUiMove: Sound = NO_SOUND;
 let sfxUiSelect: Sound = NO_SOUND;
+// Plan 4.2 - a sound on every interaction (synthesised: tools/gen/ui_sfx.py).
+let sfxUiBack: Sound = NO_SOUND;
+let sfxUiTab: Sound = NO_SOUND;
+let sfxUiTick: Sound = NO_SOUND;
+let sfxUiToggle: Sound = NO_SOUND;
+let sfxUiError: Sound = NO_SOUND;
+let sfxUiStart: Sound = NO_SOUND;
 
 // Weapon tails, indexed by weapon id (see weapons.ts).
 const weaponTail = new Array<Sound>(4);
@@ -145,6 +152,12 @@ export function initAudioMix(): void {
   sfxReloadEnd   = optional('assets/sounds/reload_end.wav',   0.45, BUS_SFX, 0.1);
   sfxUiMove      = optional('assets/sounds/ui_move.wav',   0.35, BUS_UI, 0);
   sfxUiSelect    = optional('assets/sounds/ui_select.wav', 0.45, BUS_UI, 0);
+  sfxUiBack      = optional('assets/sounds/ui_back.wav',   0.40, BUS_UI, 0);
+  sfxUiTab       = optional('assets/sounds/ui_tab.wav',    0.40, BUS_UI, 0);
+  sfxUiTick      = optional('assets/sounds/ui_tick.wav',   0.30, BUS_UI, 0);
+  sfxUiToggle    = optional('assets/sounds/ui_toggle.wav', 0.38, BUS_UI, 0);
+  sfxUiError     = optional('assets/sounds/ui_error.wav',  0.40, BUS_UI, 0);
+  sfxUiStart     = optional('assets/sounds/ui_start.wav',  0.50, BUS_UI, 0);
 
   // SH-052d — wind is intentionally LEFT OUT. The synth bed read as white
   // noise (SH-052c improved it but could not make synthesis pass as a
@@ -245,6 +258,12 @@ export function reloadStart(): void { play(sfxReloadStart); }
 export function reloadEnd(): void { play(sfxReloadEnd); }
 export function uiMove(): void { play(sfxUiMove); }
 export function uiSelect(): void { play(sfxUiSelect); }
+export function uiBack(): void { play(sfxUiBack); }
+export function uiTab(): void { play(sfxUiTab); }
+export function uiTick(): void { play(sfxUiTick); }
+export function uiToggle(): void { play(sfxUiToggle); }
+export function uiError(): void { play(sfxUiError); }
+export function uiStart(): void { play(sfxUiStart); }
 
 // ---- reverb zones (SH-035) --------------------------------------------------
 

@@ -16,7 +16,6 @@ import {
   drawSphere, drawMeshWithMaterial, drawModelRotated, drawModelTransform,
   playSound, playSound3D, playMusic, stopMusic,
 } from 'bloom';
-import { gamepadRumble } from 'bloom/core';
 import { addPointLight } from 'bloom/scene';
 import { raycast, Layer } from 'bloom/physics';
 import { playSoundEx } from 'bloom/audio';
@@ -239,8 +238,9 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   VFX.emitExplosion(x, y, z, groundY + 0.02);
   FEEL.addTrauma(0.6);
   FEEL.requestHitstop(0.06);
-  gamepadRumble(0.9, 0.6, 0.3);
+  FEEL.rumble(0.9, 0.6, 0.3);
   playSound3D(DEPS.o.sfxExplosion, x, y, z);
+  GS.capEvent = 5;                 // subtitle: explosion (hud.ts CAP_EXPLOSION)
 
   makeNoise(60);
   for (let i = 0; i < MAX_ENEMIES; i++) {
@@ -393,7 +393,7 @@ function updateKit(dt: number, playing: boolean): void {
         playSound(DEPS.o.sfxMeleeHit);
         FEEL.addTrauma(0.22);
         FEEL.requestHitstop(0.05);
-        gamepadRumble(0.6, 0.5, 0.12);
+        FEEL.rumble(0.6, 0.5, 0.12);
         makeNoise(10);
       }
     }
@@ -559,7 +559,7 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     WPN.noteKick(kick[0] * Math.PI / 180, kick[1] * Math.PI / 180);
     makeNoise(W_NOISE[wpn]);
     FEEL.addTrauma(0.05 + kick[0] * 0.02);
-    gamepadRumble(0.25 + kick[0] * 0.1, 0.15, 0.05);
+    FEEL.rumble(0.25 + kick[0] * 0.1, 0.15, 0.05);
 
     // One sound per weapon; the rifle alternates its two samples.
     if (wpn === WPN.W_RIFLE && Math.random() < 0.5) playSound(DEPS.o.sfxFireRifleB);
@@ -621,7 +621,7 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     // creature's head or chest is bent onto it. Wider while aiming down the sights. It never
     // reaches further than the cone, so it rewards being nearly right, not pointing roughly.
     if (padIsActive() && SET.get(SET.SET_AIM_ASSIST) !== 0) {
-      const coneDeg = 1.2 + WPN.aimBlend() * 0.9;
+      const coneDeg = (1.2 + WPN.aimBlend() * 0.9) * SET.get(SET.SET_AIM_ASSIST);
       const mi = nearestAimPoint(originX, originY, originZ, aimX, aimY, aimZ, FIRE_RANGE,
                                  Math.cos(coneDeg * Math.PI / 180), MAG);
       if (mi >= 0) {

@@ -13,7 +13,6 @@
 import {
   vec3, getTime, playSound3D, playSound, getFPS,
 } from 'bloom';
-import { gamepadRumble } from 'bloom/core';
 import { playSoundEx } from 'bloom/audio';
 import { animPlay } from 'bloom/models';
 import { createRagdoll, releaseRagdoll } from 'bloom/models';
@@ -148,7 +147,10 @@ function alertEnemy(i: number, react: number, share: boolean): void {
 export function damagePlayer(dmg: number, sx: number, sz: number, voice: number): boolean {
   if (GS.gameOver || dmg <= 0) return false;
   const pp = playerPosition();
-  GS.playerHP = GS.playerHP - dmg;
+  // Plan 4.3 - difficulty: what a blow costs. (Creature health is scaled where they spawn.)
+  const dealt = dmg * SCORE.diffDamageMul();
+  SCORE.noteDamage(dealt);
+  GS.playerHP = GS.playerHP - dealt;
   GS.damageFlashT = 0.5;
   GS.sinceHurt = 0;
   // Direction TO the source, relative to where the camera looks.
@@ -162,7 +164,7 @@ export function damagePlayer(dmg: number, sx: number, sz: number, voice: number)
   FEEL.flinch(-Math.sign(rel) * 0.035, -0.02);
   FEEL.damageFlash(1);
   MIX.duckMusicOnDamage();
-  gamepadRumble(0.55, 0.35, 0.18);
+  FEEL.rumble(0.55, 0.35, 0.18);
   if (GS.playerHP <= 0) {
     GS.playerHP = 0;
     playSound(DEPS.o.sfxPlayerDie[voice & 1]);
@@ -278,7 +280,7 @@ function spawnEnemy(): void {
   enX[slot] = spawnerX[sp];
   enZ[slot] = spawnerZ[sp];
   enY[slot] = terrainHeightAt(enX[slot], enZ[slot]);
-  enHP[slot] = KIND_HP[kind];
+  enHP[slot] = KIND_HP[kind] * SCORE.diffHealthMul();
   enAlive[slot] = 1;
   enAttackCD[slot] = 0;
   enFlashT[slot] = 0;
@@ -415,7 +417,7 @@ export function damageEnemy(i: number, dmg: number,
   }
   GS.hitMarkT = crit ? 0.28 : 0.18;
   GS.hitMarkCrit = crit ? 1 : 0;
-  if (crit) playSoundEx(DEPS.o.sfxCrit, false, 0.9, 1.0, 0);
+  if (crit) { playSoundEx(DEPS.o.sfxCrit, false, 0.9, 1.0, 0); SCORE.noteCrit(); }
 
   // Being shot tells it where you are, wherever it was looking.
   if (enAware[i] === 0) alertEnemy(i, 0.12, true);
@@ -480,7 +482,7 @@ export function damageEnemy(i: number, dmg: number,
     // longer, which is most of why killing a tyrant feels different.
     FEEL.requestHitstop(k >= 3 ? 0.09 : 0.05);
     FEEL.addTrauma(0.12 + KIND_SCALE[k] * 0.1);
-    gamepadRumble(0.5, 0.4, 0.12);
+    FEEL.rumble(0.5, 0.4, 0.12);
     SCORE.noteKill(k);
     // Plan 2.7 - a kill can leave a field dressing. The chance doubles when the player is
     // badly hurt, so the game leans toward keeping a fight alive without guaranteeing it.
@@ -1299,6 +1301,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         GS.playerHP = GS.playerHP + HEAL_AMOUNT;
         if (GS.playerHP > DEPS.o.PLAYER_HP_MAX) GS.playerHP = DEPS.o.PLAYER_HP_MAX;
         GS.healFlashT = 0.6;
+        GS.capEvent = 7;                 // subtitle: field dressing applied (hud.ts CAP_*)
         hpLife[i] = 0;
         playSound(DEPS.o.sfxHeal);
       }

@@ -18,6 +18,10 @@
 //   5 flinchYaw     6 flinchPitch
 //   7 damageFlash   8 lowHealth01
 //   9 landDip
+import { gamepadRumble } from 'bloom/core';
+
+const RUMBLE = [1];
+
 const S = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0];
 
 const TRAUMA_DECAY = 1.5;      // per second
@@ -26,6 +30,12 @@ const SHAKE_MAX_PITCH = 0.017;
 const SHAKE_FREQ = 22.0;
 
 /// 0 = no shake at all (accessibility), 1 = full. Wire to a settings slider.
+/// Plan 4.3: every pad rumble goes through here so the VIBRATION setting can silence it.
+export function setRumbleOn(on: boolean): void { RUMBLE[0] = on ? 1 : 0; }
+export function rumble(low: number, high: number, seconds: number): void {
+  if (RUMBLE[0] !== 0) gamepadRumble(low, high, seconds);
+}
+
 export function setShakeScale(s: number): void { S[1] = s < 0 ? 0 : (s > 1 ? 1 : s); }
 export function shakeScale(): number { return S[1]; }
 

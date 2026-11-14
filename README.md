@@ -34,6 +34,7 @@ Controls:
 | 1 / 2 / 3 / 4    | Switch weapon (rifle / blaster / chaingun / cannon) |
 | Q                | Cycle weapon                              |
 | R                | Reload / restart after death              |
+| (all of the above) | Rebindable: SETTINGS, BINDINGS tab (keyboard, mouse and pad) |
 | Tab              | Toggle cursor capture                     |
 | F3               | Profiler overlay (per-pass CPU/GPU µs)    |
 | F5–F9            | Render-pass debug toggles / path tracing  |
@@ -129,6 +130,7 @@ shooter/
     combat.ts         firing, player projectiles, pickups     weapons.ts   stat table
     player.ts         character controller      camera.ts    orbit camera
     hud.ts menu.ts settings.ts score.ts         UI and persistence
+    ui.ts binds.ts strings.ts ui-atlas.ts       UI kit, key bindings, string table (4 languages)
     audio-mix.ts vfx.ts feel.ts environment.ts  presentation
     world-runtime.ts  runtime world loader (world.json -> flat arrays)
   assets/             committed runtime assets

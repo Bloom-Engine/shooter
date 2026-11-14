@@ -66,7 +66,7 @@ import { initFlora, drawFlora } from './flora';
 import { GS } from './gamestate';
 import {
   DIR, initDirector, setDirectorDeps, updateDirector, updateEnemyProjectiles,
-  countAlive, WAVE_BREAK_DELAY, despawnAllEnemies, hpX, hpY, hpZ, hpLife,
+  countAlive, WAVE_BREAK_DELAY, despawnAllEnemies, hpX, hpY, hpZ, hpLife, wavePlan,
 } from './director';
 import {
   setCombatDeps, updateWeaponTransform, updateCombat, drawWeapon,
@@ -112,7 +112,14 @@ import * as WPN from './weapons';
 import * as MIX from './audio-mix';
 import * as SET from './settings';
 import * as SCORE from './score';
-import { initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, currentMenu, MENU_NONE, applyGraphicsSettings } from './menu';
+import {
+  initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, currentMenu, MENU_NONE,
+  applyGraphicsSettings, openResults, setResultsTime, openSettingsTab, openLevels, openCredits,
+  selectRow, MENU_RESULTS, menuRow, menuTab,
+} from './menu';
+import * as STR from './strings';
+import * as UIK from './ui';
+import * as BND from './binds';
 import {
   bootSplash, bootStage, bootOutro,
   BOOT_AUDIO, BOOT_MUSIC, BOOT_WORLD, BOOT_MESHES, BOOT_TREES, BOOT_TERRAIN,
@@ -573,7 +580,10 @@ if (WEB) {
 // (MOBILE keeps its own profile: a phone has no settings screen and no headroom
 // to give away. WEB keeps its fixed profile for the same reason for now —
 // revisit once the WebGPU build has perf numbers behind it.)
-if (!MOBILE && !WEB) applyGraphicsSettings();
+// Plan 4.3: every platform reads the settings now. The phone / Android / browser blocks above
+// set what the player cannot change there (TAA, sun shafts); the passes they used to pin are
+// the settings file's DEFAULTS on those platforms (settings.ts platformDefaults).
+applyGraphicsSettings();
 // --dbg-off (see the CLI block above) applies after the persisted settings
 // so it always wins for the launch it was asked for.
 if (cliDbgOff === 'shadows') setShadowsEnabled(false);
@@ -1334,6 +1344,8 @@ let cursorLocked = true;
 // Frames until the arena relaunch fires (0 = none pending). A countdown so the
 // LOADING cover is on screen before the process is replaced.
 let arenaRestartIn = 0;
+// Seconds since the run ended (died or won); -1 once the results screen has been opened.
+let endRunT = 0;
 let screenshotSeq = 0;
 let perfOverlayOn = false;
 // ---- Render-pass debug toggles --------------------------------------------
@@ -1448,6 +1460,12 @@ let aitestDone = false;
 const MENUTEST = false;
 let menuTestLog = '';
 let menuTestDone = false;
+let mtJump = 0;
+/// Press and release a key two frames apart, through the engine's own key state.
+function mtTap(f: number, at: number, key: number): void {
+  if (f === at) injectKeyDown(key);
+  if (f === at + 2) injectKeyUp(key);
+}
 
 // ---- INDOORCAM harness (temporary diagnostic) -------------------------------
 // Pins the camera inside the house ground floor (overriding the orbit) so an
@@ -1561,6 +1579,19 @@ function p2Probe(ox: number, oy: number, oz: number, i: number, j: number, side:
 // a few points. Same dormancy contract as the other harnesses: MUST be false in
 // shipped builds.
 const COMBATSHOT = false;
+
+// ---- UISHOT harness (plan Phase 4) -------------------------------------------
+// Captures every screen of the front end and the HUD in its states, by opening them through
+// menu.ts's own entry points: title, the six settings tabs, arena select, credits, the title
+// and a settings tab in German, the arena select in French; then a run - the plain HUD, a hit
+// at low health with subtitles on, a reload with pad glyphs in the red-green-safe palette,
+// the wave card and the unlock banner, pause, and both results screens. Pictures land as
+// shooter_ui_NN_name.png. Changes settings in memory only (never saved). Dormancy contract
+// as ever: MUST be false in shipped builds.
+const UISHOT = false;
+let uiShotPad = false;
+const UISHOT_NAMES = ['main', 'set_game', 'set_controls', 'set_binds', 'set_video', 'set_audio',
+                      'set_access', 'levels', 'credits', 'main_de', 'set_video_de', 'levels_fr'];
 
 // ---- SCENESHOT harness ------------------------------------------------------
 // Stills of the level art (house, grass, trees) from fixed viewpoints, no enemies.
@@ -2179,6 +2210,8 @@ function gameFrame(_hostDt: number): void {
     if (uiScale < 0.75) uiScale = 0.75;
     if (uiScale > 0.9 && uiScale < 1.1) uiScale = 1;
   }
+  // Plan 4.3 - HUD SIZE: the player's factor on top (menus scale with it: one logical space).
+  uiScale = uiScale * SET.get(SET.SET_HUD_SCALE);
   const sw = swPx / uiScale;
   const sh = shPx / uiScale;
   // Both beds must be pumped every frame while they are playing, or the one that
@@ -2317,10 +2350,10 @@ function gameFrame(_hostDt: number): void {
   // but the world keeps rendering behind the dim, so you can see what you
   // paused. Audio keeps running deliberately — a silent pause is jarring.
   if (input.pausePressed && GS.gameState === 1 && !GS.gameOver && !DIR.gameWon) {
-    if (menuOpen()) {
-      closeMenu();
-      if (cursorLocked) disableCursor();
-    } else {
+    // Only OPENS the pause menu. With a menu already up, Esc / Start belong to it (back out of
+    // a sub-screen, resume from the pause list): closing here would drop the player from the
+    // settings straight into the fight.
+    if (!menuOpen()) {
       openPause();
       enableCursor();
     }
@@ -2331,27 +2364,97 @@ function gameFrame(_hostDt: number): void {
     const f = testFrame;
     if (f === 40) menuTestLog = menuTestLog + 'boot: menu=' + currentMenu() + ' (want 4=MAIN) gameState=' + GS.gameState + '\n';
     // Row 0 PLAY -> row 2 SETTINGS.
-    if (f === 45) injectKeyDown(Key.DOWN);
-    if (f === 47) injectKeyUp(Key.DOWN);
-    if (f === 52) injectKeyDown(Key.DOWN);
-    if (f === 54) injectKeyUp(Key.DOWN);
-    if (f === 60) injectKeyDown(Key.ENTER);
-    if (f === 62) injectKeyUp(Key.ENTER);
-    if (f === 70) menuTestLog = menuTestLog + 'after ENTER on SETTINGS row: menu=' + currentMenu() + ' (want 2=SETTINGS)\n';
-    // ESC must go BACK to MAIN — not close the menu, and not kill the process.
-    if (f === 80) injectKeyDown(Key.ESCAPE);
-    if (f === 82) injectKeyUp(Key.ESCAPE);
-    if (f === 90) menuTestLog = menuTestLog + 'after ESC in settings: menu=' + currentMenu() + ' (want 4=MAIN, alive=yes)\n';
+    mtTap(f, 45, Key.DOWN); mtTap(f, 52, Key.DOWN); mtTap(f, 60, Key.ENTER);
+    if (f === 70) menuTestLog = menuTestLog + 'after ENTER on SETTINGS row: menu=' + currentMenu() + ' (want 2=SETTINGS) tab=' + menuTab() + ' (want 0)\n';
+    // Phase 4: E twice -> the BINDINGS tab; down x4 -> JUMP; Enter starts a capture; J binds.
+    mtTap(f, 75, Key.E); mtTap(f, 82, Key.E);
+    if (f === 90) menuTestLog = menuTestLog + 'after E,E: tab=' + menuTab() + ' (want 2=BINDINGS)\n';
+    mtTap(f, 92, Key.DOWN); mtTap(f, 99, Key.DOWN); mtTap(f, 106, Key.DOWN); mtTap(f, 113, Key.DOWN);
+    mtTap(f, 120, Key.ENTER);
+    if (f === 128) menuTestLog = menuTestLog + 'capture started: row=' + menuRow() + ' (want 4) capturing=' + (BND.capturing() ? 1 : 0) + ' (want 1)\n';
+    mtTap(f, 130, Key.J);
+    if (f === 138) menuTestLog = menuTestLog + 'after J: jump key=' + BND.kbCode(BND.ACT_JUMP) + ' (want 74) capturing=' + (BND.capturing() ? 1 : 0) + ' (want 0)\n';
+    // Bind FIRE's key onto JUMP's old one the other way: rebinding SPRINT to J must SWAP.
+    mtTap(f, 140, Key.DOWN); mtTap(f, 147, Key.DOWN); mtTap(f, 154, Key.DOWN);   // -> SPRINT
+    mtTap(f, 161, Key.ENTER); mtTap(f, 170, Key.J);
+    if (f === 178) menuTestLog = menuTestLog + 'after J on SPRINT: sprint=' + BND.kbCode(BND.ACT_SPRINT) + ' (want 74) jump=' + BND.kbCode(BND.ACT_JUMP) + ' (want 280, swapped)\n';
+    // ESC must go BACK to MAIN - not close the menu, and not kill the process.
+    mtTap(f, 180, Key.ESCAPE);
+    if (f === 190) menuTestLog = menuTestLog + 'after ESC in settings: menu=' + currentMenu() + ' (want 4=MAIN, alive=yes)\n';
     // back() resets the selection to row 0 = PLAY.
-    if (f === 100) injectKeyDown(Key.ENTER);
-    if (f === 102) injectKeyUp(Key.ENTER);
-    if (f === 115) {
+    mtTap(f, 200, Key.ENTER);
+    if (f === 215) {
       menuTestLog = menuTestLog + 'after ENTER on PLAY: menu=' + currentMenu()
         + ' (want 0=NONE) gameState=' + GS.gameState + ' (want 1)'
         + ' cursorLocked=' + (cursorLocked ? 1 : 0) + ' (want 1)\n';
-      writeFile('tools/.testout/menutest.txt', menuTestLog);
-      menuTestDone = true;
     }
+    // In the run: the rebound sprint key (J) must sprint, Shift (now jump) must jump.
+    if (f === 230) injectKeyDown(Key.J);
+    if (f === 236) menuTestLog = menuTestLog + 'J held in play: sprintDown=' + (input.sprintDown ? 1 : 0) + ' (want 1)\n';
+    if (f === 238) injectKeyUp(Key.J);
+    if (f === 240) injectKeyDown(Key.LEFT_SHIFT);
+    if (f === 241 || f === 242) { if (input.jump) mtJump = 1; }
+    if (f === 244) { injectKeyUp(Key.LEFT_SHIFT); menuTestLog = menuTestLog + 'Shift pressed in play: jump=' + mtJump + ' (want 1)\n'; }
+    // The run ends: the results screen must open by itself, and its first row must restart.
+    if (f === 250) { GS.playerHP = 0; GS.gameOver = true; }
+    if (f === 420) menuTestLog = menuTestLog + 'after death + wait: menu=' + currentMenu() + ' (want 6=RESULTS)\n';
+    mtTap(f, 425, Key.ENTER);
+    if (f === 440) menuTestLog = menuTestLog + 'after ENTER on TRY AGAIN: menu=' + currentMenu() + ' (want 0) gameOver=' + (GS.gameOver ? 1 : 0) + ' (want 0) hp=' + GS.playerHP + ' (want 100)\n';
+    // Pause -> MAIN MENU (row 4) -> the title, with no run behind it.
+    mtTap(f, 450, Key.ESCAPE);
+    if (f === 458) menuTestLog = menuTestLog + 'after ESC in play: menu=' + currentMenu() + ' (want 1=PAUSE)\n';
+    mtTap(f, 460, Key.DOWN); mtTap(f, 467, Key.DOWN); mtTap(f, 474, Key.DOWN); mtTap(f, 481, Key.DOWN);
+    mtTap(f, 490, Key.ENTER);
+    if (f === 500) {
+      menuTestLog = menuTestLog + 'after MAIN MENU: menu=' + currentMenu() + ' (want 4) gameState=' + GS.gameState + ' (want 0)\n';
+      // Leave the player's bindings as they were found.
+      BND.resetBinds();
+      SET.saveSettings();
+      writeFile('tools/.testout/menutest.txt', menuTestLog);
+      console.log(menuTestLog);
+      menuTestDone = true;
+      closeWindow();
+      return;
+    }
+  }
+  if (UISHOT) {
+    const f = testFrame;
+    const STEP = 45;
+    if (f >= 40 && f < 40 + 12 * STEP) {
+      const st = Math.floor((f - 40) / STEP);
+      const ph = (f - 40) % STEP;
+      if (ph === 0) {
+        STR.setLanguage(0);
+        if (st === 0) openMain();
+        else if (st >= 1 && st <= 6) { openSettingsTab(st - 1); selectRow(st === 3 ? 5 : 1); }
+        else if (st === 7) openLevels();
+        else if (st === 8) openCredits();
+        else if (st === 9) { STR.setLanguage(1); openMain(); }
+        else if (st === 10) { STR.setLanguage(1); openSettingsTab(3); selectRow(3); }
+        else if (st === 11) { STR.setLanguage(2); openLevels(); selectRow(2); }
+      }
+      if (ph === STEP - 8) takeScreenshot('shooter_ui_' + (st < 10 ? '0' : '') + st + '_' + UISHOT_NAMES[st] + '.png');
+    }
+    const g0 = 40 + 12 * STEP;
+    if (f === g0) { STR.setLanguage(0); openMain(); startRun(); cursorLocked = true; }
+    if (f > g0 && f < g0 + 500) GS.playerHP = PLAYER_HP_MAX;
+    if (f === g0 + 300) takeScreenshot('shooter_ui_12_hud.png');
+    if (f >= g0 + 310 && f < g0 + 340) {
+      GS.playerHP = 18; GS.lastHitT = 1.1; GS.lastHitAngle = 2.2; GS.damageFlashT = 0.3;
+      SET.set(SET.SET_CAPTIONS, 1);
+    }
+    if (f === g0 + 338) takeScreenshot('shooter_ui_13_hud_hit.png');
+    if (f === g0 + 345) { SET.set(SET.SET_CAPTIONS, 0); uiShotPad = true; UIK.setPalette(1); WPN.beginReload(); GS.hitMarkT = 0.2; GS.hitMarkCrit = 1; }
+    if (f === g0 + 362) takeScreenshot('shooter_ui_14_hud_pad_reload.png');
+    if (f === g0 + 370) { uiShotPad = false; UIK.setPalette(0); GS.waveBonusT = 3.4; GS.waveBonus = 420; GS.unlockBannerT = 4.0; }
+    if (f === g0 + 395) takeScreenshot('shooter_ui_15_hud_banners.png');
+    if (f === g0 + 400) { GS.waveBonusT = 0; GS.unlockBannerT = 0; openPause(); }
+    if (f === g0 + 440) takeScreenshot('shooter_ui_16_pause.png');
+    if (f === g0 + 450) { DIR.gameWon = true; setResultsTime(GS.runElapsed + 187); openResults(true, 3, 3, true); }
+    if (f === g0 + 540) takeScreenshot('shooter_ui_17_results_won.png');
+    if (f === g0 + 550) { DIR.gameWon = false; GS.gameOver = true; openResults(false, 2, 3, false); }
+    if (f === g0 + 620) takeScreenshot('shooter_ui_18_results_died.png');
+    if (f === g0 + 640) { console.log('UISHOT done'); closeWindow(); return; }
   }
   if (menuOpen()) {
     const act = updateMenu(dtReal, sw, sh, uiScale);
@@ -2359,7 +2462,19 @@ function gameFrame(_hostDt: number): void {
       if (cursorLocked) disableCursor();
     } else if (act === 2) {               // ACT_RESTART
       resetRun();
-      if (cursorLocked) disableCursor();
+      endRunT = 0;
+      cursorLocked = true;
+      disableCursor();
+    } else if (act === 6) {               // ACT_TITLE - leave the run for the front door
+      resetRun();
+      endRunT = 0;
+      GS.gameState = 0;
+      stopMusic(musicCalm);
+      if (HAS_STEMS) stopMusic(musicCombat);
+      playMusic(musicMenu);
+      openMain();
+      enableCursor();
+      cursorLocked = false;
     } else if (act === 3) {               // ACT_QUIT
       closeWindow();
       return;
@@ -2385,6 +2500,23 @@ function gameFrame(_hostDt: number): void {
         SET.saveSettings();
       }
     }
+  }
+  // Plan 4.2 - the end of a run. The verdict fades up over the scene (hud.ts drawOverlays),
+  // and a moment later the results screen opens: late enough that a death is watched and a
+  // weapon unlock is read, soon enough that nobody wonders what to press.
+  if (GS.gameState === 1 && (GS.gameOver || DIR.gameWon)) {
+    if (!menuOpen() && endRunT >= 0) {
+      endRunT = endRunT + dtReal;
+      if (endRunT > (DIR.gameWon ? 3.4 : 2.3) && !UISHOT && !P2BOT && !P2TEST && !PLAYERSHOT && !COMBATSHOT) {
+        setResultsTime(GS.runElapsed);
+        openResults(DIR.gameWon, DIR.waveIdx + 1, wavePlan.length,
+                    SCORE.score() > 0 && SCORE.score() >= SET.bestScore(W.ARENA_INDEX));
+        enableCursor();
+        endRunT = -1;                     // opened: do not open it again for this run
+      }
+    }
+  } else {
+    endRunT = 0;
   }
   if (arenaRestartIn > 0) {
     arenaRestartIn = arenaRestartIn - 1;
@@ -2686,7 +2818,13 @@ function gameFrame(_hostDt: number): void {
   // Restart on R when the run has ended (died or won); otherwise R reloads.
   // Reload is TIMED now (SH-028) — you can be punished for it.
   if (input.reloadPressed) {
-    if (GS.gameOver || DIR.gameWon) resetRun();
+    if (GS.gameOver || DIR.gameWon) {
+      // R still restarts from the end of a run, results screen or not.
+      if (currentMenu() === MENU_RESULTS) closeMenu();
+      resetRun();
+      endRunT = 0;
+      if (cursorLocked) disableCursor();
+    }
     else if (playing && !WPN.isReloading()) {
       const before = WPN.isReloading();
       WPN.beginReload();
@@ -2694,10 +2832,8 @@ function gameFrame(_hostDt: number): void {
     }
   }
   // Weapon selection. Number keys pick directly; the touch/pad button cycles.
-  if (isKeyPressed(Key.ONE))   WPN.selectWeapon(WPN.W_RIFLE);
-  if (isKeyPressed(Key.TWO))   WPN.selectWeapon(WPN.W_BLASTER);
-  if (isKeyPressed(Key.THREE)) WPN.selectWeapon(WPN.W_CHAIN);
-  if (isKeyPressed(Key.FOUR))  WPN.selectWeapon(WPN.W_CANNON);
+  // (Plan 4.3: these are bindings now - number keys and the D-pad by default.)
+  if (input.weaponSlot > 0 && playing) WPN.selectWeapon(input.weaponSlot - 1);
   if (input.swapWeapon) WPN.nextWeapon();
   if (playing && input.shoulderPressed) swapShoulder();
   // Plan 2.7 - the kit: a rifle-butt strike and a grenade. Neither through a roll or a vault.
@@ -3855,7 +3991,7 @@ function gameFrame(_hostDt: number): void {
   // The in-run HUD - crosshair/spread, hit marker, damage vignette + arc,
   // HP + dodge, score + combo, render-toggle status, ammo/reload/charge,
   // wave banner + report card, unlock banner - hud.ts (gated on a run inside).
-  drawHud(sw, sh, input.padActive, dbgSsgi, dbgSsao, dbgSsr, dbgShadow,
+  drawHud(sw, sh, input.padActive || uiShotPad, dbgSsgi, dbgSsao, dbgSsr, dbgShadow,
           ptSupported, SET.get(SET.SET_PT));
 
   // (The title screen used to live here: a wordmark and "press any key". It is

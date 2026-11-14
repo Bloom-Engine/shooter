@@ -14,7 +14,7 @@ they are: player animation, world art, combat depth, UI, audio/VFX variety, cont
 has an acceptance test. `[bug]` items are defects, the rest are missing or shallow features.
 "Verified" means re-checked on 2026-11-14; "reported" means found by code reading and not yet
 reproduced in play. Sizes are for one person with the current tooling. Ticket ids are not assigned
-here; register items in `docs/tickets.md` (next free: SH-059) as they are picked up.
+here; register items in `docs/tickets.md` (next free: SH-060) as they are picked up.
 
 **Rule carried over from July:** no performance win may cost visual quality at default settings.
 
@@ -226,10 +226,48 @@ or capsule AO to ground them.
 
 ---
 
-## Phase 4 - UI and front end (3-5 weeks)
+## Phase 4 - UI and front end - LANDED 2026-11-14 (ticket SH-059)
 
-Blocked in part by engine EN-030 (the UI widget layer, re-opened): today everything is rectangles
-and one font.
+**State.** All six items have work behind them; `docs/tickets.md` SH-059 has the per-item record.
+Judged from the UISHOT harness (19 captures: every menu screen, the HUD in its states, both results
+screens, German and French) and the MENUTEST harness (14 scripted checks through the real key
+path: rebinding, a swap on conflict, the results screen opening by itself, pause, return to the
+title). **Nobody has used it with a hand on a mouse or a pad,** and nothing was looked at in
+motion: the row animations, the banners, the counting score. **Decisions taken:** the UI kit is the
+game's own (`src/ui.ts`: an atlas of white shapes tinted through a palette of meanings), not the
+engine's EN-030, which is still open; glyphs are drawn from the binding table, with one pad set
+(the Xbox letters), because the engine does not say which pad is connected; languages are English,
+German, French and Spanish, generated from one table; the font stays Rajdhani, which covers Latin
+and Latin Extended only. **Carried forward:**
+
+- **In-process arena reload (4.2 / 0.3).** Unchanged: choosing an arena still relaunches the game
+  behind a loading cover, and phones, tablets and TV boxes still ask the player to reopen it. It
+  needs the world tables to become reloadable state and an engine teardown path for colliders,
+  scatters and GI proxies.
+- **Resolution list and monitor choice (4.3).** The engine offers a full-screen toggle and an
+  output scale, not a list of modes; the rows are WINDOW (full screen / windowed) and DISPLAY
+  RESOLUTION (50-100% of native). A saved "windowed" was booted once and came up in a window;
+  switching back and forth from the row was not tried.
+- **Phones, the web build and Android.** They now read the video settings (their old fixed
+  profile became the file's defaults there), and the HUD has a phone layout (smaller, the weapon
+  block between the stick and the buttons). None of it was run on a device or in a browser.
+- **A pad.** No controller was connected: pad glyphs were drawn by forcing them in the harness,
+  and pad rebinding, the dead zone and the response curve were compiled and read, not tried.
+- **Wider script coverage (4.5).** No Cyrillic, Greek or CJK: that needs a second font. Engine
+  EN-059 (UTF-8 files read as Latin-1) is still open; the string table lives in source, which is
+  why it is not affected. The boot screen's stage labels are still English only.
+- **Subtitles are for sounds, not speech (4.4).** The game has no dialogue. Eight sound events
+  are named (wind-up, a creature's alert shriek, the howl before a wave, heartbeat, explosion,
+  dry click, field dressing, the silence of a cleared arena).
+- **Colour-blind palettes re-colour the HUD and menus only,** not the world (blood, muzzle
+  flash, the creatures' own colours). They were chosen from published safe pairs and not checked
+  with a simulator.
+- **Difficulty** is three multipliers (damage taken, creature health, points). The values are
+  first guesses nobody has played.
+- **Radar.** The plan offered "compass or radar"; this is a compass strip with a pip per creature.
+
+The original items, for the record. (Engine EN-030, the UI widget layer, was listed as a partial
+blocker: at the time everything was rectangles and one font.)
 
 4.1 **HUD art pass.** Weapon silhouette and ammo pips, a framed health display, designed damage
 direction arc and vignette, kill and critical hit-marker variants, off-screen threat markers, a

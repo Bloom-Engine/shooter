@@ -31,6 +31,7 @@ files whose origin was never recorded. Prompts are in the tool; file names are u
 | `step_grass{1-4}.wav`, `step_dirt{1-4}.wav`, `step_heavy1.wav` | footsteps (second pass: these and the rows below replaced the synthesised placeholders) |
 | `skitter_light{1-4}.wav`, `skitter_heavy{1-4}.wav`, `crawl_loop.wav` | creature locomotion |
 | `reload_start.wav`, `reload_end.wav`, `ui_move.wav`, `ui_select.wav` | reload and interface |
+| `ui_back.wav`, `ui_tab.wav`, `ui_tick.wav`, `ui_toggle.wav`, `ui_error.wav`, `ui_start.wav` | interface (2026-11-14, Phase 4): synthesised by `tools/gen/ui_sfx.py`, no outside source |
 | `rifle_tail.wav`, `blaster_tail.wav`, `chain_tail.wav`, `cannon_tail.wav` | weapon echo tails |
 | `ambient_wind.wav` | wind bed (seamless loop) |
 | `chain_fire.wav`, `cannon_fire.wav`, `explosion.wav` | one shot per weapon and the cannon's blast (2026-11-14; before that the chaingun and cannon fired the rifle sample) |

@@ -10,7 +10,8 @@
 // assignment, never `.push()`. So: parse once at boot into flat state, and
 // serialise by hand.
 
-import { readFile, writeFile, fileExists } from 'bloom/core';
+import { readFile, writeFile, fileExists, isMobile, getPlatform, getPreferredLanguages } from 'bloom/core';
+import { resetBinds, bindsJson, bindsFromObject } from './binds';
 
 const PATH = 'settings.json';
 
@@ -70,7 +71,29 @@ export const SET_AIM_ASSIST = 21;  // 0/1
 export const SET_DOF        = 22;  // 0/1
 export const SET_MOTION_BLUR = 23; // 0/1
 export const SET_AUTO_RES   = 24;  // 0/1
-export const SET_COUNT      = 25;
+// Plan Phase 4 (SH-059). Choice rows store the option's index.
+export const SET_DIFFICULTY = 25;  // 0 easy, 1 normal, 2 hard (director + score read it)
+export const SET_LANG       = 26;  // index into strings.ts LANG_NAMES
+export const SET_HUD_SCALE  = 27;  // 0.8 .. 1.3 on top of the resolution scale
+export const SET_COMPASS    = 28;  // 0/1 - the bearing strip at the top of the HUD
+export const SET_DEADZONE   = 29;  // stick dead zone, 0.05 .. 0.40
+export const SET_CURVE      = 30;  // stick response: 0 linear, 1 squared, 2 cubed
+export const SET_VIBRATION  = 31;  // 0/1
+export const SET_PRESET     = 32;  // 0 low, 1 medium, 2 high, 3 ultra, 4 custom
+export const SET_WINDOW     = 33;  // 0 full screen, 1 windowed
+export const SET_VSYNC      = 34;  // 0/1
+export const SET_FPS_CAP    = 35;  // index into FPS_CAPS
+export const SET_CAPTION_SIZE = 36; // 0 small, 1 medium, 2 large
+export const SET_CAPTION_BG = 37;  // 0/1 - a dark plate behind subtitles
+export const SET_PALETTE    = 38;  // 0 standard, 1 red-green safe, 2 blue-yellow safe, 3 high contrast
+export const SET_CROUCH_TOGGLE = 39; // 0 = hold, 1 = toggle
+export const SET_COUNT      = 40;
+
+/// Frames per second for each SET_FPS_CAP option; 0 = no limit.
+export const FPS_CAPS = [30, 60, 120, 144, 0];
+/// Bumped when the meaning of stored values changes. v2: phones and the browser read the video
+/// block (before, they ignored it, so an old file holds desktop values that would sink them).
+const FILE_VERSION = 2;
 
 const V = new Array<number>(SET_COUNT);
 
@@ -118,8 +141,60 @@ function defaults(): void {
   // Off by default: Lumen is the default GI everywhere; path tracing is
   // opt-in (it trades ~half the frame rate for traced lighting).
   V[SET_PT]         = 0;
+  V[SET_DIFFICULTY] = 1;
+  V[SET_LANG]       = systemLanguage();
+  V[SET_HUD_SCALE]  = 1.0;
+  V[SET_COMPASS]    = 1;
+  V[SET_DEADZONE]   = 0.18;
+  V[SET_CURVE]      = 1;
+  V[SET_VIBRATION]  = 1;
+  V[SET_PRESET]     = 2;
+  V[SET_WINDOW]     = 0;
+  V[SET_VSYNC]      = 1;
+  V[SET_FPS_CAP]    = 1;
+  V[SET_CAPTION_SIZE] = 1;
+  V[SET_CAPTION_BG] = 1;
+  V[SET_PALETTE]    = 0;
+  V[SET_CROUCH_TOGGLE] = 0;
+  platformDefaults();
+  resetBinds();
   for (let i = 0; i < MAX_ARENAS; i++) best[i] = 0;
   M[0] = 0;
+}
+
+/// Phones and the browser start from their own render budget (measured in main.ts's profile
+/// comments: an iPhone 16 Pro, a Pixel 4a, WebGPU without a profiler). Since Phase 4 these are
+/// DEFAULTS the player may change, not a fixed profile; global illumination and path tracing
+/// stay unavailable there (menu.ts hides the rows, applyGraphicsSettings skips them).
+function platformDefaults(): void {
+  const plat = getPlatform();
+  const web = plat === 7;
+  if (!isMobile() && !web) return;
+  V[SET_SSGI] = 0;
+  V[SET_SSR] = 0;
+  V[SET_PT] = 0;
+  V[SET_DOF] = 0;
+  V[SET_RENDER_SCALE] = web ? 0.65 : 0.5;
+  V[SET_PRESET] = 4;
+  if (plat === 5) {              // Android: the low tier
+    V[SET_SHADOWS] = 0;
+    V[SET_SSAO] = 0;
+    V[SET_BLOOM] = 0;
+  }
+}
+
+/// First run: start in the system's language when the game has it.
+function systemLanguage(): number {
+  const langs = getPreferredLanguages();
+  if (langs.length < 1) return 0;
+  const tag = langs[0];
+  if (tag === null || tag === undefined || tag.length < 2) return 0;
+  const c0 = tag.charCodeAt(0) | 32;
+  const c1 = tag.charCodeAt(1) | 32;
+  if (c0 === 100 && c1 === 101) return 1;   // de
+  if (c0 === 102 && c1 === 114) return 2;   // fr
+  if (c0 === 101 && c1 === 115) return 3;   // es
+  return 0;
 }
 
 export function get(i: number): number { return V[i]; }
@@ -201,7 +276,26 @@ export function loadSettings(): void {
   V[SET_AIM_TOGGLE]  = num(c, 'aimToggle',     V[SET_AIM_TOGGLE]);
   V[SET_SPRINT_TOGGLE] = num(c, 'sprintToggle', V[SET_SPRINT_TOGGLE]);
 
-  const vd: any = o['video'];
+  const m0: any = o['meta'];
+  const fileV = num(m0, 'v', 1);
+  const g: any = o['game'];
+  V[SET_DIFFICULTY] = num(g, 'difficulty', V[SET_DIFFICULTY]);
+  V[SET_LANG]       = num(g, 'language', V[SET_LANG]);
+  V[SET_HUD_SCALE]  = num(g, 'hudScale', V[SET_HUD_SCALE]);
+  V[SET_COMPASS]    = num(g, 'compass', V[SET_COMPASS]);
+  V[SET_DEADZONE]   = num(c, 'deadzone', V[SET_DEADZONE]);
+  V[SET_CURVE]      = num(c, 'curve', V[SET_CURVE]);
+  V[SET_VIBRATION]  = num(c, 'vibration', V[SET_VIBRATION]);
+  V[SET_CROUCH_TOGGLE] = num(c, 'crouchToggle', V[SET_CROUCH_TOGGLE]);
+  bindsFromObject(o['binds']);
+
+  // An older file on a phone or in the browser holds desktop video values nothing read.
+  const skipVideo = fileV < 2 && (isMobile() || getPlatform() === 7);
+  const vd: any = skipVideo ? null : o['video'];
+  V[SET_PRESET]  = num(vd, 'preset', fileV < 2 ? 4 : V[SET_PRESET]);
+  V[SET_WINDOW]  = num(vd, 'window', V[SET_WINDOW]);
+  V[SET_VSYNC]   = num(vd, 'vsync', V[SET_VSYNC]);
+  V[SET_FPS_CAP] = num(vd, 'fpsCap', V[SET_FPS_CAP]);
   V[SET_FOV]          = num(vd, 'fov',         V[SET_FOV]);
   V[SET_RENDER_SCALE] = num(vd, 'renderScale', V[SET_RENDER_SCALE]);
   V[SET_OUTPUT_SCALE] = num(vd, 'outputScale', V[SET_OUTPUT_SCALE]);
@@ -218,12 +312,38 @@ export function loadSettings(): void {
   const ac: any = o['access'];
   V[SET_SHAKE]      = num(ac, 'shake',      V[SET_SHAKE]);
   V[SET_CAPTIONS]   = num(ac, 'captions',   V[SET_CAPTIONS]);
+  V[SET_CAPTION_SIZE] = num(ac, 'captionSize', V[SET_CAPTION_SIZE]);
+  V[SET_CAPTION_BG] = num(ac, 'captionBg', V[SET_CAPTION_BG]);
+  V[SET_PALETTE]    = num(ac, 'palette', V[SET_PALETTE]);
+  clampChoices();
 
   const m: any = o['meta'];
   M[0] = num(m, 'unlocks', 0);
   for (let i = 0; i < MAX_ARENAS; i++) {
     best[i] = num(m, 'best' + i, 0);
   }
+}
+
+/// A hand-edited or damaged file must not index a table out of range.
+function clampChoice(i: number, n: number): void {
+  let v = Math.floor(V[i]);
+  if (!(v >= 0)) v = 0;
+  if (v > n - 1) v = n - 1;
+  V[i] = v;
+}
+function clampChoices(): void {
+  clampChoice(SET_DIFFICULTY, 3);
+  clampChoice(SET_LANG, 4);
+  clampChoice(SET_CURVE, 3);
+  clampChoice(SET_PRESET, 5);
+  clampChoice(SET_WINDOW, 2);
+  clampChoice(SET_FPS_CAP, 5);
+  clampChoice(SET_CAPTION_SIZE, 3);
+  clampChoice(SET_PALETTE, 4);
+  if (!(V[SET_HUD_SCALE] >= 0.8)) V[SET_HUD_SCALE] = 0.8;
+  if (V[SET_HUD_SCALE] > 1.3) V[SET_HUD_SCALE] = 1.3;
+  if (!(V[SET_DEADZONE] >= 0.05)) V[SET_DEADZONE] = 0.05;
+  if (V[SET_DEADZONE] > 0.4) V[SET_DEADZONE] = 0.4;
 }
 
 /// Serialise by hand. JSON.stringify on Perry is not a road worth walking, and
@@ -239,7 +359,16 @@ export function saveSettings(): void {
         + ', "aimAssist": ' + V[SET_AIM_ASSIST]
         + ', "invertY": ' + V[SET_INVERT_Y]
         + ', "aimToggle": ' + V[SET_AIM_TOGGLE]
-        + ', "sprintToggle": ' + V[SET_SPRINT_TOGGLE] + ' },\n';
+        + ', "sprintToggle": ' + V[SET_SPRINT_TOGGLE]
+        + ', "crouchToggle": ' + V[SET_CROUCH_TOGGLE]
+        + ', "deadzone": ' + V[SET_DEADZONE]
+        + ', "curve": ' + V[SET_CURVE]
+        + ', "vibration": ' + V[SET_VIBRATION] + ' },\n';
+  s = s + '  "game": { "difficulty": ' + V[SET_DIFFICULTY]
+        + ', "language": ' + V[SET_LANG]
+        + ', "hudScale": ' + V[SET_HUD_SCALE]
+        + ', "compass": ' + V[SET_COMPASS] + ' },\n';
+  s = s + '  "binds": { ' + bindsJson() + ' },\n';
   s = s + '  "video": { "fov": ' + V[SET_FOV]
         + ', "renderScale": ' + V[SET_RENDER_SCALE]
         + ', "outputScale": ' + V[SET_OUTPUT_SCALE]
@@ -251,10 +380,17 @@ export function saveSettings(): void {
         + ', "dof": ' + V[SET_DOF]
         + ', "motionBlur": ' + V[SET_MOTION_BLUR]
         + ', "autoRes": ' + V[SET_AUTO_RES]
-        + ', "pathTracing": ' + V[SET_PT] + ' },\n';
+        + ', "pathTracing": ' + V[SET_PT]
+        + ', "preset": ' + V[SET_PRESET]
+        + ', "window": ' + V[SET_WINDOW]
+        + ', "vsync": ' + V[SET_VSYNC]
+        + ', "fpsCap": ' + V[SET_FPS_CAP] + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]
-        + ', "captions": ' + V[SET_CAPTIONS] + ' },\n';
-  s = s + '  "meta": { "unlocks": ' + M[0];
+        + ', "captions": ' + V[SET_CAPTIONS]
+        + ', "captionSize": ' + V[SET_CAPTION_SIZE]
+        + ', "captionBg": ' + V[SET_CAPTION_BG]
+        + ', "palette": ' + V[SET_PALETTE] + ' },\n';
+  s = s + '  "meta": { "v": ' + FILE_VERSION + ', "unlocks": ' + M[0];
   for (let i = 0; i < MAX_ARENAS; i++) {
     s = s + ', "best' + i + '": ' + best[i];
   }

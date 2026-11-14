@@ -1,226 +1,361 @@
-// SH-038 — front-end: pause, settings, game-over flow.
+// SH-038 / plan Phase 4 (SH-059) - the front end: title, pause, settings, arena select,
+// results and credits.
 //
-// The game had exactly two states (title, playing) and no way to stop, adjust
-// anything, or leave. This is an immediate-mode menu built on the engine's 2D
-// draw calls, with ONE focus model shared by mouse, keyboard, gamepad and
-// touch — which is the part that actually matters: a settings screen you can't
-// reach with a controller is not gamepad support.
+// An immediate-mode menu on the engine's 2D calls with ONE focus model shared by mouse,
+// keyboard, gamepad and touch. Phase 4 rebuilt what it draws (ui.ts: panels, glyphs, the
+// palette, the string table) and what it holds:
 //
-// (EN-030 proposes a proper retained widget layer in the engine. When it lands
-// this file becomes a thin adapter; until then the IM version ships, because a
-// pause button is not worth blocking on a UI framework.)
+//   - settings are six TABS of rows built from one table (addRow), not one 25-row list;
+//   - the BINDINGS tab rebinds keyboard/mouse and pad per action (binds.ts);
+//   - the arena select is a row of cards with a picture each;
+//   - the end of a run is a RESULTS screen with the run's numbers and somewhere to go
+//     (it used to be a caption saying "press R");
+//   - every screen change animates in, and every interaction makes a sound.
+//
+// (Engine EN-030 proposes a widget layer. This file is still the game's own; if that lands,
+// the row table below is the part that maps onto it.)
+//
+// Perry rules: top-level functions, state in const arrays, tables filled by index in
+// initMenus() (never .push), nothing touching the engine at module scope.
 
 import {
-  drawRect,
-  isKeyPressed, Key,
-  isMouseButtonPressed, getMouseX, getMouseY,
+  isKeyPressed, Key, loadTexture, fileExists, drawRect,
+  isMouseButtonPressed, isMouseButtonDown, getMouseX, getMouseY, getMouseWheel,
   isGamepadAvailable, isGamepadButtonPressed, getGamepadAxis,
 } from 'bloom';
-import { drawText, measureText } from './ui-text';
+import { drawTextureProRaw } from 'bloom/textures';
 import {
   setOutputScale, setRenderScale, setShadowsEnabled, setMotionBlurEnabled, setAutoResolution,
   setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
-  setPathTracing, isPathTracingSupported,
+  setPathTracing, isPathTracingSupported, setPresentMode, setTargetFPS, toggleFullscreen,
 } from 'bloom/core';
 import * as SET from './settings';
 import * as MIX from './audio-mix';
 import * as FEEL from './feel';
+import * as SCORE from './score';
+import * as UI from './ui';
+import * as B from './binds';
+import * as STR from './strings';
+import { T, fmt } from './strings';
+import { MOBILE, WEB } from './input';
+import { KIND_NAME } from './enemies';
 import { ARENAS, ARENA_COUNT, ARENA_INDEX, selectArena } from './world-runtime';
+import {
+  A_EMBLEM, A_FADE_R, A_FADE_H, A_ARROW_L, A_ARROW_R, A_STAR, A_CHECK, A_SOFT,
+  A_PANEL, A_PANEL_LINE, A_DISC, A_RING,
+} from './ui-atlas';
 
 export const MENU_NONE     = 0;
 export const MENU_PAUSE    = 1;
 export const MENU_SETTINGS = 2;
 export const MENU_LEVELS   = 3;
-/// SH-049 — the front door. Same rows, same focus model, same draw code as the
-/// pause menu: a main menu that is a SEPARATE screen is a second thing to keep
-/// working, and it always rots.
+/// SH-049 - the front door. Same rows, same focus model, same draw code as the pause menu.
 export const MENU_MAIN     = 4;
+export const MENU_CREDITS  = 5;
+/// The end of a run: its numbers, and where to go next.
+export const MENU_RESULTS  = 6;
 
 // Row kinds.
 const ROW_ACTION = 0;
 const ROW_SLIDER = 1;
 const ROW_TOGGLE = 2;
-// Three named states (the path-tracing row: OFF / QUALITY / REALTIME).
-const ROW_TRI    = 3;
+const ROW_CHOICE = 3;   // one of n named options; confirm cycles, left/right step
+const ROW_BIND   = 4;   // an action's keyboard/mouse and pad bindings
+
+// Row flags.
+const F_DESKTOP = 1;    // not on phones, not in the browser (the platform decides these there)
+const F_NOTOUCH = 2;    // not on phones (mouse and keyboard rows)
+
+// Special R_IDX values of action rows.
+const IDX_BACK = -1;
+const IDX_RESET_BINDS = -2;
 
 //   0 current menu   1 selected row   2 stick-repeat cooldown
-//   3 where SETTINGS / LEVEL SELECT go back TO — they are reachable from both
-//     the main menu and the pause menu, and BACK has to mean the right thing in
-//     both. Without this the settings screen strands you in a pause menu over a
-//     game that never started.
-const S = [MENU_NONE, 0, 0, MENU_PAUSE];
+//   3 where SETTINGS / ARENAS / CREDITS go back TO (they open from both the title and pause)
+//   4 settings tab (index into TABS_VIS)   5 seconds since this screen or tab appeared
+//   6 first visible row (scroll)   7 results: 1 = the run was won   8 bindings column
+//   (0 keyboard, 1 pad)   9 results: wave reached   10 results: waves in the arena
+//   11 selection highlight, smoothed y   12 1 = the pointer is what moved the selection last
+//   13 previous mouse x   14 previous mouse y   15 results: 1 = new best score
+//   16 1 = this screen opened this frame: the key that opened it must not also answer it
+const S = [MENU_NONE, 0, 0, MENU_PAUSE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 // The action a click/confirm produced this frame, read by main.ts.
 export const ACT_NONE     = 0;
 export const ACT_RESUME   = 1;
 export const ACT_RESTART  = 2;
 export const ACT_QUIT     = 3;
-/// A level was chosen. The choice is already written; the game relaunches into
-/// it (the world's colliders/scatters/GI proxies are all built at startup).
+/// A level was chosen. The choice is already written; the game relaunches into it.
 export const ACT_LEVEL    = 4;
 /// Start the run from the main menu.
 export const ACT_PLAY     = 5;
+/// Leave the run for the title screen.
+export const ACT_TITLE    = 6;
 const A = [ACT_NONE];
 
-// --- row tables --------------------------------------------------------------
-// Kept as parallel flat arrays (Perry convention). `settingIdx` is the index
-// into settings.ts for slider/toggle rows.
-const PAUSE_LABELS = ['RESUME', 'SETTINGS', 'LEVEL SELECT', 'RESTART RUN', 'QUIT'];
-const PAUSE_COUNT = 5;
+// ---- the settings table -----------------------------------------------------------------
+const TAB_GAME = 0, TAB_CONTROLS = 1, TAB_BINDS = 2, TAB_VIDEO = 3, TAB_AUDIO = 4, TAB_ACCESS = 5;
+const TAB_COUNT = 6;
+const TAB_LABEL = [STR.S_TAB_GAME, STR.S_TAB_CONTROLS, STR.S_TAB_BINDS, STR.S_TAB_VIDEO,
+                   STR.S_TAB_AUDIO, STR.S_TAB_ACCESS];
+// The tabs this platform shows (a phone has no BINDINGS tab), and how many.
+const TABS_VIS = new Array<number>(TAB_COUNT);
+const TN = [0];
 
-const MAIN_LABELS = ['PLAY', 'LEVEL SELECT', 'SETTINGS', 'QUIT'];
-const MAIN_COUNT = 4;
+const MAXR = 96;
+const R_TAB   = new Array<number>(MAXR);
+const R_KIND  = new Array<number>(MAXR);
+const R_IDX   = new Array<number>(MAXR);   // setting index, action index (binds), or IDX_*
+const R_LABEL = new Array<number>(MAXR);   // string id
+const R_MIN   = new Array<number>(MAXR);
+const R_MAX   = new Array<number>(MAXR);
+const R_STEP  = new Array<number>(MAXR);
+const R_OPT   = new Array<number>(MAXR);   // first option's string id (choices); -1 = languages
+const R_FLAGS = new Array<number>(MAXR);
+const RN = [0];
+// The rows of the open tab, in order.
+const VIS = new Array<number>(MAXR);
+const VN = [0];
 
-// GRAPHICS rows come first: on a 4K display they are the difference between a
-// locked frame rate and a pretty one, and which of those a player wants is not
-// something this game gets to decide for them.
-//
-// DISPLAY RESOLUTION is the swapchain — the one knob that touches the fixed cost
-// of the upscale and the final composite. RENDER RESOLUTION is the G-buffer, which
-// TSR then reconstructs back up to the display. They cost different things, so
-// both are here rather than hidden behind one "quality" number that lies.
-// COLORBLIND CUES was removed here, not implemented: SH-043's cues (the white
-// hit FLASH + tick, and the damage-direction ARC) are shape/position, and they
-// are drawn UNCONDITIONALLY — they replaced the colour-only versions rather than
-// sitting beside them. There was never anything for the row to switch, so it
-// adjusted, displayed and persisted a number nothing read. A settings screen that
-// lies about one row is not trusted about the other nineteen.
-const SET_LABELS: string[] = [
-  'DISPLAY RESOLUTION', 'RENDER RESOLUTION',
-  'SHADOWS', 'AMBIENT OCCLUSION', 'REFLECTIONS', 'GLOBAL ILLUMINATION', 'BLOOM',
-  'MENU BACKGROUND BLUR', 'MOTION BLUR', 'DYNAMIC RESOLUTION (60 FPS)',
-  'PATH TRACING',
-  'MASTER VOLUME', 'MUSIC VOLUME', 'SFX VOLUME',
-  'LOOK SENSITIVITY', 'PAD SENSITIVITY', 'AIMING SENSITIVITY', 'PAD AIM ASSIST', 'INVERT Y',
-  'FIELD OF VIEW', 'CAMERA SHAKE',
-  'AIM: HOLD/TOGGLE', 'SPRINT: HOLD/TOGGLE',
-  'TELEGRAPH CAPTIONS',
-  'BACK',
-];
-const SET_KINDS: number[] = [
-  ROW_SLIDER, ROW_SLIDER,
-  ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE,
-  ROW_TOGGLE, ROW_TOGGLE, ROW_TOGGLE,
-  ROW_TRI,
-  ROW_SLIDER, ROW_SLIDER, ROW_SLIDER,
-  ROW_SLIDER, ROW_SLIDER, ROW_SLIDER, ROW_TOGGLE, ROW_TOGGLE,
-  ROW_SLIDER, ROW_SLIDER,
-  ROW_TOGGLE, ROW_TOGGLE,
-  ROW_TOGGLE,
-  ROW_ACTION,
-];
-const SET_IDX: number[] = [
-  SET.SET_OUTPUT_SCALE, SET.SET_RENDER_SCALE,
-  SET.SET_SHADOWS, SET.SET_SSAO, SET.SET_SSR, SET.SET_SSGI, SET.SET_BLOOM,
-  SET.SET_DOF, SET.SET_MOTION_BLUR, SET.SET_AUTO_RES,
-  SET.SET_PT,
-  SET.SET_MASTER_VOL, SET.SET_MUSIC_VOL, SET.SET_SFX_VOL,
-  SET.SET_SENS, SET.SET_PAD_SENS, SET.SET_ADS_SENS, SET.SET_AIM_ASSIST, SET.SET_INVERT_Y,
-  SET.SET_FOV, SET.SET_SHAKE,
-  SET.SET_AIM_TOGGLE, SET.SET_SPRINT_TOGGLE,
-  SET.SET_CAPTIONS,
-  -1,
-];
-// min / max / step per row (ignored for toggles and actions).
-// The two resolution sliders bottom out at 0.5: below that TSR has too little to
-// reconstruct from and the image stops being worth the frames.
-const SET_MIN:  number[] = [
-  0.5, 0.5,
-  0, 0, 0, 0, 0,
-  0, 0, 0,
-  0,
-  0, 0, 0,
-  0.2, 0.2, 0.3, 0, 0,
-  60, 0,
-  0, 0,
-  0, 0];
-const SET_MAX:  number[] = [
-  1.0, 1.0,
-  1, 1, 1, 1, 1,
-  1, 1, 1,
-  2,
-  1, 1, 1,
-  3.0, 3.0, 1.0, 1, 1,
-  100, 1,
-  1, 1,
-  1, 0];
-const SET_STEP: number[] = [
-  0.05, 0.05,
-  1, 1, 1, 1, 1,
-  1, 1, 1,
-  1,
-  0.05, 0.05, 0.05,
-  0.1, 0.1, 0.05, 1, 1,
-  5, 0.1,
-  1, 1,
-  1, 0];
-// MUST equal the length of the six arrays above — they are parallel and indexed
-// by row, so a mismatch silently misaligns every row past the short one.
-const SET_COUNT_ROWS = 25;
+function addRow(tab: number, kind: number, idx: number, label: number,
+                min: number, max: number, step: number, opt: number, flags: number): void {
+  const n = RN[0];
+  if (n >= MAXR) return;
+  R_TAB[n] = tab; R_KIND[n] = kind; R_IDX[n] = idx; R_LABEL[n] = label;
+  R_MIN[n] = min; R_MAX[n] = max; R_STEP[n] = step; R_OPT[n] = opt; R_FLAGS[n] = flags;
+  RN[0] = n + 1;
+}
+function slider(tab: number, idx: number, label: number, min: number, max: number, step: number, flags: number): void {
+  addRow(tab, ROW_SLIDER, idx, label, min, max, step, 0, flags);
+}
+function toggle(tab: number, idx: number, label: number, flags: number): void {
+  addRow(tab, ROW_TOGGLE, idx, label, 0, 1, 1, 0, flags);
+}
+function choice(tab: number, idx: number, label: number, opt: number, n: number, flags: number): void {
+  addRow(tab, ROW_CHOICE, idx, label, 0, n - 1, 1, opt, flags);
+}
+
+function buildRows(): void {
+  RN[0] = 0;
+  // GAME
+  choice(TAB_GAME, SET.SET_DIFFICULTY, STR.S_DIFFICULTY, STR.S_DIFF_0, 3, 0);
+  choice(TAB_GAME, SET.SET_LANG, STR.S_LANGUAGE, -1, STR.LANG_COUNT, 0);
+  slider(TAB_GAME, SET.SET_HUD_SCALE, STR.S_HUD_SCALE, 0.8, 1.3, 0.05, 0);
+  toggle(TAB_GAME, SET.SET_COMPASS, STR.S_COMPASS, 0);
+  slider(TAB_GAME, SET.SET_FOV, STR.S_FOV, 60, 100, 5, 0);
+  // CONTROLS
+  slider(TAB_CONTROLS, SET.SET_SENS, STR.S_SENS, 0.2, 3.0, 0.1, F_NOTOUCH);
+  slider(TAB_CONTROLS, SET.SET_PAD_SENS, STR.S_PAD_SENS, 0.2, 3.0, 0.1, 0);
+  slider(TAB_CONTROLS, SET.SET_ADS_SENS, STR.S_ADS_SENS, 0.3, 1.0, 0.05, 0);
+  toggle(TAB_CONTROLS, SET.SET_INVERT_Y, STR.S_INVERT_Y, 0);
+  slider(TAB_CONTROLS, SET.SET_DEADZONE, STR.S_DEADZONE, 0.05, 0.4, 0.01, 0);
+  choice(TAB_CONTROLS, SET.SET_CURVE, STR.S_CURVE, STR.S_CURVE_0, 3, 0);
+  toggle(TAB_CONTROLS, SET.SET_VIBRATION, STR.S_VIBRATION, 0);
+  // BINDINGS: one row per action, then reset
+  for (let a = 0; a < B.ACT_COUNT; a++) {
+    addRow(TAB_BINDS, ROW_BIND, a, STR.S_ACT_0 + a, 0, 0, 0, 0, F_NOTOUCH);
+  }
+  addRow(TAB_BINDS, ROW_ACTION, IDX_RESET_BINDS, STR.S_RESET_BINDS, 0, 0, 0, 0, F_NOTOUCH);
+  // VIDEO
+  choice(TAB_VIDEO, SET.SET_PRESET, STR.S_PRESET, STR.S_PRESET_0, 5, F_DESKTOP);
+  choice(TAB_VIDEO, SET.SET_WINDOW, STR.S_WINDOW_MODE, STR.S_WINDOW_0, 2, F_DESKTOP);
+  toggle(TAB_VIDEO, SET.SET_VSYNC, STR.S_VSYNC, F_DESKTOP);
+  choice(TAB_VIDEO, SET.SET_FPS_CAP, STR.S_FPS_CAP, STR.S_FPS_0, 5, F_DESKTOP);
+  slider(TAB_VIDEO, SET.SET_OUTPUT_SCALE, STR.S_OUT_SCALE, 0.5, 1.0, 0.05, F_DESKTOP);
+  slider(TAB_VIDEO, SET.SET_RENDER_SCALE, STR.S_RENDER_SCALE, 0.5, 1.0, 0.05, 0);
+  toggle(TAB_VIDEO, SET.SET_SHADOWS, STR.S_SHADOWS, 0);
+  toggle(TAB_VIDEO, SET.SET_SSAO, STR.S_SSAO, 0);
+  toggle(TAB_VIDEO, SET.SET_SSR, STR.S_SSR, F_DESKTOP);
+  toggle(TAB_VIDEO, SET.SET_SSGI, STR.S_SSGI, F_DESKTOP);
+  toggle(TAB_VIDEO, SET.SET_BLOOM, STR.S_BLOOM, 0);
+  toggle(TAB_VIDEO, SET.SET_DOF, STR.S_DOF, F_DESKTOP);
+  toggle(TAB_VIDEO, SET.SET_MOTION_BLUR, STR.S_MOTION_BLUR, F_DESKTOP);
+  toggle(TAB_VIDEO, SET.SET_AUTO_RES, STR.S_AUTO_RES, F_DESKTOP);
+  choice(TAB_VIDEO, SET.SET_PT, STR.S_PT, STR.S_PT_0, 3, F_DESKTOP);
+  // AUDIO
+  slider(TAB_AUDIO, SET.SET_MASTER_VOL, STR.S_MASTER_VOL, 0, 1, 0.05, 0);
+  slider(TAB_AUDIO, SET.SET_MUSIC_VOL, STR.S_MUSIC_VOL, 0, 1, 0.05, 0);
+  slider(TAB_AUDIO, SET.SET_SFX_VOL, STR.S_SFX_VOL, 0, 1, 0.05, 0);
+  // ACCESSIBILITY
+  toggle(TAB_ACCESS, SET.SET_CAPTIONS, STR.S_CAPTIONS, 0);
+  choice(TAB_ACCESS, SET.SET_CAPTION_SIZE, STR.S_CAPTION_SIZE, STR.S_SIZE_0, 3, 0);
+  toggle(TAB_ACCESS, SET.SET_CAPTION_BG, STR.S_CAPTION_BG, 0);
+  choice(TAB_ACCESS, SET.SET_PALETTE, STR.S_PALETTE, STR.S_PALETTE_0, 4, 0);
+  choice(TAB_ACCESS, SET.SET_AIM_TOGGLE, STR.S_AIM_MODE, STR.S_MODE_0, 2, 0);
+  choice(TAB_ACCESS, SET.SET_SPRINT_TOGGLE, STR.S_SPRINT_MODE, STR.S_MODE_0, 2, F_NOTOUCH);
+  choice(TAB_ACCESS, SET.SET_CROUCH_TOGGLE, STR.S_CROUCH_MODE, STR.S_MODE_0, 2, F_NOTOUCH);
+  slider(TAB_ACCESS, SET.SET_AIM_ASSIST, STR.S_AIM_ASSIST, 0, 1, 0.1, 0);
+  slider(TAB_ACCESS, SET.SET_SHAKE, STR.S_SHAKE, 0, 1, 0.1, 0);
+  // every tab ends on BACK
+  for (let t = 0; t < TAB_COUNT; t++) addRow(t, ROW_ACTION, IDX_BACK, STR.S_BACK, 0, 0, 0, 0, 0);
+
+  let tn = 0;
+  for (let t = 0; t < TAB_COUNT; t++) {
+    if (t === TAB_BINDS && MOBILE) continue;
+    TABS_VIS[tn] = t;
+    tn = tn + 1;
+  }
+  TN[0] = tn;
+}
+
+function rowHidden(r: number): boolean {
+  const f = R_FLAGS[r];
+  if ((f & F_DESKTOP) !== 0 && (MOBILE || WEB)) return true;
+  if ((f & F_NOTOUCH) !== 0 && MOBILE) return true;
+  return false;
+}
+
+function rebuildVis(): void {
+  const tab = TABS_VIS[S[4]];
+  let n = 0;
+  for (let r = 0; r < RN[0]; r++) {
+    if (R_TAB[r] !== tab || rowHidden(r)) continue;
+    VIS[n] = r;
+    n = n + 1;
+  }
+  VN[0] = n;
+}
+
+// ---- row lists of the plain menus -----------------------------------------------------------
+const PAUSE_LABELS = [STR.S_RESUME, STR.S_SETTINGS, STR.S_LEVEL_SELECT, STR.S_RESTART_RUN,
+                      STR.S_MAIN_MENU, STR.S_QUIT];
+const PAUSE_COUNT = 6;
+const MAIN_LABELS = [STR.S_PLAY, STR.S_LEVEL_SELECT, STR.S_SETTINGS, STR.S_CREDITS, STR.S_QUIT];
+const MAIN_COUNT = 5;
+// Results rows are built per run (NEXT ARENA only after a win with an arena left).
+const RES_ROWS = [0, 0, 0, 0];     // what each row does: 1 again, 2 next arena, 3 arenas, 4 title
+const RES_N = [0];
+
+// The run's length for the results screen (main owns the clock).
+const S_TIME = [0];
+export function setResultsTime(sec: number): void { S_TIME[0] = sec; }
+
+// Arena thumbnails: -1 untried, 0 missing, else a texture handle.
+const THUMB = [-1, -1, -1, -1, -1, -1, -1, -1];
 
 export function initMenus(): void {
-  S[0] = MENU_NONE; S[1] = 0; S[2] = 0; S[3] = MENU_PAUSE;
+  S[0] = MENU_NONE; S[1] = 0; S[2] = 0; S[3] = MENU_PAUSE; S[4] = 0; S[5] = 0; S[6] = 0;
+  S[8] = 0; S[11] = 0; S[12] = 0;
   A[0] = ACT_NONE;
+  buildRows();
+  rebuildVis();
 }
 
 export function menuOpen(): boolean { return S[0] !== MENU_NONE; }
 export function currentMenu(): number { return S[0]; }
-export function openPause(): void { S[0] = MENU_PAUSE; S[1] = 0; S[3] = MENU_PAUSE; }
-export function openMain(): void { S[0] = MENU_MAIN; S[1] = 0; S[3] = MENU_MAIN; }
+/// The selected row and the settings tab, for the harnesses.
+export function menuRow(): number { return S[1]; }
+export function menuTab(): number { return S[4]; }
+
+function enter(m: number): void {
+  S[0] = m; S[1] = 0; S[5] = 0; S[6] = 0; S[11] = -1; S[16] = 1;
+  B.captureCancel();
+}
+
+export function openPause(): void { enter(MENU_PAUSE); S[3] = MENU_PAUSE; }
+export function openMain(): void { enter(MENU_MAIN); S[3] = MENU_MAIN; }
 export function closeMenu(): void {
   if (S[0] === MENU_SETTINGS) SET.saveSettings();
+  B.captureCancel();
   S[0] = MENU_NONE;
 }
 
-/// Leave a sub-screen for whichever menu opened it. Settings are written on the
-/// way out, so BACK is also SAVE — there is no separate "apply", and a settings
-/// screen with an apply button you can forget to press is a trap.
+/// The run has ended: show its numbers. `wave` is the wave reached (1-based), `waves` how many
+/// the arena has.
+export function openResults(won: boolean, wave: number, waves: number, newBest: boolean): void {
+  enter(MENU_RESULTS);
+  S[3] = MENU_RESULTS;
+  S[7] = won ? 1 : 0; S[9] = wave; S[10] = waves; S[15] = newBest ? 1 : 0;
+  let n = 0;
+  RES_ROWS[n] = 1; n = n + 1;
+  if (won && ARENA_INDEX + 1 < ARENA_COUNT) { RES_ROWS[n] = 2; n = n + 1; }
+  RES_ROWS[n] = 3; n = n + 1;
+  RES_ROWS[n] = 4; n = n + 1;
+  RES_N[0] = n;
+}
+
+/// Open the settings on a given tab / the arena select / the credits (harnesses and main).
+export function openSettingsTab(tab: number): void {
+  enter(MENU_SETTINGS);
+  S[4] = tab < TN[0] ? tab : 0;
+  rebuildVis();
+}
+export function openLevels(): void { enter(MENU_LEVELS); S[1] = ARENA_INDEX; }
+export function openCredits(): void { enter(MENU_CREDITS); }
+export function selectRow(r: number): void { S[1] = r; keepVisible(); }
+
+/// Leave a sub-screen for whichever menu opened it. Settings are written on the way out, so
+/// BACK is also SAVE: there is no separate "apply" to forget.
 function back(): void {
   if (S[0] === MENU_SETTINGS) SET.saveSettings();
-  S[0] = S[3];
-  S[1] = 0;
+  MIX.uiBack();
+  enter(S[3]);
 }
 
 function rowCount(): number {
   if (S[0] === MENU_MAIN) return MAIN_COUNT;
   if (S[0] === MENU_PAUSE) return PAUSE_COUNT;
   if (S[0] === MENU_LEVELS) return ARENA_COUNT + 1;   // + BACK
-  return SET_COUNT_ROWS;
+  if (S[0] === MENU_CREDITS) return 1;
+  if (S[0] === MENU_RESULTS) return RES_N[0];
+  return VN[0];
 }
 
-/// Adjust the selected row. `dir` is -1 / +1 (left/right or a click on the bar).
-function adjust(dir: number): void {
-  if (S[0] !== MENU_SETTINGS) return;
-  const r = S[1];
-  const kind = SET_KINDS[r];
-  if (kind === ROW_ACTION) return;
-  const idx = SET_IDX[r];
-  let v = SET.get(idx);
-  if (kind === ROW_TOGGLE) {
-    v = v !== 0 ? 0 : 1;
-  } else if (kind === ROW_TRI) {
-    v = v + dir;
-    if (v < SET_MIN[r]) v = SET_MIN[r];
-    if (v > SET_MAX[r]) v = SET_MAX[r];
-  } else {
-    v = v + dir * SET_STEP[r];
-    if (v < SET_MIN[r]) v = SET_MIN[r];
-    if (v > SET_MAX[r]) v = SET_MAX[r];
-    // Kill float dust so the display doesn't read 0.7000000000000001.
-    v = Math.round(v * 1000) / 1000;
-  }
-  SET.set(idx, v);
-  applyLive(idx);
-  MIX.uiMove();
+// ---- applying settings ----------------------------------------------------------------------
+
+/// The graphics rows a quality preset sets. Changing any of them by hand makes it CUSTOM.
+function isPresetRow(idx: number): boolean {
+  return idx === SET.SET_RENDER_SCALE || idx === SET.SET_SHADOWS || idx === SET.SET_SSAO
+      || idx === SET.SET_SSR || idx === SET.SET_SSGI || idx === SET.SET_BLOOM
+      || idx === SET.SET_MOTION_BLUR;
 }
 
-/// Some settings must take effect the instant they move, or the slider is a
-/// guess: you cannot tune volume or shake by reading a number.
+/// Plan 4.3 - quality presets. Reflections stay off in all four: screen-space reflections
+/// still splatter fireflies indoors (engine EN-061), so no preset may switch them on.
+function applyPreset(p: number): void {
+  if (p < 0 || p > 3) return;
+  //                 low   medium high  ultra
+  const scale    = [0.5,  0.6,   0.75, 1.0];
+  const ssao     = [0,    1,     1,    1];
+  const ssgi     = [0,    0,     1,    1];
+  SET.set(SET.SET_RENDER_SCALE, scale[p]);
+  SET.set(SET.SET_SHADOWS, 1);
+  SET.set(SET.SET_SSAO, ssao[p]);
+  SET.set(SET.SET_SSR, 0);
+  SET.set(SET.SET_SSGI, ssgi[p]);
+  SET.set(SET.SET_BLOOM, 1);
+  SET.set(SET.SET_MOTION_BLUR, 0);
+  pushGraphics();
+}
+
+function applyFrameCap(): void {
+  const v = SET.get(SET.SET_VSYNC) !== 0;
+  // 0 = Fifo (vsync), 3 = AutoNoVsync. The cap is a sleep, so it holds with either.
+  setPresentMode(v ? 0 : 3);
+  const cap = SET.FPS_CAPS[SET.get(SET.SET_FPS_CAP)];
+  // No limit and no vsync still gets a ceiling: an uncapped menu is a space heater.
+  setTargetFPS(cap > 0 ? cap : (v ? 0 : 400));
+}
+
+/// Some settings must take effect the instant they move, or the row is a guess.
 function applyLive(idx: number): void {
   if (idx === SET.SET_MASTER_VOL || idx === SET.SET_MUSIC_VOL || idx === SET.SET_SFX_VOL) {
     MIX.applyVolumes();
   } else if (idx === SET.SET_SHAKE) {
     FEEL.setShakeScale(SET.get(SET.SET_SHAKE));
+  } else if (idx === SET.SET_VIBRATION) {
+    FEEL.setRumbleOn(SET.get(SET.SET_VIBRATION) !== 0);
+    FEEL.rumble(0.5, 0.5, 0.15);
+  } else if (idx === SET.SET_LANG) {
+    STR.setLanguage(SET.get(SET.SET_LANG));
+  } else if (idx === SET.SET_PALETTE) {
+    UI.setPalette(SET.get(SET.SET_PALETTE));
+  } else if (idx === SET.SET_PRESET) {
+    applyPreset(SET.get(SET.SET_PRESET));
+  } else if (idx === SET.SET_WINDOW) {
+    toggleFullscreen();
+  } else if (idx === SET.SET_VSYNC || idx === SET.SET_FPS_CAP) {
+    applyFrameCap();
   } else if (idx === SET.SET_OUTPUT_SCALE) {
     setOutputScale(SET.get(SET.SET_OUTPUT_SCALE));
   } else if (idx === SET.SET_RENDER_SCALE) {
@@ -240,78 +375,151 @@ function applyLive(idx: number): void {
   } else if (idx === SET.SET_AUTO_RES) {
     applyAutoRes();
   } else if (idx === SET.SET_PT) {
-    // No-op on devices without hardware ray query — the row reads N/A
-    // there and the value is inert (fallback matrix, PT-5).
+    // No-op on devices without hardware ray query: the row reads "not supported" there.
     if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
   }
+  if (isPresetRow(idx)) SET.set(SET.SET_PRESET, 4);
 }
 
-/// Push every graphics setting into the engine. Called at boot, after settings
-/// load, so what the player chose last time is what they get this time — a
-/// settings screen that does not survive a restart is a lie.
-export function applyGraphicsSettings(): void {
-  setOutputScale(SET.get(SET.SET_OUTPUT_SCALE));
+/// The render passes, from the settings. Phones and the browser never get global
+/// illumination, reflections or path tracing whatever the file says (see settings.ts).
+function pushGraphics(): void {
+  const small = MOBILE || WEB;
   setRenderScale(SET.get(SET.SET_RENDER_SCALE));
   setShadowsEnabled(SET.get(SET.SET_SHADOWS) !== 0);
   setSsaoEnabled(SET.get(SET.SET_SSAO) !== 0);
-  setSsrEnabled(SET.get(SET.SET_SSR) !== 0);
-  setSsgiEnabled(SET.get(SET.SET_SSGI) !== 0);
+  setSsrEnabled(!small && SET.get(SET.SET_SSR) !== 0);
+  setSsgiEnabled(!small && SET.get(SET.SET_SSGI) !== 0);
   setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
-  setMotionBlurEnabled(SET.get(SET.SET_MOTION_BLUR) !== 0);
-  applyAutoRes();
-  if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
+  if (!small) setMotionBlurEnabled(SET.get(SET.SET_MOTION_BLUR) !== 0);
 }
 
-/// Dynamic resolution: on, the engine steps the render scale between 0.5 and 1.0 to hold 60 Hz;
-/// off, the scale goes back to the player's own slider. (Depth of field has no call here: the
-/// frame loop sets it, because its focus changes with aiming and menus.)
+/// Push every setting that lives outside the frame loop into the engine and the game's own
+/// modules. Called at boot, after settings load, on EVERY platform since Phase 4 (phones and
+/// the browser used to ignore the file; their profile is now the file's default).
+export function applyGraphicsSettings(): void {
+  pushGraphics();
+  if (!MOBILE && !WEB) {
+    setOutputScale(SET.get(SET.SET_OUTPUT_SCALE));
+    applyAutoRes();
+    applyFrameCap();
+    if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
+    // The game starts full screen; a saved "windowed" is one toggle away from that.
+    if (SET.get(SET.SET_WINDOW) === 1) toggleFullscreen();
+  }
+  STR.setLanguage(SET.get(SET.SET_LANG));
+  UI.setPalette(SET.get(SET.SET_PALETTE));
+  FEEL.setRumbleOn(SET.get(SET.SET_VIBRATION) !== 0);
+}
+
+/// Dynamic resolution: on, the engine steps the render scale between 0.5 and 1.0 to hold
+/// 60 Hz; off, the scale goes back to the player's own slider.
 function applyAutoRes(): void {
   const on = SET.get(SET.SET_AUTO_RES) !== 0;
   setAutoResolution(60, on);
   if (!on) setRenderScale(SET.get(SET.SET_RENDER_SCALE));
 }
 
+// ---- changing rows --------------------------------------------------------------------------
+
+/// Adjust the selected settings row. `dir` is -1 / +1.
+function adjust(dir: number): void {
+  if (S[0] !== MENU_SETTINGS) return;
+  const r = VIS[S[1]];
+  const kind = R_KIND[r];
+  if (kind === ROW_ACTION) return;
+  if (kind === ROW_BIND) {
+    // Left/right picks the column: keyboard or pad.
+    S[8] = dir > 0 ? 1 : 0;
+    MIX.uiMove();
+    return;
+  }
+  const idx = R_IDX[r];
+  let v = SET.get(idx);
+  if (kind === ROW_TOGGLE) {
+    v = v !== 0 ? 0 : 1;
+    MIX.uiToggle();
+  } else if (kind === ROW_CHOICE) {
+    if (rowDead(r)) { MIX.uiError(); return; }
+    const n = R_MAX[r] + 1;
+    v = (v + dir + n) % n;
+    MIX.uiToggle();
+  } else {
+    const before = v;
+    v = v + dir * R_STEP[r];
+    if (v < R_MIN[r]) v = R_MIN[r];
+    if (v > R_MAX[r]) v = R_MAX[r];
+    // Kill float dust so the display doesn't read 0.7000000000000001.
+    v = Math.round(v * 1000) / 1000;
+    if (v !== before) MIX.uiTick();
+  }
+  SET.set(idx, v);
+  applyLive(idx);
+}
+
+function setTab(t: number): void {
+  const n = TN[0];
+  S[4] = (t + n) % n;
+  S[1] = 0; S[5] = 0; S[6] = 0; S[11] = -1;
+  B.captureCancel();
+  rebuildVis();
+  MIX.uiTab();
+}
+
 function confirm(): void {
   if (S[0] === MENU_MAIN) {
+    if (S[1] === 0) { MIX.uiStart(); A[0] = ACT_PLAY; closeMenu(); return; }
     MIX.uiSelect();
-    if (S[1] === 0) { A[0] = ACT_PLAY; closeMenu(); }
-    else if (S[1] === 1) { S[0] = MENU_LEVELS; S[1] = 0; }
-    else if (S[1] === 2) { S[0] = MENU_SETTINGS; S[1] = 0; }
-    else if (S[1] === 3) { A[0] = ACT_QUIT; }
+    if (S[1] === 1) { enter(MENU_LEVELS); S[1] = ARENA_INDEX; }
+    else if (S[1] === 2) { enter(MENU_SETTINGS); rebuildVis(); }
+    else if (S[1] === 3) { enter(MENU_CREDITS); }
+    else if (S[1] === 4) { A[0] = ACT_QUIT; }
     return;
   }
   if (S[0] === MENU_PAUSE) {
     MIX.uiSelect();
     if (S[1] === 0) { A[0] = ACT_RESUME; closeMenu(); }
-    else if (S[1] === 1) { S[0] = MENU_SETTINGS; S[1] = 0; }
-    else if (S[1] === 2) { S[0] = MENU_LEVELS; S[1] = 0; }
+    else if (S[1] === 1) { enter(MENU_SETTINGS); rebuildVis(); }
+    else if (S[1] === 2) { enter(MENU_LEVELS); S[1] = ARENA_INDEX; }
     else if (S[1] === 3) { A[0] = ACT_RESTART; closeMenu(); }
-    else if (S[1] === 4) { A[0] = ACT_QUIT; }
+    else if (S[1] === 4) { A[0] = ACT_TITLE; }
+    else if (S[1] === 5) { A[0] = ACT_QUIT; }
     return;
   }
+  if (S[0] === MENU_RESULTS) {
+    const what = RES_ROWS[S[1]];
+    if (what === 1) { MIX.uiStart(); A[0] = ACT_RESTART; closeMenu(); }
+    else if (what === 2) {
+      MIX.uiSelect();
+      selectArena(ARENAS[ARENA_INDEX + 1].id);
+      A[0] = ACT_LEVEL;
+    }
+    else if (what === 3) { MIX.uiSelect(); enter(MENU_LEVELS); S[1] = ARENA_INDEX; }
+    else if (what === 4) { MIX.uiSelect(); A[0] = ACT_TITLE; }
+    return;
+  }
+  if (S[0] === MENU_CREDITS) { back(); return; }
   if (S[0] === MENU_LEVELS) {
-    MIX.uiSelect();
     if (S[1] >= ARENA_COUNT) { back(); return; }
-    // Picking a level writes the choice and asks the game to restart into it.
-    // A mid-run swap would mean tearing down every collider, scatter and GI
-    // proxy the world built at startup — see selectArena().
+    MIX.uiSelect();
+    // Picking a level writes the choice and asks the game to restart into it: a mid-run swap
+    // would mean tearing down every collider, scatter and GI proxy the world built at startup.
     selectArena(ARENAS[S[1]].id);
     A[0] = ACT_LEVEL;
     return;
   }
   if (S[0] === MENU_SETTINGS) {
-    if (SET_KINDS[S[1]] === ROW_ACTION) {
-      MIX.uiSelect();
-      back();
-    } else if (SET_KINDS[S[1]] === ROW_TOGGLE) {
+    const r = VIS[S[1]];
+    const kind = R_KIND[r];
+    if (kind === ROW_ACTION) {
+      if (R_IDX[r] === IDX_RESET_BINDS) { B.resetBinds(); MIX.uiSelect(); }
+      else back();
+    } else if (kind === ROW_BIND) {
+      const pad = S[8] === 1;
+      if (B.rebindable(R_IDX[r], pad)) { B.captureStart(R_IDX[r], pad); MIX.uiSelect(); }
+      else MIX.uiError();
+    } else if (kind === ROW_TOGGLE || kind === ROW_CHOICE) {
       adjust(1);
-    } else if (SET_KINDS[S[1]] === ROW_TRI) {
-      // Confirm/click cycles through the three states (wrapping);
-      // left/right arrows still step and clamp like a slider.
-      const idx = SET_IDX[S[1]];
-      SET.set(idx, (SET.get(idx) + 1) % 3);
-      applyLive(idx);
-      MIX.uiMove();
     }
   }
 }
@@ -319,87 +527,275 @@ function confirm(): void {
 function move(dir: number): void {
   const n = rowCount();
   S[1] = (S[1] + dir + n) % n;
+  S[12] = 0;
+  keepVisible();
   MIX.uiMove();
 }
 
-/// Drive the menu. Returns the action produced this frame (ACT_*).
-/// `uiScale`, `sw`, `sh` are the HUD's logical space, so the mouse hit-test
-/// matches what is drawn.
+// ---- layout -----------------------------------------------------------------------------------
+// One function says where row i is, and both the drawing and the pointer ask it.
+//   G: 0 x  1 y  2 w  3 h   of the row asked for
+//   L: 0 size factor  1 list x  2 list y  3 list w  4 row height  5 rows that fit
+const G = [0, 0, 0, 0];
+const L = [1, 0, 0, 0, 0, 0];
+
+/// Size factor: 1 on a desktop-sized logical space, smaller on a phone's 460-unit height.
+function kOf(sh: number): number { return sh < 760 ? sh / 760 : 1; }
+
+function layout(sw: number, sh: number): void {
+  const k = kOf(sh);
+  L[0] = k;
+  if (S[0] === MENU_MAIN || S[0] === MENU_PAUSE) {
+    L[1] = sw * 0.085; L[3] = 440 * k; L[4] = 58 * k;
+    L[2] = S[0] === MENU_MAIN ? sh * 0.47 : sh * 0.34;
+    L[5] = rowCount();
+  } else if (S[0] === MENU_SETTINGS) {
+    let w = sw * 0.66;
+    if (w > 1180 * k) w = 1180 * k;
+    L[3] = w; L[1] = (sw - w) / 2; L[2] = sh * 0.235; L[4] = 44 * k;
+    if (TABS_VIS[S[4]] === TAB_BINDS) L[4] = 34 * k;
+    // A list a row or two too long is squeezed to fit before it is made to scroll.
+    const avail = sh * 0.90 - L[2];
+    if (VN[0] * L[4] > avail && avail / VN[0] >= 29 * k) L[4] = avail / VN[0];
+    let fit = Math.floor(avail / L[4] + 0.001);
+    if (fit < 3) fit = 3;
+    L[5] = fit;
+  } else if (S[0] === MENU_RESULTS) {
+    // Under the numbers panel, whose top depends on whether the stars row is there
+    // (drawResults lays the same things out in the same order).
+    L[3] = 380 * k; L[1] = (sw - L[3]) / 2; L[4] = 50 * k;
+    let cy = sh * 0.075 + 124 * k;
+    cy = S[7] === 1 ? cy + 62 * k : cy + 10 * k;
+    L[2] = cy + 278 * k; L[5] = rowCount();
+  } else {
+    // LEVELS and CREDITS: the BACK row sits centred under the content.
+    L[3] = 300 * k; L[1] = (sw - L[3]) / 2; L[4] = 52 * k;
+    L[2] = sh * 0.80; L[5] = 1;
+  }
+}
+
+/// Arena card i of n: x, y, w, h into G.
+function cardRect(i: number, sw: number, sh: number): void {
+  const k = L[0];
+  const gap = 28 * k;
+  let cw = 470 * k;
+  const room = sw * 0.90;
+  if (cw * ARENA_COUNT + gap * (ARENA_COUNT - 1) > room) cw = (room - gap * (ARENA_COUNT - 1)) / ARENA_COUNT;
+  const total = cw * ARENA_COUNT + gap * (ARENA_COUNT - 1);
+  G[0] = (sw - total) / 2 + i * (cw + gap);
+  G[2] = cw;
+  G[3] = cw * 9 / 16 + 96 * k;
+  G[1] = sh * 0.27;
+}
+
+function rowRect(i: number, sw: number, sh: number): boolean {
+  if (S[0] === MENU_LEVELS) {
+    if (i < ARENA_COUNT) { cardRect(i, sw, sh); return true; }
+    G[0] = L[1]; G[1] = L[2]; G[2] = L[3]; G[3] = L[4] - 6;
+    return true;
+  }
+  if (S[0] === MENU_SETTINGS) {
+    const vi = i - S[6];
+    if (vi < 0 || vi >= L[5]) return false;
+    G[0] = L[1]; G[1] = L[2] + vi * L[4]; G[2] = L[3]; G[3] = L[4] - 4;
+    return true;
+  }
+  G[0] = L[1]; G[1] = L[2] + i * L[4]; G[2] = L[3]; G[3] = L[4] - 6;
+  return true;
+}
+
+function keepVisible(): void {
+  if (S[0] !== MENU_SETTINGS) return;
+  const fit = L[5] > 0 ? L[5] : 12;
+  if (S[1] < S[6]) S[6] = S[1];
+  if (S[1] >= S[6] + fit) S[6] = S[1] - fit + 1;
+  const maxTop = VN[0] - fit;
+  if (S[6] > maxTop) S[6] = maxTop;
+  if (S[6] < 0) S[6] = 0;
+}
+
+/// Tab i of the strip: x, y, w, h into G.
+function tabRect(i: number, sw: number, sh: number): void {
+  const n = TN[0];
+  const w = L[3] / n;
+  G[0] = L[1] + i * w; G[1] = sh * 0.155; G[2] = w; G[3] = 40 * L[0];
+}
+
+// ---- update -------------------------------------------------------------------------------------
+
+/// Drive the menu. Returns the action produced this frame (ACT_*). `uiScale`, `sw`, `sh` are
+/// the HUD's logical space, so the pointer hit-test matches what is drawn.
 export function updateMenu(dt: number, sw: number, sh: number, uiScale: number): number {
   A[0] = ACT_NONE;
   if (S[0] === MENU_NONE) return ACT_NONE;
-
-  // --- keyboard
-  if (isKeyPressed(Key.UP) || isKeyPressed(Key.W)) move(-1);
-  if (isKeyPressed(Key.DOWN) || isKeyPressed(Key.S)) move(1);
-  if (isKeyPressed(Key.LEFT) || isKeyPressed(Key.A)) adjust(-1);
-  if (isKeyPressed(Key.RIGHT) || isKeyPressed(Key.D)) adjust(1);
-  if (isKeyPressed(Key.ENTER) || isKeyPressed(Key.SPACE)) confirm();
-  if (isKeyPressed(Key.ESCAPE)) {
-    // On the MAIN menu there is nothing behind to go back to — the game has not
-    // started. Escape there does nothing rather than dumping the player into an
-    // unstarted run (which is what closeMenu() would do).
-    if (S[0] === MENU_SETTINGS || S[0] === MENU_LEVELS) back();
-    else if (S[0] !== MENU_MAIN) { A[0] = ACT_RESUME; closeMenu(); }
+  S[5] = S[5] + dt;
+  layout(sw, sh);
+  // Esc / Start opened the pause menu a few lines above this call in main's frame, and the
+  // same press is still "pressed" here: without this, pause opened and closed in one frame.
+  if (S[16] === 1) {
+    S[16] = 0;
+    S[13] = getMouseX() / uiScale; S[14] = getMouseY() / uiScale;
+    return ACT_NONE;
   }
 
-  // --- gamepad. D-pad is discrete; the stick needs a repeat timer or one flick
-  // scrolls the whole list.
-  if (isGamepadAvailable()) {
-    if (isGamepadButtonPressed(10)) move(-1);   // dpad up
-    if (isGamepadButtonPressed(11)) move(1);    // dpad down
-    if (isGamepadButtonPressed(12)) adjust(-1); // dpad left
-    if (isGamepadButtonPressed(13)) adjust(1);  // dpad right
-    if (isGamepadButtonPressed(0)) confirm();   // A
-    if (isGamepadButtonPressed(1)) {            // B = back
-      if (S[0] === MENU_SETTINGS || S[0] === MENU_LEVELS) back();
-      else if (S[0] !== MENU_MAIN) { A[0] = ACT_RESUME; closeMenu(); }
-    }
-    // Start resumes — but only out of a menu that has a game behind it.
-    if (isGamepadButtonPressed(7) && S[0] !== MENU_MAIN) {
-      A[0] = ACT_RESUME;
-      closeMenu();
-    }
+  // --- a binding is being captured: it owns every key and button until it resolves
+  if (B.capturing()) {
+    const res = B.capturePoll();
+    if (res === 1) MIX.uiSelect();
+    else if (res === 2) MIX.uiBack();
+    else if (res === 3) MIX.uiToggle();
+    return ACT_NONE;
+  }
 
+  const inLevels = S[0] === MENU_LEVELS;
+  const inSettings = S[0] === MENU_SETTINGS;
+
+  // --- keyboard (menu keys are fixed: a rebound W must not strand the player in a menu)
+  if (isKeyPressed(Key.UP) || isKeyPressed(Key.W)) {
+    if (inLevels) { if (S[1] >= ARENA_COUNT) { S[1] = ARENA_INDEX; MIX.uiMove(); } }
+    else move(-1);
+  }
+  if (isKeyPressed(Key.DOWN) || isKeyPressed(Key.S)) {
+    if (inLevels) { if (S[1] < ARENA_COUNT) { S[1] = ARENA_COUNT; MIX.uiMove(); } }
+    else move(1);
+  }
+  if (isKeyPressed(Key.LEFT) || isKeyPressed(Key.A)) {
+    if (inLevels) { if (S[1] > 0 && S[1] < ARENA_COUNT) { S[1] = S[1] - 1; MIX.uiMove(); } }
+    else adjust(-1);
+  }
+  if (isKeyPressed(Key.RIGHT) || isKeyPressed(Key.D)) {
+    if (inLevels) { if (S[1] < ARENA_COUNT - 1) { S[1] = S[1] + 1; MIX.uiMove(); } }
+    else adjust(1);
+  }
+  if (inSettings) {
+    if (isKeyPressed(Key.Q) || isKeyPressed(Key.PAGE_UP)) setTab(S[4] - 1);
+    if (isKeyPressed(Key.E) || isKeyPressed(Key.PAGE_DOWN) || isKeyPressed(Key.TAB)) setTab(S[4] + 1);
+    if (isKeyPressed(Key.DELETE) && R_KIND[VIS[S[1]]] === ROW_BIND && S[8] === 0
+        && B.rebindable(R_IDX[VIS[S[1]]], false)) {
+      B.setKbCode(R_IDX[VIS[S[1]]], -1);
+      MIX.uiToggle();
+    }
+  }
+  if (isKeyPressed(Key.ENTER) || isKeyPressed(Key.SPACE)) confirm();
+  if (isKeyPressed(Key.ESCAPE)) escape();
+
+  // --- gamepad. D-pad is discrete; the stick needs a repeat timer or one flick scrolls the
+  // whole list.
+  if (isGamepadAvailable()) {
+    let dv = 0, dh = 0;
+    if (isGamepadButtonPressed(10)) dv = -1;
+    if (isGamepadButtonPressed(11)) dv = 1;
+    if (isGamepadButtonPressed(12)) dh = -1;
+    if (isGamepadButtonPressed(13)) dh = 1;
     if (S[2] > 0) S[2] = S[2] - dt;
     const ly = getGamepadAxis(1);
     const lx = getGamepadAxis(0);
     if (S[2] <= 0) {
-      if (ly < -0.6) { move(-1); S[2] = 0.18; }
-      else if (ly > 0.6) { move(1); S[2] = 0.18; }
-      else if (lx < -0.6) { adjust(-1); S[2] = 0.12; }
-      else if (lx > 0.6) { adjust(1); S[2] = 0.12; }
+      if (ly < -0.6) { dv = -1; S[2] = 0.18; }
+      else if (ly > 0.6) { dv = 1; S[2] = 0.18; }
+      else if (lx < -0.6) { dh = -1; S[2] = 0.14; }
+      else if (lx > 0.6) { dh = 1; S[2] = 0.14; }
+    }
+    if (inLevels) {
+      if (dv < 0 && S[1] >= ARENA_COUNT) { S[1] = ARENA_INDEX; MIX.uiMove(); }
+      if (dv > 0 && S[1] < ARENA_COUNT) { S[1] = ARENA_COUNT; MIX.uiMove(); }
+      if (dh < 0 && S[1] > 0 && S[1] < ARENA_COUNT) { S[1] = S[1] - 1; MIX.uiMove(); }
+      if (dh > 0 && S[1] < ARENA_COUNT - 1) { S[1] = S[1] + 1; MIX.uiMove(); }
+    } else {
+      if (dv !== 0) move(dv);
+      if (dh !== 0) adjust(dh);
+    }
+    if (inSettings) {
+      if (isGamepadButtonPressed(4)) setTab(S[4] - 1);   // LB
+      if (isGamepadButtonPressed(5)) setTab(S[4] + 1);   // RB
+    }
+    if (isGamepadButtonPressed(0)) confirm();            // A
+    if (isGamepadButtonPressed(1)) escape();             // B
+    // Start resumes, but only out of the pause menu itself.
+    if (isGamepadButtonPressed(7) && S[0] === MENU_PAUSE) { A[0] = ACT_RESUME; closeMenu(); }
+  }
+  if (S[0] === MENU_NONE) return A[0];
+
+  // --- pointer (mouse or a finger): hit-test the same rectangles that are drawn. The pointer
+  // only takes the selection when it MOVES, so it does not fight the keys while it rests.
+  const mx = getMouseX() / uiScale;
+  const my = getMouseY() / uiScale;
+  const moved = Math.abs(mx - S[13]) > 0.5 || Math.abs(my - S[14]) > 0.5;
+  S[13] = mx; S[14] = my;
+  const click = isMouseButtonPressed(0);
+  if (moved || click) S[12] = 1;
+
+  if (inSettings) {
+    const wheel = getMouseWheel();
+    if (wheel !== 0) {
+      S[6] = S[6] - (wheel > 0 ? 1 : -1);
+      const maxTop = VN[0] - L[5];
+      if (S[6] > maxTop) S[6] = maxTop;
+      if (S[6] < 0) S[6] = 0;
+    }
+    if (click) {
+      for (let i = 0; i < TN[0]; i++) {
+        tabRect(i, sw, sh);
+        if (mx >= G[0] && mx <= G[0] + G[2] && my >= G[1] && my <= G[1] + G[3]) {
+          if (i !== S[4]) setTab(i);
+          return A[0];
+        }
+      }
     }
   }
 
-  // --- mouse / touch: hit-test the same rows we draw.
-  const mx = getMouseX() / uiScale;
-  const my = getMouseY() / uiScale;
-  const geo = layout(sw, sh);
-  const x0 = geo[0], y0 = geo[1], rowW = geo[2], rowH = geo[3];
   const n = rowCount();
   for (let i = 0; i < n; i++) {
-    const ry = y0 + i * rowH;
-    if (mx >= x0 && mx <= x0 + rowW && my >= ry && my <= ry + rowH - 4) {
-      if (S[1] !== i) { S[1] = i; }
-      if (isMouseButtonPressed(0)) {
-        if (S[0] === MENU_SETTINGS && SET_KINDS[i] === ROW_SLIDER) {
-          // Click ON the bar = set the value at that position. Far better than
-          // making the player click a tiny arrow twenty times.
-          const barX = x0 + rowW * 0.55;
-          const barW = rowW * 0.40;
-          let t = (mx - barX) / barW;
-          if (t < 0) t = 0;
-          if (t > 1) t = 1;
-          let v = SET_MIN[i] + t * (SET_MAX[i] - SET_MIN[i]);
-          v = Math.round(v / SET_STEP[i]) * SET_STEP[i];
-          v = Math.round(v * 1000) / 1000;
-          SET.set(SET_IDX[i], v);
-          applyLive(SET_IDX[i]);
-          MIX.uiMove();
-        } else {
-          confirm();
-        }
+    if (!rowRect(i, sw, sh)) continue;
+    if (!(mx >= G[0] && mx <= G[0] + G[2] && my >= G[1] && my <= G[1] + G[3])) continue;
+    if ((moved || click) && S[1] !== i) { S[1] = i; MIX.uiMove(); }
+    if (!click) break;
+    if (inSettings) {
+      const r = VIS[i];
+      const kind = R_KIND[r];
+      const valX = G[0] + G[2] * 0.52;
+      if (kind === ROW_SLIDER) {
+        // Click ON the bar = set the value there, not twenty clicks on an arrow.
+        const barX = valX;
+        const barW = G[2] * 0.34;
+        let t = (mx - barX) / barW;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        let v = R_MIN[r] + t * (R_MAX[r] - R_MIN[r]);
+        v = Math.round(v / R_STEP[r]) * R_STEP[r];
+        v = Math.round(v * 1000) / 1000;
+        SET.set(R_IDX[r], v);
+        applyLive(R_IDX[r]);
+        MIX.uiTick();
+      } else if (kind === ROW_CHOICE) {
+        // Left half of the value steps back, right half forward.
+        adjust(mx < valX + G[2] * 0.17 ? -1 : 1);
+      } else if (kind === ROW_BIND) {
+        S[8] = mx > G[0] + G[2] * 0.76 ? 1 : 0;
+        confirm();
+      } else {
+        confirm();
+      }
+    } else {
+      confirm();
+    }
+    break;
+  }
+  // A held mouse button drags a slider.
+  if (inSettings && !click && isMouseButtonDown(0) && S[12] === 1 && S[1] < VN[0]) {
+    const r = VIS[S[1]];
+    if (R_KIND[r] === ROW_SLIDER && rowRect(S[1], sw, sh)
+        && my >= G[1] && my <= G[1] + G[3] && mx >= G[0] + G[2] * 0.5) {
+      let t = (mx - (G[0] + G[2] * 0.52)) / (G[2] * 0.34);
+      if (t < 0) t = 0;
+      if (t > 1) t = 1;
+      let v = R_MIN[r] + t * (R_MAX[r] - R_MIN[r]);
+      v = Math.round(v / R_STEP[r]) * R_STEP[r];
+      v = Math.round(v * 1000) / 1000;
+      if (v !== SET.get(R_IDX[r])) {
+        SET.set(R_IDX[r], v);
+        applyLive(R_IDX[r]);
+        MIX.uiTick();
       }
     }
   }
@@ -407,135 +803,505 @@ export function updateMenu(dt: number, sw: number, sh: number, uiScale: number):
   return A[0];
 }
 
-/// x, y, rowWidth, rowHeight of the row list.
-function layout(sw: number, sh: number): number[] {
-  const rowW = sw * 0.5;
-  const n = rowCount();
-  // The settings list is 22 rows: at 46 units it would run past a 1080-unit-tall screen.
-  let rowH = 46;
-  if (n * rowH + 110 > sh) rowH = Math.floor((sh - 110) / n);
-  const x0 = (sw - rowW) / 2;
-  const y0 = sh * 0.5 - (n * rowH) / 2 + 20;
-  return [x0, y0, rowW, rowH];
+function escape(): void {
+  // On the title there is nothing behind to go back to, and the results screen has to be
+  // answered: Escape does nothing on either rather than dumping the player into a dead run.
+  if (S[0] === MENU_SETTINGS || S[0] === MENU_LEVELS || S[0] === MENU_CREDITS) {
+    back();
+  } else if (S[0] === MENU_PAUSE) {
+    MIX.uiBack();
+    A[0] = ACT_RESUME;
+    closeMenu();
+  }
 }
 
-export function drawMenu(sw: number, sh: number): void {
-  if (S[0] === MENU_NONE) return;
+// ---- drawing --------------------------------------------------------------------------------------
 
-  // Dim the world behind. This is the whole reason the sim is frozen and not
-  // merely hidden — the player should still see the fight they paused, and the
-  // main menu gets to show off the arena it is about to drop you into.
-  // The front door dims LESS: it is a hero shot, not an interruption.
-  const dim = S[0] === MENU_MAIN ? 120 : 170;
-  drawRect(0, 0, sw, sh, { r: 0, g: 0, b: 0, a: dim });
+/// Rows slide in from the left one after another when a screen appears.
+function rowIn(i: number): number {
+  return UI.easeOut((S[5] - 0.04 - i * 0.028) / 0.24);
+}
 
-  const geo = layout(sw, sh);
-  const x0 = geo[0], y0 = geo[1], rowW = geo[2], rowH = geo[3];
+function drawPlainRow(i: number, label: string, sw: number, sh: number): void {
+  if (!rowRect(i, sw, sh)) return;
+  const k = L[0];
+  const t = rowIn(i);
+  const sel = i === S[1];
+  const x = G[0] - (1 - t) * 40 * k;
+  const a = 255 * t;
+  if (sel) {
+    UI.spr(A_FADE_R, x - 18 * k, G[1], G[2] + 18 * k, G[3], UI.C_ACCENT, 48 * t);
+    drawRect(x - 18 * k, G[1], 4 * k, G[3], UI.col(UI.C_ACCENT, a));
+  }
+  const fs = (sel ? 32 : 28) * k;
+  UI.textS(label, x + (sel ? 10 * k : 0), G[1] + (G[3] - fs) / 2, fs,
+           sel ? UI.C_BRIGHT : UI.C_TEXT, sel ? a : a * 0.86);
+}
+
+function drawTitle(s: string, sw: number, sh: number, y: number, size: number): void {
+  const t = UI.easeOut(S[5] / 0.3);
+  const w = UI.textW(s, size);
+  UI.textS(s, (sw - w) / 2, y - (1 - t) * 14, size, UI.C_BRIGHT, 255 * t);
+  UI.spr(A_FADE_H, (sw - w * 1.5) / 2, y + size * 1.22, w * 1.5, 3, UI.C_ACCENT, 200 * t);
+}
+
+function thumb(i: number): number {
+  if (i < 0 || i > 7) return 0;
+  if (THUMB[i] === -1) {
+    const p = 'assets/ui/' + ARENAS[i].id + '.png';
+    if (fileExists(p)) {
+      const tx = loadTexture(p);
+      THUMB[i] = tx.handle > 0 ? tx.handle : 0;
+    } else {
+      THUMB[i] = 0;
+    }
+  }
+  return THUMB[i];
+}
+
+/// An arena's picture into a rectangle (the pictures are 640 x 360).
+function drawThumb(i: number, x: number, y: number, w: number, h: number, a: number): void {
+  const tx = thumb(i);
+  if (tx === 0) { drawRect(x, y, w, h, UI.col(UI.C_PANEL, a)); return; }
+  drawTextureProRaw(tx, 0, 0, 640, 360, x, y, w, h, 0, 0, 0, 255, 255, 255, Math.floor(a));
+}
+
+function arenaSub(i: number): string {
+  if (i === 0) return T(STR.S_ARENA_SUB_0);
+  if (i === 1) return T(STR.S_ARENA_SUB_1);
+  if (i === 2) return T(STR.S_ARENA_SUB_2);
+  return '';
+}
+
+function timeText(sec: number): string {
+  const s = Math.floor(sec);
+  const m = Math.floor(s / 60);
+  const r = s - m * 60;
+  return '' + m + ':' + (r < 10 ? '0' : '') + r;
+}
+
+/// The strip along the bottom: what the buttons do here, as glyphs for the device in use.
+function drawHints(sw: number, sh: number): void {
+  if (MOBILE) return;
+  const k = L[0];
+  const h = 26 * k;
+  const y = sh - 54 * k;
+  const pad = UI.padGlyphs();
+  const a = 210 * UI.easeOut(S[5] / 0.4);
+  let x = sw * 0.085;
+  const fs = h * 0.62;
+  const gap = 26 * k;
+  // navigate
+  if (pad) { UI.drawPadGlyph(10, x, y, h, a); x = x + h + 6 * k; }
+  else {
+    UI.drawKbGlyph(Key.UP, x, y, h, a); x = x + UI.kbGlyphW(Key.UP, h) + 4 * k;
+    UI.drawKbGlyph(Key.DOWN, x, y, h, a); x = x + UI.kbGlyphW(Key.DOWN, h) + 6 * k;
+  }
+  UI.textS(T(STR.S_HINT_NAV), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
+  x = x + UI.textW(T(STR.S_HINT_NAV), fs) + gap;
+  // select
+  if (pad) { UI.drawPadGlyph(0, x, y, h, a); x = x + h + 6 * k; }
+  else { UI.drawKbGlyph(Key.ENTER, x, y, h, a); x = x + UI.kbGlyphW(Key.ENTER, h) + 6 * k; }
+  UI.textS(T(STR.S_HINT_SELECT), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
+  x = x + UI.textW(T(STR.S_HINT_SELECT), fs) + gap;
+  // back
+  if (S[0] !== MENU_MAIN && S[0] !== MENU_RESULTS) {
+    if (pad) { UI.drawPadGlyph(1, x, y, h, a); x = x + h + 6 * k; }
+    else { UI.drawKbGlyph(Key.ESCAPE, x, y, h, a); x = x + UI.kbGlyphW(Key.ESCAPE, h) + 6 * k; }
+    UI.textS(T(STR.S_HINT_BACK), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
+    x = x + UI.textW(T(STR.S_HINT_BACK), fs) + gap;
+  }
+  if (S[0] === MENU_SETTINGS) {
+    if (pad) {
+      UI.drawPadGlyph(4, x, y, h, a); x = x + UI.padGlyphW(4, h) + 4 * k;
+      UI.drawPadGlyph(5, x, y, h, a); x = x + UI.padGlyphW(5, h) + 6 * k;
+    } else {
+      UI.drawKbGlyph(Key.Q, x, y, h, a); x = x + h + 4 * k;
+      UI.drawKbGlyph(Key.E, x, y, h, a); x = x + h + 6 * k;
+    }
+    UI.textS(T(STR.S_HINT_TAB), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
+    x = x + UI.textW(T(STR.S_HINT_TAB), fs) + gap;
+    if (!pad && TABS_VIS[S[4]] === TAB_BINDS) {
+      UI.drawKbGlyph(Key.DELETE, x, y, h, a); x = x + UI.kbGlyphW(Key.DELETE, h) + 6 * k;
+      UI.textS(T(STR.S_HINT_CLEAR), x, y + (h - fs) / 2, fs, UI.C_DIM, a);
+    }
+  }
+}
+
+function drawMainOrPause(sw: number, sh: number): void {
+  const k = L[0];
+  const main = S[0] === MENU_MAIN;
+  const t0 = UI.easeOut(S[5] / 0.35);
+  // The left third darkens so the rows read over any backdrop; the right stays a picture.
+  UI.spr(A_FADE_R, 0, 0, sw * (main ? 0.62 : 0.55), sh, UI.C_BLACK, UI.panelA(main ? 215 : 235));
+  if (!main) drawRect(0, 0, sw, sh, UI.col(UI.C_BLACK, 90));
+
+  const x0 = L[1];
+  if (main) {
+    const ey = sh * 0.15;
+    const es = 132 * k;
+    UI.spr(A_EMBLEM, x0, ey - (1 - t0) * 10, es, es, UI.C_ACCENT, 255 * t0);
+    UI.textS('BLOOM', x0 + es + 26 * k, ey + 2 * k, 62 * k, UI.C_BRIGHT, 255 * t0);
+    UI.textS('SHOOTER', x0 + es + 26 * k, ey + 60 * k, 62 * k, UI.C_ACCENT, 255 * t0);
+    UI.spr(A_FADE_R, x0, ey + es + 16 * k, 520 * k, 2, UI.C_ACCENT, 190 * t0);
+    UI.textS(T(STR.S_TAGLINE), x0, ey + es + 28 * k, 19 * k, UI.C_DIM, 230 * t0);
+  } else {
+    UI.textS(T(STR.S_PAUSED), x0, sh * 0.19, 58 * k, UI.C_BRIGHT, 255 * t0);
+    UI.spr(A_FADE_R, x0, sh * 0.19 + 76 * k, 420 * k, 2, UI.C_ACCENT, 190 * t0);
+    UI.textS(ARENAS[ARENA_INDEX].name + '   ' + T(STR.S_SCORE) + ' ' + SCORE.score(),
+             x0, sh * 0.19 + 88 * k, 19 * k, UI.C_DIM, 230 * t0);
+  }
+
   const n = rowCount();
+  for (let i = 0; i < n; i++) {
+    drawPlainRow(i, T(main ? MAIN_LABELS[i] : PAUSE_LABELS[i]), sw, sh);
+  }
 
-  let title = 'PAUSED';
-  if (S[0] === MENU_MAIN)     title = 'BLOOM SHOOTER';
-  if (S[0] === MENU_SETTINGS) title = 'SETTINGS';
-  if (S[0] === MENU_LEVELS)   title = 'SELECT ARENA';
-  const ts = S[0] === MENU_MAIN ? 64 : 44;
-  const tw = measureText(title, ts);
-  // Anchored to the TOP OF THE LIST, not to a fixed offset from screen centre. The
-  // list is centred, so it grows upward as rows are added — and the graphics rows
-  // pushed it straight through a title that was nailed to `sh * 0.5 - 200`.
-  drawText(title, (sw - tw) / 2, y0 - (S[0] === MENU_MAIN ? 130 : 70), ts,
-    { r: 255, g: 240, b: 210, a: 255 });
-
-  if (S[0] === MENU_MAIN) {
-    // Under the wordmark: which arena PLAY drops you into, and your best there.
-    // Both are things you want to know BEFORE pressing play, which is exactly
-    // why they belong on the front door and not two screens deep.
-    const rule = tw * 0.9;
-    drawRect((sw - rule) / 2, y0 - 130 + ts * 0.62, rule, 2,
-      { r: 255, g: 200, b: 110, a: 140 });
-
-    const an = ARENAS[ARENA_INDEX].name;
+  if (main) {
+    // The arena PLAY drops you into, with its picture and your best there: both are things
+    // to know BEFORE pressing play.
+    const cw = 420 * k;
+    const ch = cw * 9 / 16;
+    const cx = sw - cw - sw * 0.06;
+    const cy = sh - ch - 150 * k;
+    const ta = UI.easeOut((S[5] - 0.15) / 0.4);
+    UI.panel(cx - 10 * k, cy - 10 * k + (1 - ta) * 20, cw + 20 * k, ch + 92 * k, 225 * ta);
+    drawThumb(ARENA_INDEX, cx, cy + (1 - ta) * 20, cw, ch, 255 * ta);
+    UI.text(ARENAS[ARENA_INDEX].name, cx + 4 * k, cy + ch + 10 * k, 26 * k, UI.C_BRIGHT, 255 * ta);
+    UI.text(arenaSub(ARENA_INDEX), cx + 4 * k, cy + ch + 44 * k, 16 * k, UI.C_DIM, 230 * ta);
     const best = SET.bestScore(ARENA_INDEX);
-    const sub = best > 0 ? an + '   •   BEST ' + best : an;
-    const sws = measureText(sub, 20);
-    drawText(sub, (sw - sws) / 2, y0 - 46, 20, { r: 205, g: 195, b: 160, a: 210 });
+    if (best > 0) {
+      UI.textR(T(STR.S_BEST) + '  ' + best, cx + cw - 4 * k, cy + ch + 14 * k, 19 * k, UI.C_ACCENT, 255 * ta);
+    }
+    UI.textR(T(STR.S_VERSION), sw - sw * 0.06, sh - 46 * k, 14 * k, UI.C_DIM, 150 * ta);
+  }
+}
+
+/// A choice row that cannot be changed right now, and says why in place of its value: path
+/// tracing without ray-query hardware, and the frame-rate limit while vertical sync is on
+/// (the engine's limit is a sleep it only takes when the display is not already pacing it).
+function rowDead(r: number): boolean {
+  if (R_IDX[r] === SET.SET_PT && !isPathTracingSupported()) return true;
+  if (R_IDX[r] === SET.SET_FPS_CAP && SET.get(SET.SET_VSYNC) !== 0) return true;
+  return false;
+}
+
+function choiceText(r: number, v: number): string {
+  if (R_OPT[r] < 0) return STR.LANG_NAMES[v];
+  if (R_IDX[r] === SET.SET_FPS_CAP && SET.get(SET.SET_VSYNC) !== 0) return T(STR.S_FPS_VSYNC);
+  if (R_IDX[r] === SET.SET_PT && !isPathTracingSupported()) return T(STR.S_PT_NA);
+  return T(R_OPT[r] + v);
+}
+
+function drawSettings(sw: number, sh: number): void {
+  const k = L[0];
+  drawRect(0, 0, sw, sh, UI.col(UI.C_BLACK, UI.panelA(200)));
+  drawTitle(T(STR.S_SETTINGS), sw, sh, sh * 0.06, 44 * k);
+
+  // tab strip
+  for (let i = 0; i < TN[0]; i++) {
+    tabRect(i, sw, sh);
+    const on = i === S[4];
+    const label = T(TAB_LABEL[TABS_VIS[i]]);
+    let fs = 21 * k;
+    const tw = UI.textW(label, fs);
+    if (tw > G[2] - 10 * k) fs = fs * (G[2] - 10 * k) / tw;
+    if (on) {
+      UI.nine(A_PANEL, G[0] + 2, G[1], G[2] - 4, G[3], 12 * k, UI.C_ACCENT, 235);
+      UI.textC(label, G[0] + G[2] / 2, G[1] + (G[3] - fs) / 2, fs, UI.C_PANEL, 255);
+    } else {
+      UI.nine(A_PANEL_LINE, G[0] + 2, G[1], G[2] - 4, G[3], 12 * k, UI.C_LINE, 170);
+      UI.textC(label, G[0] + G[2] / 2, G[1] + (G[3] - fs) / 2, fs, UI.C_TEXT, 220);
+    }
+  }
+
+  const binds = TABS_VIS[S[4]] === TAB_BINDS;
+  const n = VN[0];
+  const top = L[2];
+  const shownRows = n < L[5] ? n : L[5];
+  UI.panel(L[1] - 22 * k, top - 14 * k, L[3] + 44 * k, shownRows * L[4] + 24 * k, 150);
+
+  if (binds) {
+    // column heads
+    const hy = top - 12 * k;
+    UI.textC(T(STR.S_KEYBOARD), L[1] + L[3] * 0.62, hy - 26 * k, 14 * k, S[8] === 0 ? UI.C_ACCENT : UI.C_DIM, 235);
+    UI.textC(T(STR.S_GAMEPAD), L[1] + L[3] * 0.87, hy - 26 * k, 14 * k, S[8] === 1 ? UI.C_ACCENT : UI.C_DIM, 235);
   }
 
   for (let i = 0; i < n; i++) {
-    const ry = y0 + i * rowH;
+    if (!rowRect(i, sw, sh)) continue;
+    const r = VIS[i];
+    const kind = R_KIND[r];
     const sel = i === S[1];
+    const t = rowIn(i - S[6]);
+    const a = 255 * t;
+    const x = G[0] - (1 - t) * 24 * k;
+    const y = G[1];
+    const h = G[3];
     if (sel) {
-      drawRect(x0 - 10, ry - 2, rowW + 20, rowH - 4, { r: 255, g: 210, b: 120, a: 40 });
+      UI.nine(A_PANEL, x - 12 * k, y, G[2] + 24 * k, h, 10 * k, UI.C_ACCENT, 26 * t);
+      drawRect(x - 12 * k, y, 4 * k, h, UI.col(UI.C_ACCENT, a));
     }
-    const col = sel
-      ? { r: 255, g: 225, b: 150, a: 255 }
-      : { r: 200, g: 200, b: 205, a: 220 };
+    const fs = (binds ? 20 : 23) * k;
+    const ty = y + (h - fs) / 2;
+    UI.text(T(R_LABEL[r]), x + 6 * k, ty, fs, sel ? UI.C_BRIGHT : UI.C_TEXT, sel ? a : a * 0.88);
+    if (kind === ROW_ACTION) continue;
 
-    let label = '';
-    if (S[0] === MENU_MAIN) {
-      label = MAIN_LABELS[i];
-    } else if (S[0] === MENU_PAUSE) {
-      label = PAUSE_LABELS[i];
-    } else if (S[0] === MENU_LEVELS) {
-      label = i < ARENA_COUNT ? ARENAS[i].name : 'BACK';
-    } else {
-      label = SET_LABELS[i];
-    }
-    drawText(label, x0, ry + 8, 24, col);
-
-    if (S[0] === MENU_LEVELS && i < ARENA_COUNT) {
-      // Mark the arena you are actually in, and show its best score — the two
-      // things you want to know before picking.
-      const isCur = i === ARENA_INDEX;
-      const best = SET.bestScore(i);
-      const info = (isCur ? 'CURRENT   ' : '') + (best > 0 ? 'BEST ' + best : '');
-      if (info.length > 0) {
-        const iw = measureText(info, 16);
-        drawText(info, x0 + rowW - iw, ry + 12, 16,
-          { r: 180, g: 175, b: 160, a: 200 });
+    const valX = x + G[2] * 0.52;
+    if (kind === ROW_BIND) {
+      const act = R_IDX[r];
+      const gh = h * 0.82;
+      const gy = y + (h - gh) / 2;
+      for (let cI = 0; cI < 2; cI++) {
+        const pad = cI === 1;
+        const cx = x + G[2] * (pad ? 0.87 : 0.62);
+        const focus = sel && S[8] === cI;
+        if (focus) UI.nine(A_PANEL_LINE, cx - G[2] * 0.11, y + 1, G[2] * 0.22, h - 2, 9 * k, UI.C_ACCENT, 255);
+        if (B.capturing() && B.captureAction() === act && B.capturePad() === pad) {
+          const blink = 150 + 105 * Math.sin(S[5] * 9);
+          UI.textC(T(pad ? STR.S_PRESS_BUTTON : STR.S_PRESS_KEY), cx, ty, fs * 0.8, UI.C_ACCENT, blink);
+          continue;
+        }
+        const ga = B.rebindable(act, pad) ? a : a * 0.55;
+        if (pad) {
+          const code = B.padCode(act);
+          UI.drawPadGlyph(act === B.ACT_PAUSE ? 7 : code, cx - UI.padGlyphW(code, gh) / 2, gy, gh, ga);
+        } else {
+          const code = B.kbCode(act);
+          UI.drawKbGlyph(code, cx - UI.kbGlyphW(code, gh) / 2, gy, gh, ga);
+        }
       }
       continue;
     }
 
-    if (S[0] !== MENU_SETTINGS) continue;
-    const kind = SET_KINDS[i];
-    if (kind === ROW_ACTION) continue;
-
-    const v = SET.get(SET_IDX[i]);
-    const barX = x0 + rowW * 0.55;
-    const barW = rowW * 0.40;
-
+    const v = SET.get(R_IDX[r]);
     if (kind === ROW_TOGGLE) {
+      // A switch: a track with a knob, and the word, so state never rests on colour alone.
       const on = v !== 0;
-      drawText(on ? 'ON' : 'OFF', barX, ry + 8, 24,
-        on ? { r: 150, g: 235, b: 150, a: 255 } : { r: 150, g: 150, b: 155, a: 200 });
-    } else if (kind === ROW_TRI) {
-      // Path tracing. QUALITY = progressive (converges standing still,
-      // for screenshots); REALTIME = denoised gameplay mode. On a GPU
-      // without ray query the row is inert and says why.
-      if (!isPathTracingSupported()) {
-        drawText('N/A (NO RAY TRACING)', barX, ry + 8, 20,
-          { r: 140, g: 140, b: 145, a: 180 });
-      } else if (v === 0) {
-        drawText('OFF', barX, ry + 8, 24, { r: 150, g: 150, b: 155, a: 200 });
-      } else if (v === 1) {
-        drawText('QUALITY (STILLS)', barX, ry + 8, 24, { r: 235, g: 210, b: 140, a: 255 });
-      } else {
-        drawText('REALTIME', barX, ry + 8, 24, { r: 150, g: 235, b: 150, a: 255 });
+      const tw = 54 * k, th = 24 * k;
+      const sy = y + (h - th) / 2;
+      UI.nine(A_PANEL, valX, sy, tw, th, 8 * k, on ? UI.C_GOOD : UI.C_LINE, on ? a : a * 0.6);
+      UI.spr(A_DISC, on ? valX + tw - th + 2 * k : valX + 2 * k, sy + 2 * k, th - 4 * k, th - 4 * k, UI.C_BRIGHT, a);
+      UI.text(T(on ? STR.S_ON : STR.S_OFF), valX + tw + 16 * k, ty, fs, on ? UI.C_BRIGHT : UI.C_DIM, a);
+    } else if (kind === ROW_CHOICE) {
+      const cw = G[2] * 0.34;
+      const txt = choiceText(r, v);
+      const dead = rowDead(r);
+      let cfs = fs;
+      const cww = UI.textW(txt, cfs);
+      if (cww > cw - 60 * k) cfs = cfs * (cw - 60 * k) / cww;
+      if (sel && !dead) {
+        UI.spr(A_ARROW_L, valX, y + (h - 20 * k) / 2, 20 * k, 20 * k, UI.C_ACCENT, a);
+        UI.spr(A_ARROW_R, valX + cw - 20 * k, y + (h - 20 * k) / 2, 20 * k, 20 * k, UI.C_ACCENT, a);
+      }
+      UI.textC(txt, valX + cw / 2, y + (h - cfs) / 2 - 5 * k, cfs, dead ? UI.C_DIM : (sel ? UI.C_BRIGHT : UI.C_TEXT), a);
+      // which of n: a row of ticks under the word, on the row in focus
+      if (!dead && sel) {
+        const nOpt = R_MAX[r] + 1;
+        const dw = 14 * k, dg = 5 * k;
+        const dx0 = valX + cw / 2 - (nOpt * dw + (nOpt - 1) * dg) / 2;
+        for (let o = 0; o < nOpt; o++) {
+          drawRect(dx0 + o * (dw + dg), y + h - 3 * k, dw, 2 * k,
+                   UI.col(o === v ? UI.C_ACCENT : UI.C_LINE, o === v ? a : a * 0.6));
+        }
       }
     } else {
-      const t = (v - SET_MIN[i]) / (SET_MAX[i] - SET_MIN[i]);
-      drawRect(barX, ry + 16, barW, 8, { r: 70, g: 70, b: 76, a: 220 });
-      drawRect(barX, ry + 16, barW * t, 8, { r: 255, g: 200, b: 110, a: 255 });
-      // The number matters: "sensitivity 1.4" is something a player can carry
-      // between sessions and between games.
-      const txt = SET_MAX[i] > 5 ? '' + Math.round(v) : v.toFixed(2);
-      drawText(txt, barX + barW + 12, ry + 8, 20, { r: 190, g: 190, b: 195, a: 220 });
+      const bw = G[2] * 0.34;
+      const tt = (v - R_MIN[r]) / (R_MAX[r] - R_MIN[r]);
+      const by = y + h / 2 - 3 * k;
+      drawRect(valX, by, bw, 6 * k, UI.col(UI.C_LINE, a * 0.6));
+      drawRect(valX, by, bw * tt, 6 * k, UI.col(UI.C_ACCENT, a));
+      UI.spr(A_DISC, valX + bw * tt - 9 * k, y + h / 2 - 9 * k, 18 * k, 18 * k, sel ? UI.C_BRIGHT : UI.C_TEXT, a);
+      // The number matters: "sensitivity 1.4" is something a player can carry between games.
+      let txt = v.toFixed(2);
+      if (R_MAX[r] > 5) txt = '' + Math.round(v);
+      else if (R_IDX[r] === SET.SET_OUTPUT_SCALE || R_IDX[r] === SET.SET_RENDER_SCALE
+               || R_IDX[r] === SET.SET_HUD_SCALE || (R_MAX[r] === 1 && R_MIN[r] === 0)) {
+        txt = '' + Math.round(v * 100) + '%';
+      }
+      UI.text(txt, valX + bw + 18 * k, ty, fs * 0.9, UI.C_DIM, a);
     }
   }
 
-  const hint = 'ARROWS / STICK  •  ENTER or A: SELECT  •  ESC or B: BACK';
-  const hs = 16;
-  const hw = measureText(hint, hs);
-  drawText(hint, (sw - hw) / 2, y0 + n * rowH + 26, hs,
-    { r: 160, g: 160, b: 165, a: 180 });
+  // more rows above / below
+  if (S[6] > 0) UI.sprRot(A_ARROW_R, sw / 2, top - 6 * k, 18 * k, 18 * k, 9 * k, 9 * k, -90, UI.C_ACCENT, 220);
+  if (S[6] + L[5] < n) UI.sprRot(A_ARROW_R, sw / 2, top + L[5] * L[4] + 16 * k, 18 * k, 18 * k, 9 * k, 9 * k, 90, UI.C_ACCENT, 220);
+}
+
+function drawLevels(sw: number, sh: number): void {
+  const k = L[0];
+  drawRect(0, 0, sw, sh, UI.col(UI.C_BLACK, UI.panelA(190)));
+  drawTitle(T(STR.S_SELECT_ARENA), sw, sh, sh * 0.07, 44 * k);
+  for (let i = 0; i < ARENA_COUNT; i++) {
+    cardRect(i, sw, sh);
+    const sel = i === S[1];
+    const t = UI.easeOut((S[5] - 0.05 - i * 0.07) / 0.3);
+    const lift = sel ? -10 * k : 0;
+    const x = G[0], y = G[1] + lift + (1 - t) * 30, w = G[2], h = G[3];
+    const a = 255 * t;
+    UI.nine(A_PANEL, x, y, w, h, 14 * k, UI.C_PANEL, UI.panelA(sel ? 240 : 205) * t);
+    const ph = w * 9 / 16;
+    drawThumb(i, x + 8 * k, y + 8 * k, w - 16 * k, ph - 8 * k, sel ? a : a * 0.72);
+    UI.nine(A_PANEL_LINE, x, y, w, h, 14 * k, sel ? UI.C_ACCENT : UI.C_LINE, sel ? a : a * 0.6);
+    if (sel) UI.nine(A_PANEL_LINE, x - 3, y - 3, w + 6, h + 6, 15 * k, UI.C_ACCENT, a * 0.45);
+    UI.text(ARENAS[i].name, x + 16 * k, y + ph + 10 * k, 26 * k, sel ? UI.C_BRIGHT : UI.C_TEXT, a);
+    UI.text(arenaSub(i), x + 16 * k, y + ph + 44 * k, 15 * k, UI.C_DIM, a);
+    const best = SET.bestScore(i);
+    UI.text(best > 0 ? T(STR.S_BEST) + '  ' + best : T(STR.S_NO_SCORE),
+            x + 16 * k, y + ph + 66 * k, 15 * k, best > 0 ? UI.C_ACCENT : UI.C_DIM, a);
+    if (i === ARENA_INDEX) {
+      const tag = T(STR.S_CURRENT);
+      const tw = UI.textW(tag, 14 * k);
+      UI.nine(A_PANEL, x + w - tw - 34 * k, y + 16 * k, tw + 20 * k, 26 * k, 8 * k, UI.C_ACCENT, a);
+      UI.text(tag, x + w - tw - 24 * k, y + 21 * k, 14 * k, UI.C_PANEL, a);
+    }
+  }
+  drawCentredRow(ARENA_COUNT, T(STR.S_BACK), sw, sh);
+}
+
+/// A centred button row (BACK under the cards and the credits, the results rows).
+function drawCentredRow(i: number, label: string, sw: number, sh: number): void {
+  if (!rowRect(i, sw, sh)) return;
+  const k = L[0];
+  const sel = i === S[1];
+  const t = UI.easeOut((S[5] - 0.2) / 0.3);
+  if (sel) UI.nine(A_PANEL, G[0], G[1], G[2], G[3], 12 * k, UI.C_ACCENT, 235 * t);
+  else UI.nine(A_PANEL_LINE, G[0], G[1], G[2], G[3], 12 * k, UI.C_LINE, 190 * t);
+  const fs = 24 * k;
+  UI.textC(label, G[0] + G[2] / 2, G[1] + (G[3] - fs) / 2, fs, sel ? UI.C_PANEL : UI.C_TEXT, 255 * t);
+}
+
+function drawCredits(sw: number, sh: number): void {
+  const k = L[0];
+  drawRect(0, 0, sw, sh, UI.col(UI.C_BLACK, UI.panelA(205)));
+  drawTitle(T(STR.S_CREDITS), sw, sh, sh * 0.07, 44 * k);
+  const heads = [STR.S_CR_ENGINE, STR.S_CR_MODELS, STR.S_CR_SURFACES, STR.S_CR_SOUND, STR.S_CR_MUSIC, STR.S_CR_FONT];
+  const vals = [STR.S_CR_ENGINE_V, STR.S_CR_MODELS_V, STR.S_CR_SURFACES_V, STR.S_CR_SOUND_V, STR.S_CR_MUSIC_V, STR.S_CR_FONT_V];
+  let y = sh * 0.22;
+  const t0 = UI.easeOut((S[5] - 0.05) / 0.3);
+  UI.textC(T(STR.S_CR_GAME), sw / 2, y, 26 * k, UI.C_ACCENT, 255 * t0);
+  y = y + 58 * k;
+  for (let i = 0; i < 6; i++) {
+    const t = UI.easeOut((S[5] - 0.1 - i * 0.06) / 0.3);
+    UI.textC(T(heads[i]), sw / 2, y + (1 - t) * 12, 15 * k, UI.C_DIM, 235 * t);
+    let fs = 21 * k;
+    const txt = T(vals[i]);
+    const tw = UI.textW(txt, fs);
+    if (tw > sw * 0.9) fs = fs * sw * 0.9 / tw;
+    UI.textC(txt, sw / 2, y + 22 * k + (1 - t) * 12, fs, UI.C_BRIGHT, 255 * t);
+    y = y + 68 * k;
+  }
+  UI.textC(T(STR.S_CR_LICENSE), sw / 2, y + 6 * k, 15 * k, UI.C_DIM, 220 * UI.easeOut((S[5] - 0.5) / 0.3));
+  drawCentredRow(0, T(STR.S_BACK), sw, sh);
+}
+
+function statRow(label: string, value: string, x: number, y: number, w: number, k: number,
+                 a: number, hot: boolean): void {
+  UI.text(label, x, y + 5 * k, 17 * k, UI.C_DIM, a);
+  UI.textR(value, x + w, y, 25 * k, hot ? UI.C_ACCENT : UI.C_BRIGHT, a);
+  drawRect(x, y + 34 * k, w, 1, UI.col(UI.C_LINE, a * 0.45));
+}
+
+function drawResults(sw: number, sh: number): void {
+  const k = L[0];
+  const won = S[7] === 1;
+  drawRect(0, 0, sw, sh, UI.col(UI.C_BLACK, UI.panelA(won ? 150 : 185)));
+  if (!won) UI.spr(A_SOFT, -sw * 0.2, -sh * 0.3, sw * 1.4, sh * 1.1, UI.C_DANGER, 26);
+
+  const t0 = UI.easeBack(S[5] / 0.45);
+  const head = T(won ? STR.S_ARENA_CLEARED : STR.S_YOU_DIED);
+  const hs = 70 * k * (0.7 + 0.3 * t0);
+  UI.textCS(head, sw / 2, sh * 0.075, hs, won ? UI.C_GOOD : UI.C_DANGER, 255 * UI.clamp01(S[5] / 0.2));
+  const sub = ARENAS[ARENA_INDEX].name + '   ·   '
+    + (won ? T(STR.S_DIFF_0 + SET.get(SET.SET_DIFFICULTY))
+           : fmt(STR.S_REACHED_WAVE, '' + S[9]) + '   ·   ' + T(STR.S_DIFF_0 + SET.get(SET.SET_DIFFICULTY)));
+  UI.textCS(sub, sw / 2, sh * 0.075 + 86 * k, 20 * k, UI.C_TEXT, 230 * UI.easeOut((S[5] - 0.15) / 0.3));
+
+  // Stars (a win only): cleared, accuracy of half or better, under 100 damage taken. Three
+  // things a player can aim for on the next run, shown as shapes, filled or hollow.
+  let cy = sh * 0.075 + 124 * k;
+  if (won) {
+    const acc = SCORE.accuracy();
+    const stars = 1 + (acc >= 0.5 ? 1 : 0) + (SCORE.damageTaken() < 100 ? 1 : 0);
+    const ss = 46 * k;
+    for (let i = 0; i < 3; i++) {
+      const ts = UI.easeBack((S[5] - 0.45 - i * 0.16) / 0.3);
+      const have = i < stars;
+      const sz = ss * (have ? ts : 1);
+      const sx = sw / 2 + (i - 1) * (ss + 14 * k);
+      if (have) UI.spr(A_STAR, sx - sz / 2, cy + ss / 2 - sz / 2, sz, sz, UI.C_ACCENT, 255 * UI.clamp01(ts));
+      else UI.spr(A_STAR, sx - ss / 2, cy, ss, ss, UI.C_LINE, 120);
+    }
+    cy = cy + ss + 16 * k;
+  } else {
+    cy = cy + 10 * k;
+  }
+
+  // the numbers: two columns
+  const pw = 860 * k < sw * 0.92 ? 860 * k : sw * 0.92;
+  const px = (sw - pw) / 2;
+  const ph = 252 * k;
+  const ta = UI.easeOut((S[5] - 0.25) / 0.35);
+  const a = 255 * ta;
+  UI.panel(px, cy, pw, ph, 215 * ta);
+  const colW = pw / 2 - 52 * k;
+  const lx = px + 30 * k, rx = px + pw / 2 + 22 * k;
+  let ry = cy + 20 * k;
+  const step = 44 * k;
+  const best = SET.bestScore(ARENA_INDEX);
+  // The score counts up: the eye follows a number that moves.
+  const shown = Math.floor(SCORE.score() * UI.easeOut((S[5] - 0.3) / 0.9));
+  statRow(T(STR.S_SCORE), '' + shown, lx, ry, colW, k, a, true);
+  statRow(T(STR.S_TIME), timeText(S_TIME[0]), rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_BEST), '' + best, lx, ry, colW, k, a, false);
+  statRow(T(STR.S_ACCURACY), '' + Math.round(SCORE.accuracy() * 100) + '%', rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_KILLS), '' + SCORE.kills(), lx, ry, colW, k, a, false);
+  statRow(T(STR.S_HEADSHOTS), '' + SCORE.crits(), rx, ry, colW, k, a, false);
+  ry = ry + step;
+  statRow(T(STR.S_BEST_COMBO), 'x' + SCORE.comboPeak().toFixed(2), lx, ry, colW, k, a, false);
+  statRow(T(STR.S_DAMAGE_TAKEN), '' + SCORE.damageTaken(), rx, ry, colW, k, a, false);
+  ry = ry + step + 6 * k;
+  // kills by kind, one line
+  let line = '';
+  for (let kd = 0; kd < 7; kd++) {
+    const c = SCORE.killsOfKind(kd);
+    if (c <= 0) continue;
+    if (line.length > 0) line = line + '    ';
+    line = line + KIND_NAME[kd] + ' ' + c;
+  }
+  if (line.length > 0) {
+    let fs = 15 * k;
+    const lw = UI.textW(line, fs);
+    if (lw > pw - 60 * k) fs = fs * (pw - 60 * k) / lw;
+    UI.textC(line, sw / 2, ry, fs, UI.C_DIM, a);
+  }
+  if (S[15] === 1) {
+    const nb = T(STR.S_NEW_BEST);
+    const pulse = 0.75 + 0.25 * Math.sin(S[5] * 6);
+    const nw = UI.textW(nb, 18 * k);
+    UI.nine(A_PANEL, px + pw - nw - 46 * k, cy - 16 * k, nw + 30 * k, 32 * k, 9 * k, UI.C_ACCENT, 255 * ta * pulse);
+    UI.text(nb, px + pw - nw - 31 * k, cy - 9 * k, 18 * k, UI.C_PANEL, a);
+  }
+
+  for (let i = 0; i < RES_N[0]; i++) {
+    const w = RES_ROWS[i];
+    let label = T(STR.S_MAIN_MENU);
+    if (w === 1) label = T(won ? STR.S_PLAY_AGAIN : STR.S_RETRY);
+    else if (w === 2) label = T(STR.S_NEXT_ARENA);
+    else if (w === 3) label = T(STR.S_LEVEL_SELECT);
+    drawCentredRow(i, label, sw, sh);
+  }
+}
+
+export function drawMenu(sw: number, sh: number): void {
+  if (S[0] === MENU_NONE) return;
+  layout(sw, sh);
+  if (S[0] === MENU_MAIN || S[0] === MENU_PAUSE) drawMainOrPause(sw, sh);
+  else if (S[0] === MENU_SETTINGS) drawSettings(sw, sh);
+  else if (S[0] === MENU_LEVELS) drawLevels(sw, sh);
+  else if (S[0] === MENU_CREDITS) drawCredits(sw, sh);
+  else if (S[0] === MENU_RESULTS) drawResults(sw, sh);
+  drawHints(sw, sh);
 }

@@ -67,6 +67,9 @@ export const GS: any = {
   levelChangeArena: 0,
   // Seconds since the run began — drives the wave clock and score bonuses.
   runElapsed: 0,
+  // Plan 4.4 - a sound the subtitles should name this frame: 0 none, else a hud.ts CAP_* id.
+  // Written by whoever makes the sound, read and cleared by the HUD.
+  capEvent: 0,
   // Round-9 obstacle-circle count (the arrays stay in main; the count
   // is written during world init and read by the director's steering).
   OBST_COUNT: 0,

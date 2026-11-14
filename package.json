@@ -22,6 +22,7 @@
         "bloom/physics",
         "bloom/world",
         "bloom/models",
+        "bloom/textures",
         "bloom/audio",
         "bloom/vfx"
       ]

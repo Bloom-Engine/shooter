@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""The game's string table (plan 4.5): edit TABLE, run this, and src/strings.ts is rewritten.
+
+    python3 tools/gen/strings_table.py
+
+One row per string: id, English, German, French, Spanish. The generated file holds one flat
+array per language, indexed by the id constants, so the arrays cannot drift apart: a missing
+translation fails here, not on screen. `{0}` is the one placeholder (strings.fmt).
+
+Rules for whoever adds a language: the UI font is Rajdhani SemiBold, which covers Latin and
+Latin Extended only (no Cyrillic, Greek or CJK), and everything on screen is upper case, so
+write the upper-case form (German: SS for the sharp s).
+"""
+import os, sys
+
+LANGS = ['en', 'de', 'fr', 'es']
+LANG_NAMES = ['ENGLISH', 'DEUTSCH', 'FRANÇAIS', 'ESPAÑOL']
+
+TABLE = [
+    # ---- menus
+    ('PLAY', 'PLAY', 'SPIELEN', 'JOUER', 'JUGAR'),
+    ('RESUME', 'RESUME', 'WEITER', 'REPRENDRE', 'CONTINUAR'),
+    ('SETTINGS', 'SETTINGS', 'EINSTELLUNGEN', 'OPTIONS', 'AJUSTES'),
+    ('LEVEL_SELECT', 'ARENAS', 'ARENEN', 'ARÈNES', 'ARENAS'),
+    ('RESTART_RUN', 'RESTART RUN', 'NEU STARTEN', 'RECOMMENCER', 'REINICIAR'),
+    ('MAIN_MENU', 'MAIN MENU', 'HAUPTMENÜ', 'MENU PRINCIPAL', 'MENÚ PRINCIPAL'),
+    ('CREDITS', 'CREDITS', 'MITWIRKENDE', 'CRÉDITS', 'CRÉDITOS'),
+    ('QUIT', 'QUIT', 'BEENDEN', 'QUITTER', 'SALIR'),
+    ('BACK', 'BACK', 'ZURÜCK', 'RETOUR', 'ATRÁS'),
+    ('PAUSED', 'PAUSED', 'PAUSE', 'PAUSE', 'PAUSA'),
+    ('SELECT_ARENA', 'SELECT ARENA', 'ARENA WÄHLEN', 'CHOISIR UNE ARÈNE', 'ELIGE ARENA'),
+    ('CURRENT', 'LOADED', 'GELADEN', 'CHARGÉE', 'CARGADA'),
+    ('BEST', 'BEST', 'BESTWERT', 'RECORD', 'RÉCORD'),
+    ('NO_SCORE', 'NOT YET CLEARED', 'NOCH NICHT GESCHAFFT', 'PAS ENCORE TERMINÉE', 'AÚN SIN SUPERAR'),
+    ('PLAY_AGAIN', 'PLAY AGAIN', 'NOCH EINMAL', 'REJOUER', 'JUGAR DE NUEVO'),
+    ('RETRY', 'TRY AGAIN', 'NOCH EINMAL VERSUCHEN', 'RÉESSAYER', 'REINTENTAR'),
+    ('NEXT_ARENA', 'NEXT ARENA', 'NÄCHSTE ARENA', 'ARÈNE SUIVANTE', 'SIGUIENTE ARENA'),
+    ('HINT_NAV', 'MOVE', 'BEWEGEN', 'NAVIGUER', 'MOVER'),
+    ('HINT_SELECT', 'SELECT', 'AUSWÄHLEN', 'VALIDER', 'ELEGIR'),
+    ('HINT_BACK', 'BACK', 'ZURÜCK', 'RETOUR', 'ATRÁS'),
+    ('HINT_TAB', 'TAB', 'REITER', 'ONGLET', 'PESTAÑA'),
+    ('HINT_ADJUST', 'CHANGE', 'ÄNDERN', 'MODIFIER', 'CAMBIAR'),
+    ('HINT_CLEAR', 'CLEAR', 'LÖSCHEN', 'EFFACER', 'BORRAR'),
+    ('VERSION', 'PHASE 4 BUILD', 'PHASE-4-BUILD', 'VERSION PHASE 4', 'VERSIÓN FASE 4'),
+    ('TAGLINE', 'THIRD-PERSON SURVIVAL', 'ÜBERLEBEN IN DER DRITTEN PERSON', 'SURVIE À LA TROISIÈME PERSONNE', 'SUPERVIVENCIA EN TERCERA PERSONA'),
+    # ---- arena lines (time of day), by arena order in arenas.json
+    ('ARENA_SUB_0', 'LATE AFTERNOON  ·  3 WAVES', 'SPÄTER NACHMITTAG  ·  3 WELLEN', "FIN D'APRÈS-MIDI  ·  3 VAGUES", 'ATARDECER  ·  3 OLEADAS'),
+    ('ARENA_SUB_1', 'MISTY MORNING  ·  3 WAVES', 'NEBLIGER MORGEN  ·  3 WELLEN', 'MATIN BRUMEUX  ·  3 VAGUES', 'MAÑANA DE NIEBLA  ·  3 OLEADAS'),
+    ('ARENA_SUB_2', 'DUSK  ·  3 WAVES', 'DÄMMERUNG  ·  3 WELLEN', 'CRÉPUSCULE  ·  3 VAGUES', 'ANOCHECER  ·  3 OLEADAS'),
+    # ---- settings tabs
+    ('TAB_GAME', 'GAME', 'SPIEL', 'JEU', 'JUEGO'),
+    ('TAB_CONTROLS', 'CONTROLS', 'STEUERUNG', 'COMMANDES', 'CONTROLES'),
+    ('TAB_BINDS', 'BINDINGS', 'TASTEN', 'TOUCHES', 'TECLAS'),
+    ('TAB_VIDEO', 'VIDEO', 'GRAFIK', 'VIDÉO', 'VÍDEO'),
+    ('TAB_AUDIO', 'AUDIO', 'AUDIO', 'AUDIO', 'AUDIO'),
+    ('TAB_ACCESS', 'ACCESSIBILITY', 'BARRIEREFREIHEIT', 'ACCESSIBILITÉ', 'ACCESIBILIDAD'),
+    # ---- settings rows
+    ('DIFFICULTY', 'DIFFICULTY', 'SCHWIERIGKEIT', 'DIFFICULTÉ', 'DIFICULTAD'),
+    ('DIFF_0', 'EASY', 'LEICHT', 'FACILE', 'FÁCIL'),
+    ('DIFF_1', 'NORMAL', 'NORMAL', 'NORMALE', 'NORMAL'),
+    ('DIFF_2', 'HARD', 'SCHWER', 'DIFFICILE', 'DIFÍCIL'),
+    ('LANGUAGE', 'LANGUAGE', 'SPRACHE', 'LANGUE', 'IDIOMA'),
+    ('HUD_SCALE', 'HUD SIZE', 'HUD-GRÖSSE', "TAILLE DE L'ATH", 'TAMAÑO DEL HUD'),
+    ('COMPASS', 'COMPASS', 'KOMPASS', 'BOUSSOLE', 'BRÚJULA'),
+    ('FOV', 'FIELD OF VIEW', 'SICHTFELD', 'CHAMP DE VISION', 'CAMPO DE VISIÓN'),
+    ('SHAKE', 'CAMERA SHAKE', 'KAMERAWACKELN', 'TREMBLEMENT DE CAMÉRA', 'TEMBLOR DE CÁMARA'),
+    ('SENS', 'MOUSE SENSITIVITY', 'MAUSEMPFINDLICHKEIT', 'SENSIBILITÉ SOURIS', 'SENSIBILIDAD DEL RATÓN'),
+    ('PAD_SENS', 'STICK SENSITIVITY', 'STICK-EMPFINDLICHKEIT', 'SENSIBILITÉ DU STICK', 'SENSIBILIDAD DEL STICK'),
+    ('ADS_SENS', 'AIMING SENSITIVITY', 'EMPFINDLICHKEIT BEIM ZIELEN', 'SENSIBILITÉ EN VISÉE', 'SENSIBILIDAD AL APUNTAR'),
+    ('INVERT_Y', 'INVERT LOOK UP/DOWN', 'BLICK HOCH/RUNTER UMKEHREN', 'INVERSER LE REGARD VERTICAL', 'INVERTIR EJE VERTICAL'),
+    ('AIM_ASSIST', 'AIM ASSIST (GAMEPAD)', 'ZIELHILFE (GAMEPAD)', 'AIDE À LA VISÉE (MANETTE)', 'AYUDA DE PUNTERÍA (MANDO)'),
+    ('DEADZONE', 'STICK DEAD ZONE', 'STICK-TOTZONE', 'ZONE MORTE DU STICK', 'ZONA MUERTA DEL STICK'),
+    ('CURVE', 'STICK RESPONSE', 'STICK-KENNLINIE', 'COURBE DU STICK', 'RESPUESTA DEL STICK'),
+    ('CURVE_0', 'LINEAR', 'LINEAR', 'LINÉAIRE', 'LINEAL'),
+    ('CURVE_1', 'SMOOTH', 'WEICH', 'DOUCE', 'SUAVE'),
+    ('CURVE_2', 'PRECISE', 'PRÄZISE', 'PRÉCISE', 'PRECISA'),
+    ('VIBRATION', 'VIBRATION', 'VIBRATION', 'VIBRATION', 'VIBRACIÓN'),
+    ('PRESET', 'QUALITY', 'QUALITÄT', 'QUALITÉ', 'CALIDAD'),
+    ('PRESET_0', 'LOW', 'NIEDRIG', 'BASSE', 'BAJA'),
+    ('PRESET_1', 'MEDIUM', 'MITTEL', 'MOYENNE', 'MEDIA'),
+    ('PRESET_2', 'HIGH', 'HOCH', 'HAUTE', 'ALTA'),
+    ('PRESET_3', 'ULTRA', 'ULTRA', 'ULTRA', 'ULTRA'),
+    ('PRESET_4', 'CUSTOM', 'EIGENE', 'PERSONNALISÉE', 'PERSONALIZADA'),
+    ('WINDOW_MODE', 'WINDOW', 'FENSTER', 'FENÊTRE', 'VENTANA'),
+    ('WINDOW_0', 'FULL SCREEN', 'VOLLBILD', 'PLEIN ÉCRAN', 'PANTALLA COMPLETA'),
+    ('WINDOW_1', 'WINDOWED', 'FENSTER', 'FENÊTRÉ', 'EN VENTANA'),
+    ('VSYNC', 'VERTICAL SYNC', 'VERTIKALE SYNCHRONISATION', 'SYNCHRO VERTICALE', 'SINCRONIZACIÓN VERTICAL'),
+    ('FPS_CAP', 'FRAME RATE LIMIT', 'BILDRATEN-LIMIT', "LIMITE D'IMAGES/S", 'LÍMITE DE FPS'),
+    ('FPS_0', '30', '30', '30', '30'),
+    ('FPS_1', '60', '60', '60', '60'),
+    ('FPS_2', '120', '120', '120', '120'),
+    ('FPS_3', '144', '144', '144', '144'),
+    ('FPS_4', 'NONE', 'KEINES', 'AUCUNE', 'SIN LÍMITE'),
+    ('FPS_VSYNC', 'SET BY VERTICAL SYNC', 'DURCH V-SYNC BESTIMMT', 'FIXÉE PAR LA SYNCHRO', 'LA FIJA LA SINCRONIZACIÓN'),
+    ('OUT_SCALE', 'DISPLAY RESOLUTION', 'ANZEIGEAUFLÖSUNG', "RÉSOLUTION D'AFFICHAGE", 'RESOLUCIÓN DE PANTALLA'),
+    ('RENDER_SCALE', 'RENDER RESOLUTION', 'RENDER-AUFLÖSUNG', 'RÉSOLUTION DE RENDU', 'RESOLUCIÓN DE RENDERIZADO'),
+    ('SHADOWS', 'SHADOWS', 'SCHATTEN', 'OMBRES', 'SOMBRAS'),
+    ('SSAO', 'AMBIENT OCCLUSION', 'UMGEBUNGSVERDECKUNG', 'OCCLUSION AMBIANTE', 'OCLUSIÓN AMBIENTAL'),
+    ('SSR', 'REFLECTIONS', 'SPIEGELUNGEN', 'REFLETS', 'REFLEJOS'),
+    ('SSGI', 'GLOBAL ILLUMINATION', 'GLOBALE BELEUCHTUNG', 'ILLUMINATION GLOBALE', 'ILUMINACIÓN GLOBAL'),
+    ('BLOOM', 'BLOOM', 'BLOOM', 'FLOU LUMINEUX', 'RESPLANDOR'),
+    ('DOF', 'BLUR BEHIND MENUS', 'UNSCHÄRFE HINTER MENÜS', 'FLOU DERRIÈRE LES MENUS', 'DESENFOQUE TRAS LOS MENÚS'),
+    ('MOTION_BLUR', 'MOTION BLUR', 'BEWEGUNGSUNSCHÄRFE', 'FLOU DE MOUVEMENT', 'DESENFOQUE DE MOVIMIENTO'),
+    ('AUTO_RES', 'DYNAMIC RESOLUTION', 'DYNAMISCHE AUFLÖSUNG', 'RÉSOLUTION DYNAMIQUE', 'RESOLUCIÓN DINÁMICA'),
+    ('PT', 'PATH TRACING', 'PATHTRACING', 'PATH TRACING', 'TRAZADO DE RUTAS'),
+    ('PT_0', 'OFF', 'AUS', 'NON', 'NO'),
+    ('PT_1', 'QUALITY (STILLS)', 'QUALITÄT (STANDBILD)', 'QUALITÉ (IMAGE FIXE)', 'CALIDAD (FOTO)'),
+    ('PT_2', 'REAL TIME', 'ECHTZEIT', 'TEMPS RÉEL', 'TIEMPO REAL'),
+    ('PT_NA', 'NOT SUPPORTED HERE', 'HIER NICHT VERFÜGBAR', 'NON PRIS EN CHARGE', 'NO DISPONIBLE'),
+    ('MASTER_VOL', 'MASTER VOLUME', 'GESAMTLAUTSTÄRKE', 'VOLUME GÉNÉRAL', 'VOLUMEN GENERAL'),
+    ('MUSIC_VOL', 'MUSIC', 'MUSIK', 'MUSIQUE', 'MÚSICA'),
+    ('SFX_VOL', 'EFFECTS', 'EFFEKTE', 'EFFETS', 'EFECTOS'),
+    ('CAPTIONS', 'SUBTITLES', 'UNTERTITEL', 'SOUS-TITRES', 'SUBTÍTULOS'),
+    ('CAPTION_SIZE', 'SUBTITLE SIZE', 'UNTERTITELGRÖSSE', 'TAILLE DES SOUS-TITRES', 'TAMAÑO DE SUBTÍTULOS'),
+    ('SIZE_0', 'SMALL', 'KLEIN', 'PETITE', 'PEQUEÑO'),
+    ('SIZE_1', 'MEDIUM', 'MITTEL', 'MOYENNE', 'MEDIANO'),
+    ('SIZE_2', 'LARGE', 'GROSS', 'GRANDE', 'GRANDE'),
+    ('CAPTION_BG', 'SUBTITLE BACKGROUND', 'UNTERTITEL-HINTERGRUND', 'FOND DES SOUS-TITRES', 'FONDO DE SUBTÍTULOS'),
+    ('PALETTE', 'COLOURS', 'FARBEN', 'COULEURS', 'COLORES'),
+    ('PALETTE_0', 'STANDARD', 'STANDARD', 'STANDARD', 'ESTÁNDAR'),
+    ('PALETTE_1', 'RED-GREEN SAFE', 'ROT-GRÜN-SICHER', 'SANS ROUGE-VERT', 'SIN ROJO-VERDE'),
+    ('PALETTE_2', 'BLUE-YELLOW SAFE', 'BLAU-GELB-SICHER', 'SANS BLEU-JAUNE', 'SIN AZUL-AMARILLO'),
+    ('PALETTE_3', 'HIGH CONTRAST', 'HOHER KONTRAST', 'CONTRASTE ÉLEVÉ', 'ALTO CONTRASTE'),
+    ('AIM_MODE', 'AIM', 'ZIELEN', 'VISER', 'APUNTAR'),
+    ('SPRINT_MODE', 'SPRINT', 'SPRINTEN', 'SPRINTER', 'ESPRINTAR'),
+    ('CROUCH_MODE', 'CROUCH', 'DUCKEN', "S'ACCROUPIR", 'AGACHARSE'),
+    ('MODE_0', 'HOLD', 'HALTEN', 'MAINTENIR', 'MANTENER'),
+    ('MODE_1', 'TOGGLE', 'UMSCHALTEN', 'BASCULER', 'ALTERNAR'),
+    ('ON', 'ON', 'AN', 'OUI', 'SÍ'),
+    ('OFF', 'OFF', 'AUS', 'NON', 'NO'),
+    ('RESET_BINDS', 'RESET TO DEFAULTS', 'ZURÜCKSETZEN', 'RÉINITIALISER', 'RESTABLECER'),
+    ('PRESS_KEY', 'PRESS A KEY', 'TASTE DRÜCKEN', 'APPUYEZ SUR UNE TOUCHE', 'PULSA UNA TECLA'),
+    ('PRESS_BUTTON', 'PRESS A BUTTON', 'KNOPF DRÜCKEN', 'APPUYEZ SUR UN BOUTON', 'PULSA UN BOTÓN'),
+    ('KEYBOARD', 'KEYBOARD / MOUSE', 'TASTATUR / MAUS', 'CLAVIER / SOURIS', 'TECLADO / RATÓN'),
+    ('GAMEPAD', 'GAMEPAD', 'GAMEPAD', 'MANETTE', 'MANDO'),
+    ('UNBOUND', '—', '—', '—', '—'),
+    # ---- actions (order = binds.ts ACT_*)
+    ('ACT_0', 'MOVE FORWARD', 'VORWÄRTS', 'AVANCER', 'AVANZAR'),
+    ('ACT_1', 'MOVE BACK', 'RÜCKWÄRTS', 'RECULER', 'RETROCEDER'),
+    ('ACT_2', 'MOVE LEFT', 'NACH LINKS', 'GAUCHE', 'IZQUIERDA'),
+    ('ACT_3', 'MOVE RIGHT', 'NACH RECHTS', 'DROITE', 'DERECHA'),
+    ('ACT_4', 'JUMP / VAULT', 'SPRINGEN / ÜBERKLETTERN', 'SAUTER / FRANCHIR', 'SALTAR / TREPAR'),
+    ('ACT_5', 'FIRE', 'FEUERN', 'TIRER', 'DISPARAR'),
+    ('ACT_6', 'AIM', 'ZIELEN', 'VISER', 'APUNTAR'),
+    ('ACT_7', 'SPRINT', 'SPRINTEN', 'SPRINTER', 'ESPRINTAR'),
+    ('ACT_8', 'CROUCH', 'DUCKEN', "S'ACCROUPIR", 'AGACHARSE'),
+    ('ACT_9', 'DODGE ROLL', 'AUSWEICHROLLE', 'ROULADE', 'RODAR'),
+    ('ACT_10', 'RELOAD', 'NACHLADEN', 'RECHARGER', 'RECARGAR'),
+    ('ACT_11', 'NEXT WEAPON', 'NÄCHSTE WAFFE', 'ARME SUIVANTE', 'ARMA SIGUIENTE'),
+    ('ACT_12', 'RIFLE-BUTT STRIKE', 'KOLBENSCHLAG', 'COUP DE CROSSE', 'CULATAZO'),
+    ('ACT_13', 'GRENADE', 'GRANATE', 'GRENADE', 'GRANADA'),
+    ('ACT_14', 'SWITCH SHOULDER', 'SCHULTER WECHSELN', "CHANGER D'ÉPAULE", 'CAMBIAR DE HOMBRO'),
+    ('ACT_15', 'RIFLE', 'GEWEHR', 'FUSIL', 'RIFLE'),
+    ('ACT_16', 'BLASTER', 'BLASTER', 'BLASTER', 'BLÁSTER'),
+    ('ACT_17', 'CHAINGUN', 'KETTENKANONE', 'MITRAILLEUSE', 'AMETRALLADORA'),
+    ('ACT_18', 'CANNON', 'KANONE', 'CANON', 'CAÑÓN'),
+    ('ACT_19', 'PAUSE', 'PAUSE', 'PAUSE', 'PAUSA'),
+    # ---- weapons (order = weapons.ts W_*)
+    ('WPN_0', 'RIFLE', 'GEWEHR', 'FUSIL', 'RIFLE'),
+    ('WPN_1', 'BLASTER', 'BLASTER', 'BLASTER', 'BLÁSTER'),
+    ('WPN_2', 'CHAINGUN', 'KETTENKANONE', 'MITRAILLEUSE', 'AMETRALLADORA'),
+    ('WPN_3', 'CANNON', 'KANONE', 'CANON', 'CAÑÓN'),
+    # ---- HUD
+    ('RELOADING', 'RELOADING', 'LADE NACH', 'RECHARGEMENT', 'RECARGANDO'),
+    ('RELOAD', 'RELOAD', 'NACHLADEN', 'RECHARGER', 'RECARGAR'),
+    ('SWAP', 'SWAP', 'WECHSELN', 'CHANGER', 'CAMBIAR'),
+    ('STRIKE', 'STRIKE', 'SCHLAG', 'FRAPPER', 'GOLPE'),
+    ('NO_AMMO', 'OUT OF AMMUNITION', 'KEINE MUNITION', 'PLUS DE MUNITIONS', 'SIN MUNICIÓN'),
+    ('DODGED', 'DODGED', 'AUSGEWICHEN', 'ESQUIVÉ', 'ESQUIVADO'),
+    ('WAVE_N', 'WAVE {0}', 'WELLE {0}', 'VAGUE {0}', 'OLEADA {0}'),
+    ('WAVE_IN', 'NEXT WAVE IN {0}', 'NÄCHSTE WELLE IN {0}', 'PROCHAINE VAGUE DANS {0}', 'SIGUIENTE OLEADA EN {0}'),
+    ('WAVE_CLEAR', 'WAVE {0} CLEARED', 'WELLE {0} GESCHAFFT', 'VAGUE {0} TERMINÉE', 'OLEADA {0} SUPERADA'),
+    ('OBJECTIVE', 'CLEAR THE ARENA', 'ARENA SÄUBERN', "NETTOYER L'ARÈNE", 'DESPEJA LA ARENA'),
+    ('REMAINING', 'LEFT', 'ÜBRIG', 'RESTANTS', 'RESTANTES'),
+    ('UNSEEN', 'UNSEEN', 'UNENTDECKT', 'NON REPÉRÉ', 'SIN SER VISTO'),
+    ('HUNTED', 'HUNTED BY {0}', 'GEJAGT VON {0}', 'TRAQUÉ PAR {0}', 'TE PERSIGUEN {0}'),
+    ('KILLS', 'KILLS', 'ABSCHÜSSE', 'ÉLIMINATIONS', 'BAJAS'),
+    ('ACCURACY', 'ACCURACY', 'TREFFERQUOTE', 'PRÉCISION', 'PRECISIÓN'),
+    ('BONUS', 'BONUS', 'BONUS', 'BONUS', 'BONIFICACIÓN'),
+    ('SCORE', 'SCORE', 'PUNKTE', 'SCORE', 'PUNTOS'),
+    ('NEW_BEST', 'NEW BEST', 'NEUER BESTWERT', 'NOUVEAU RECORD', 'NUEVO RÉCORD'),
+    ('BEST_COMBO', 'BEST COMBO', 'BESTE KOMBO', 'MEILLEUR COMBO', 'MEJOR COMBO'),
+    ('HEADSHOTS', 'CRITICAL HITS', 'KRITISCHE TREFFER', 'COUPS CRITIQUES', 'GOLPES CRÍTICOS'),
+    ('DAMAGE_TAKEN', 'DAMAGE TAKEN', 'ERLITTENER SCHADEN', 'DÉGÂTS SUBIS', 'DAÑO RECIBIDO'),
+    ('TIME', 'TIME', 'ZEIT', 'TEMPS', 'TIEMPO'),
+    ('UNLOCKED', '{0} UNLOCKED', '{0} FREIGESCHALTET', '{0} DÉBLOQUÉ', '{0} DESBLOQUEADO'),
+    ('YOU_DIED', 'YOU DIED', 'GEFALLEN', 'VOUS ÊTES MORT', 'HAS MUERTO'),
+    ('ARENA_CLEARED', 'ARENA CLEARED', 'ARENA GESCHAFFT', 'ARÈNE NETTOYÉE', 'ARENA DESPEJADA'),
+    ('REACHED_WAVE', 'REACHED WAVE {0}', 'WELLE {0} ERREICHT', 'VAGUE {0} ATTEINTE', 'LLEGASTE A LA OLEADA {0}'),
+    ('LOADING', 'LOADING {0}', 'LADE {0}', 'CHARGEMENT : {0}', 'CARGANDO {0}'),
+    ('ALREADY_LOADED', '{0} IS ALREADY LOADED', '{0} IST BEREITS GELADEN', '{0} EST DÉJÀ CHARGÉE', '{0} YA ESTÁ CARGADA'),
+    ('REOPEN', 'ARENA SAVED: CLOSE AND REOPEN THE GAME TO PLAY IT', 'ARENA GESPEICHERT: SPIEL SCHLIESSEN UND NEU ÖFFNEN', 'ARÈNE ENREGISTRÉE : FERMEZ ET ROUVREZ LE JEU', 'ARENA GUARDADA: CIERRA Y VUELVE A ABRIR EL JUEGO'),
+    ('LOW_HEALTH', 'LOW HEALTH', 'WENIG LEBEN', 'SANTÉ FAIBLE', 'POCA SALUD'),
+    ('VAULT', 'VAULT', 'ÜBERKLETTERN', 'FRANCHIR', 'TREPAR'),
+    # ---- subtitles (sound captions)
+    ('CAP_WINDUP', '{0} WINDS UP: DODGE', '{0} HOLT AUS: AUSWEICHEN', '{0} ARME SON COUP : ESQUIVEZ', '{0} PREPARA UN GOLPE: ESQUIVA'),
+    ('CAP_ROAR', 'A CREATURE SHRIEKS: IT HAS SEEN YOU', 'EINE KREATUR KREISCHT: SIE HAT DICH GESEHEN', 'UNE CRÉATURE HURLE : ELLE VOUS A VU', 'UNA CRIATURA CHILLA: TE HA VISTO'),
+    ('CAP_WAVE', 'DISTANT HOWLS: A WAVE IS COMING', 'FERNES HEULEN: EINE WELLE NAHT', 'HURLEMENTS AU LOIN : UNE VAGUE ARRIVE', 'AULLIDOS LEJANOS: SE ACERCA UNA OLEADA'),
+    ('CAP_HEART', 'YOUR HEARTBEAT POUNDS', 'DEIN HERZ HÄMMERT', 'VOTRE CŒUR BAT FORT', 'TU CORAZÓN LATE CON FUERZA'),
+    ('CAP_EXPLOSION', 'EXPLOSION', 'EXPLOSION', 'EXPLOSION', 'EXPLOSIÓN'),
+    ('CAP_EMPTY', 'THE WEAPON CLICKS: EMPTY', 'DIE WAFFE KLICKT: LEER', "L'ARME CLIQUE : VIDE", 'EL ARMA HACE CLIC: VACÍA'),
+    ('CAP_HEAL', 'FIELD DRESSING APPLIED', 'VERBAND ANGELEGT', 'PANSEMENT APPLIQUÉ', 'VENDAJE APLICADO'),
+    ('CAP_SILENCE', 'SILENCE: THE ARENA IS CLEAR', 'STILLE: DIE ARENA IST LEER', "SILENCE : L'ARÈNE EST VIDE", 'SILENCIO: LA ARENA ESTÁ DESPEJADA'),
+    # ---- credits
+    ('CR_GAME', 'A BLOOM ENGINE GAME', 'EIN SPIEL DER BLOOM ENGINE', 'UN JEU BLOOM ENGINE', 'UN JUEGO DE BLOOM ENGINE'),
+    ('CR_ENGINE', 'ENGINE AND COMPILER', 'ENGINE UND COMPILER', 'MOTEUR ET COMPILATEUR', 'MOTOR Y COMPILADOR'),
+    ('CR_ENGINE_V', 'BLOOM ENGINE  ·  PERRY  ·  JOLT PHYSICS  ·  WGPU', 'BLOOM ENGINE  ·  PERRY  ·  JOLT PHYSICS  ·  WGPU', 'BLOOM ENGINE  ·  PERRY  ·  JOLT PHYSICS  ·  WGPU', 'BLOOM ENGINE  ·  PERRY  ·  JOLT PHYSICS  ·  WGPU'),
+    ('CR_MODELS', 'CHARACTERS, WEAPONS AND PROPS', 'FIGUREN, WAFFEN UND REQUISITEN', 'PERSONNAGES, ARMES ET DÉCORS', 'PERSONAJES, ARMAS Y OBJETOS'),
+    ('CR_MODELS_V', 'ORIGINAL DESIGNS  ·  MESHES GENERATED WITH TRIPO STUDIO  ·  FINISHED IN BLENDER', 'EIGENE ENTWÜRFE  ·  MODELLE MIT TRIPO STUDIO ERZEUGT  ·  IN BLENDER FERTIGGESTELLT', 'CRÉATIONS ORIGINALES  ·  MODÈLES GÉNÉRÉS AVEC TRIPO STUDIO  ·  FINIS DANS BLENDER', 'DISEÑOS ORIGINALES  ·  MODELOS GENERADOS CON TRIPO STUDIO  ·  ACABADOS EN BLENDER'),
+    ('CR_SURFACES', 'GROUND, WALLS AND BARK', 'BODEN, MAUERN UND RINDE', 'SOLS, MURS ET ÉCORCE', 'SUELOS, MUROS Y CORTEZA'),
+    ('CR_SURFACES_V', 'CC0 SCANS FROM POLY HAVEN AND AMBIENTCG', 'CC0-SCANS VON POLY HAVEN UND AMBIENTCG', 'SCANS CC0 DE POLY HAVEN ET AMBIENTCG', 'ESCANEOS CC0 DE POLY HAVEN Y AMBIENTCG'),
+    ('CR_SOUND', 'SOUND', 'TON', 'SON', 'SONIDO'),
+    ('CR_SOUND_V', 'ELEVENLABS SOUND EFFECTS  ·  SONNISS GDC 2024 BUNDLE  ·  SYNTHESISED IN-HOUSE', 'ELEVENLABS-SOUNDEFFEKTE  ·  SONNISS GDC 2024  ·  SELBST SYNTHETISIERT', 'EFFETS ELEVENLABS  ·  SONNISS GDC 2024  ·  SYNTHÈSE MAISON', 'EFECTOS DE ELEVENLABS  ·  SONNISS GDC 2024  ·  SÍNTESIS PROPIA'),
+    ('CR_MUSIC', 'MUSIC', 'MUSIK', 'MUSIQUE', 'MÚSICA'),
+    ('CR_MUSIC_V', 'GENERATED WITH SUNO', 'MIT SUNO ERZEUGT', 'GÉNÉRÉE AVEC SUNO', 'GENERADA CON SUNO'),
+    ('CR_FONT', 'TYPEFACE', 'SCHRIFT', 'POLICE', 'TIPOGRAFÍA'),
+    ('CR_FONT_V', 'RAJDHANI, INDIAN TYPE FOUNDRY  ·  SIL OPEN FONT LICENSE', 'RAJDHANI, INDIAN TYPE FOUNDRY  ·  SIL OPEN FONT LICENSE', 'RAJDHANI, INDIAN TYPE FOUNDRY  ·  SIL OPEN FONT LICENSE', 'RAJDHANI, INDIAN TYPE FOUNDRY  ·  SIL OPEN FONT LICENSE'),
+    ('CR_LICENSE', 'CODE AND ORIGINAL ASSETS: MIT LICENSE', 'CODE UND EIGENE INHALTE: MIT-LIZENZ', 'CODE ET CONTENUS ORIGINAUX : LICENCE MIT', 'CÓDIGO Y CONTENIDO ORIGINAL: LICENCIA MIT'),
+]
+
+
+def esc(s):
+    return s.replace('\\', '\\\\').replace("'", "\\'")
+
+
+def main():
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    seen = set()
+    for row in TABLE:
+        if len(row) != 1 + len(LANGS):
+            sys.exit('row %r: want an id and %d translations' % (row[0], len(LANGS)))
+        if row[0] in seen:
+            sys.exit('duplicate id ' + row[0])
+        seen.add(row[0])
+        marks = ['{0}' in t for t in row[1:]]
+        if any(marks) and not all(marks):
+            sys.exit('row %s: {0} missing in a translation' % row[0])
+    out = ['// GENERATED by tools/gen/strings_table.py - do not edit; edit the table there and re-run.',
+           '// Plan 4.5: every string the player reads. One flat array per language, indexed by the',
+           '// S_* constants. Perry rules: top-level functions, state in a const array, no parsing.',
+           '']
+    for i, row in enumerate(TABLE):
+        out.append('export const S_%s = %d;' % (row[0], i))
+    out.append('export const S_COUNT = %d;' % len(TABLE))
+    out.append('')
+    out.append('export const LANG_COUNT = %d;' % len(LANGS))
+    out.append('export const LANG_NAMES: string[] = [%s];' % ', '.join("'%s'" % esc(n) for n in LANG_NAMES))
+    out.append('')
+    for li, lang in enumerate(LANGS):
+        out.append('const T_%s: string[] = [' % lang.upper())
+        for row in TABLE:
+            out.append("  '%s'," % esc(row[1 + li]))
+        out.append('];')
+        out.append('')
+    out.append('const L = [0];')
+    out.append('')
+    out.append('export function setLanguage(n: number): void {')
+    out.append('  if (n >= 0 && n < LANG_COUNT) L[0] = n; else L[0] = 0;')
+    out.append('}')
+    out.append('export function language(): number { return L[0]; }')
+    out.append('')
+    out.append('/// The string for an id in the current language.')
+    out.append('export function T(id: number): string {')
+    for li, lang in enumerate(LANGS[1:], 1):
+        out.append('  if (L[0] === %d) return T_%s[id];' % (li, lang.upper()))
+    out.append('  return T_EN[id];')
+    out.append('}')
+    out.append('')
+    out.append("/// T(id) with its {0} replaced. Built with indexOf/substring: no split, no regex.")
+    out.append('export function fmt(id: number, a: string): string {')
+    out.append('  const s = T(id);')
+    out.append("  const k = s.indexOf('{0}');")
+    out.append('  if (k < 0) return s;')
+    out.append('  return s.substring(0, k) + a + s.substring(k + 3);')
+    out.append('}')
+    open(os.path.join(root, 'src', 'strings.ts'), 'w').write('\n'.join(out) + '\n')
+    print('strings: %d ids x %d languages' % (len(TABLE), len(LANGS)))
+
+
+main()
