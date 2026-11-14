@@ -34,5 +34,5 @@ if on player_trooper; then
   echo "== player_trooper"
   tools/gen/make_character.sh player_trooper 1.85 --tag-weapon \
     --rename "sneaks forward=crouch_walk,walks forward=walk,stands still=idle,stays crouched=crouch_idle,sprints forward=run" \
-    --loop "run,walk,crouch_walk"
+    --loop "run,walk,crouch_walk" --grip
 fi

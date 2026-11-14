@@ -214,6 +214,50 @@ if "--active" in a:
               ((f0 + i0) / fps, (f0 + i1) / fps, peak, sum(sm[i0:i1]) / max(1, i1 - i0)))
     ad.action = None
 
+# --grip : close both hands around a weapon in EVERY clip. Text2Motion animates the body and
+# leaves the fingers flat, so a rifle sits in two open palms. Each finger joint gets one constant
+# rotation: a hinge about the axis that carries the finger toward the palm (the palm side is
+# worked out from the rest pose: across the knuckles x along the fingers, pointing down).
+if "--grip" in a:
+    from mathutils import Quaternion
+    rest = {b.name: b for b in arm.data.bones}
+    curl = {"1": 58, "2": 72, "3": 48}
+    for side in ("Left", "Right"):
+        hb = lambda n: rest.get("mixamorig:%sHand%s" % (side, n))
+        if not hb("Index1") or not hb("Pinky1"):
+            continue
+        d_idx = (hb("Index1").tail_local - hb("Index1").head_local).normalized()
+        across = (hb("Pinky1").head_local - hb("Index1").head_local).normalized()
+        palm = d_idx.cross(across).normalized()
+        if palm.z > 0:
+            palm = -palm
+        print("STUDIO grip", side, "palm normal", [round(v, 2) for v in palm])
+        keys = {}
+        for f in ("Index", "Middle", "Ring", "Pinky"):
+            for n, deg in curl.items():
+                b = hb(f + n)
+                if b:
+                    d = (b.tail_local - b.head_local).normalized()
+                    keys[b.name] = (d.cross(palm).normalized(), math.radians(deg))
+        for n, deg in (("1", 18), ("2", 28), ("3", 35)):
+            b = hb("Thumb" + n)
+            if b:
+                d = (b.tail_local - b.head_local).normalized()
+                toward = (palm + d_idx * 0.6).normalized()
+                keys[b.name] = (d.cross(toward).normalized(), math.radians(deg))
+        for name, (axis_arm, ang) in keys.items():
+            q = Quaternion(rest[name].matrix_local.to_3x3().inverted() @ axis_arm, ang)
+            path = 'pose.bones["%s"].rotation_quaternion' % name
+            for act in bpy.data.actions:
+                for L in act.layers:                      # Blender 5 layered actions
+                    for st in L.strips:
+                        for cb in st.channelbags:
+                            for fc in cb.fcurves:
+                                if fc.data_path == path:
+                                    v = q[fc.array_index]
+                                    for kp in fc.keyframe_points:
+                                        kp.co.y = v; kp.handle_left.y = v; kp.handle_right.y = v
+
 for act in sorted(bpy.data.actions, key=lambda x: x.name):
     if act.name in dropc:
         continue

@@ -14,7 +14,7 @@ they are: player animation, world art, combat depth, UI, audio/VFX variety, cont
 has an acceptance test. `[bug]` items are defects, the rest are missing or shallow features.
 "Verified" means re-checked on 2026-11-14; "reported" means found by code reading and not yet
 reproduced in play. Sizes are for one person with the current tooling. Ticket ids are not assigned
-here; register items in `docs/tickets.md` (next free: SH-056) as they are picked up.
+here; register items in `docs/tickets.md` (next free: SH-057) as they are picked up.
 
 **Rule carried over from July:** no performance win may cost visual quality at default settings.
 
@@ -59,7 +59,16 @@ direction back to the source, so one of the two points the wrong way. Check in p
 
 ---
 
-## Phase 1 - The player on screen (3-5 weeks)
+## Phase 1 - The player on screen (3-5 weeks) - FIRST PASS 2026-11-14 (ticket SH-056)
+
+**State.** Done without new clips: 1.3 (torso aim offset, pistol grip on the socket, off-hand IK,
+closed fingers), 1.4 (shoulder camera, swap, crosshair convergence), 1.6 (capsule resize), the
+i-frames of 1.5. Engine EN-064 added the calls 1.2 and 1.3 needed. **Open: 1.1, and with it 1.2
+and the roll of 1.5.** A side-on capture (the PLAYERSHOT harness) showed that of the Trooper's five
+Text2Motion clips only the run holds the rifle; the others are hunched with the gun arm stretched
+out. As a stand-in the run clip's torso and arms are layered over everything else. The real fix is
+a motion-captured rifle set on this skeleton (it is the Mixamo skeleton, bone for bone), which
+needs a decision on the source: see SH-056.
 
 The player's back fills the middle of every frame, and it has five clips. This is the largest single
 gap.

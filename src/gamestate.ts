@@ -31,6 +31,9 @@ export const GS: any = {
   waveBonusT: 0,
   unlockBannerT: 0,
   unlockBannerWeapon: 2,   // which weapon the banner names (a WPN.W_* index)
+  // The yaw the Trooper's skeleton was last posed with (what animUpdate got), so anything
+  // that lifts a joint out of model space uses the same number the pose did.
+  playerModelYaw: 0,
   muzzleX: 0,
   muzzleY: 0,
   muzzleZ: 0,

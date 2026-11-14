@@ -13,7 +13,7 @@
 import { vec3, getTime } from 'bloom';
 import { raycast, Layer } from 'bloom/physics';
 import * as W from './world-runtime';
-import { playerPosition } from './player';
+import { playerPosition, isCrouching } from './player';
 import { MAX_ENEMIES, enAlive, enX, enZ } from './enemies';
 import { aimAssistScale } from './input';
 import * as FEEL from './feel';
@@ -28,8 +28,10 @@ import * as WPN from './weapons';
 //   CAM[1] pitch         CAM[6] tgtY
 //   CAM[2] camX          CAM[7] tgtZ
 //   CAM[3] camY          CAM[8] initialised (0/1)
-//   CAM[4] camZ
-export const CAM = [W.SPAWN_YAW, 0.35, 0, 0, 0, 0, 0, 0, 0];
+//   CAM[4] camZ        CAM[9] shoulder side, eased (-1 left .. +1 right)
+//                      CAM[10] shoulder side wanted (-1 or +1)
+//                      CAM[11] crouch drop of the pivot, eased (m)
+export const CAM = [W.SPAWN_YAW, 0.35, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0];
 export const TP_PITCH_MIN = -0.25;
 export const TP_PITCH_MAX = 1.20;
 const TP_ORBIT_DIST = 6.0;
@@ -44,6 +46,22 @@ const CAM_PROBE_R = 0.30;
 const TP_EYE_HEIGHT = 1.4;
 const TP_SMOOTH = 10.0;
 export const TP_FOVY = 70;
+// Shoulder camera (plan 1.4). The orbit pivots on a point beside the head, not on it, so the
+// Trooper stands off-centre and the crosshair has clear ground in front of it. Wider from the hip
+// (the camera is 6 m back, so it takes more metres to move the body the same screen distance).
+const SHOULDER_HIP = 0.95;
+const SHOULDER_AIM = 0.62;
+const SHOULDER_SWAP_RATE = 9.0;
+const CROUCH_CAM_DROP = 0.45;  // the pivot comes down with a crouched head
+const SHOULDER_SKIN = 0.28;   // keep the pivot this far off a wall beside the player
+
+/// Put the camera over the other shoulder. The swap eases across (CAM[9] follows CAM[10]).
+export function swapShoulder(): void {
+  CAM[10] = CAM[10] > 0 ? -1 : 1;
+}
+export function resetShoulder(): void {
+  CAM[9] = 1; CAM[10] = 1;
+}
 
 // ---- Camera occlusion: the canopy ------------------------------------------
 // The trunk box is the ONLY collider a tree has — the canopy is shoot-through
@@ -121,9 +139,29 @@ export function updateCameraOrbit(dt: number, phys: any): void {
   const ya = CAM[0] + FEEL.shakeYaw(tShake);
   const pi = CAM[1] + FEEL.shakePitch(tShake);
   const cpi = Math.cos(pi), spi = Math.sin(pi);
-  const fX = pp0.x;
-  const fY = pp0.y + TP_EYE_HEIGHT;
-  const fZ = pp0.z;
+  // Shoulder pivot: step sideways from the head along the camera's right vector. A wall beside
+  // the player shortens the step (never the orbit), so the offset survives a pull-in and the
+  // pivot cannot end up behind the wall.
+  CAM[9] = CAM[9] + (CAM[10] - CAM[9]) * (1 - Math.exp(-SHOULDER_SWAP_RATE * dt));
+  const aimT0 = WPN.aimBlend();
+  CAM[11] = CAM[11] + ((isCrouching() ? CROUCH_CAM_DROP : 0) - CAM[11]) * (1 - Math.exp(-8 * dt));
+  const hX = pp0.x, hY = pp0.y + TP_EYE_HEIGHT - CAM[11], hZ = pp0.z;
+  let side = (SHOULDER_HIP + (SHOULDER_AIM - SHOULDER_HIP) * aimT0) * CAM[9];
+  const sideSign = side < 0 ? -1 : 1;
+  const sideLen = side * sideSign;
+  const rgtX = Math.cos(ya) * sideSign, rgtZ = Math.sin(ya) * sideSign;
+  if (sideLen > 0.02) {
+    const sHit = raycast(phys, vec3(hX, hY, hZ), vec3(rgtX, 0, rgtZ),
+      sideLen + SHOULDER_SKIN, 1 << Layer.NON_MOVING);
+    if (sHit !== null) {
+      const room = sHit.fraction * (sideLen + SHOULDER_SKIN) - SHOULDER_SKIN;
+      side = (room > 0 ? room : 0) * sideSign;
+    }
+  }
+  const sideAbs = side * sideSign;
+  const fX = hX + rgtX * sideAbs;
+  const fY = hY;
+  const fZ = hZ + rgtZ * sideAbs;
   // Direction from focus to ideal camera position.
   const dxRaw = -Math.sin(ya) * cpi;
   const dyRaw =  Math.sin(pi);
@@ -140,7 +178,7 @@ export function updateCameraOrbit(dt: number, phys: any): void {
   // occluding the camera reads far better than being inside them.
   // SH-028 — shoulder aim pulls the camera in from 6.0 m to 2.6 m. The
   // wall-aware raycast below still applies, so aiming into a corner behaves.
-  const aimT = WPN.aimBlend();
+  const aimT = aimT0;
   const wantDist = TP_ORBIT_DIST + (2.6 - TP_ORBIT_DIST) * aimT;
   let blockDist = wantDist;
 

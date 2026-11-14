@@ -34,6 +34,7 @@ export interface InputState {
   crouchDown: boolean;      // C — hold to crouch (SH-048)
   dodgePressed: boolean;    // Ctrl / B
   pausePressed: boolean;    // Esc / Start
+  shoulderPressed: boolean; // V / RB — camera to the other shoulder
   /// True when a pad was the last thing touched — the HUD swaps its glyphs.
   padActive: boolean;
 }
@@ -114,6 +115,7 @@ let reloadPrev = false;
 let swapPrev = false;
 let dodgePrev = false;
 let pausePrev = false;
+let sidePrev = false;
 let aimBtnPrev = false;
 let crouchBtnPrev = false;
 // AIM and CROUCH are latches on touch: a thumb cannot hold a button and steer.
@@ -126,7 +128,7 @@ let padCrouchOn = false;
 // Control geometry, recomputed each frame from the screen size and shared with
 // the draw pass — the circles you see are hit-tested from these same numbers,
 // so what you press is always what you touched.
-const CTRL = new Array<number>(26);
+const CTRL = new Array<number>(29);
 const C_SCALE = 0;
 const C_JOY_R = 1;
 const C_FIRE_X = 2;
@@ -153,6 +155,9 @@ const C_CROUCH_R = 22;
 const C_PAUSE_X = 23;
 const C_PAUSE_Y = 24;
 const C_PAUSE_R = 25;
+const C_SIDE_X = 26;
+const C_SIDE_Y = 27;
+const C_SIDE_R = 28;
 
 function layoutControls(sw: number, sh: number): void {
   // Size everything off the screen height, capped so the controls don't balloon
@@ -193,6 +198,10 @@ function layoutControls(sw: number, sh: number): void {
   CTRL[C_PAUSE_R] = s * 0.055;
   CTRL[C_PAUSE_X] = sw - s * 0.09;
   CTRL[C_PAUSE_Y] = s * 0.09;
+  // Shoulder swap, beside pause.
+  CTRL[C_SIDE_R] = s * 0.055;
+  CTRL[C_SIDE_X] = sw - s * 0.23;
+  CTRL[C_SIDE_Y] = s * 0.09;
 }
 
 function hits(x: number, y: number, cx: number, cy: number, r: number): boolean {
@@ -255,6 +264,7 @@ function readTouch(): InputState {
   let swapDown = false;
   let dodgeDown = false;
   let pauseDown = false;
+  let sideDown = false;
   let aimBtnDown = false;
   let crouchBtnDown = false;
   let fireDown = false;
@@ -327,6 +337,10 @@ function readTouch(): InputState {
       pauseDown = true;
       continue;
     }
+    if (hits(tx, ty, CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R])) {
+      sideDown = true;
+      continue;
+    }
 
     // Left of the split moves, right of it looks. The stick's origin is
     // wherever the thumb lands, so there's no fixed circle to hunt for by feel.
@@ -377,6 +391,8 @@ function readTouch(): InputState {
   if (crouchBtnDown && !crouchBtnPrev) touchCrouchOn = !touchCrouchOn;
   dodgePrev = dodgeDown;
   pausePrev = pauseDown;
+  const sidePressedNow = sideDown && !sidePrev;
+  sidePrev = sideDown;
   aimBtnPrev = aimBtnDown;
   crouchBtnPrev = crouchBtnDown;
 
@@ -401,6 +417,7 @@ function readTouch(): InputState {
     crouchDown: touchCrouchOn,
     dodgePressed: dodgePressedNow,
     pausePressed: pausePressedNow,
+    shoulderPressed: sidePressedNow,
     padActive: false,
   };
 }
@@ -443,6 +460,7 @@ export function readInput(dt: number): InputState {
   let reloadPressed = isKeyPressed(Key.R);
   let swapWeapon = isKeyPressed(Key.Q);
   let pausePressed = isKeyPressed(Key.ESCAPE);
+  let shoulderPressed = isKeyPressed(Key.V);
 
   // --- gamepad, folded into the same verbs ---------------------------------
   // Anything the pad reports is OR'd in rather than replacing the keyboard, so
@@ -483,6 +501,7 @@ export function readInput(dt: number): InputState {
     if (isGamepadButtonPressed(GP_X)) { reloadPressed = true; padUsed = true; }
     if (isGamepadButtonPressed(GP_Y)) { swapWeapon = true; padUsed = true; }
     if (isGamepadButtonPressed(GP_START)) { pausePressed = true; padUsed = true; }
+    if (isGamepadButtonPressed(GP_RB)) { shoulderPressed = true; padUsed = true; }
     // Crouch: click the right stick to drop, click again (or sprint, or jump) to
     // stand. Until 2026-11 crouch had no pad binding at all.
     if (isGamepadButtonPressed(GP_RS)) { padCrouchOn = !padCrouchOn; padUsed = true; }
@@ -509,6 +528,7 @@ export function readInput(dt: number): InputState {
     crouchDown: crouchDown,
     dodgePressed: dodgePressed,
     pausePressed: pausePressed,
+    shoulderPressed: shoulderPressed,
     padActive: padWasActive,
   };
 }
@@ -575,6 +595,9 @@ export function drawTouchControls(): void {
 
   drawCircle(CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R], idle);
   labelAt('II', CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R] * 0.80, ink);
+
+  drawCircle(CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R], idle);
+  labelAt('<>', CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R] * 0.70, ink);
 }
 
 function labelAt(text: string, cx: number, cy: number, size: number,

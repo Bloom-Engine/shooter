@@ -22,7 +22,7 @@ see SH-052) — runnable with
   (~2,100 lines; the SH-025 module split is complete). Flat-array
   state per Perry convention. The dormant test harnesses
   (SELFTEST/AITEST/ANIMDBG/MENUTEST/FACETEST/LOCOPROBE/KEYPROBE/
-  COMBATSHOT/PERFTEST) and the
+  COMBATSHOT/PLAYERSHOT/PERFTEST) and the
   diagnostics (diag bar, profiler overlay) live here too.
 - The game is split by subsystem, one module each: `enemies.ts`
   (kind tables + pool), `director.ts` (waves + per-kind AI + enemy
@@ -238,6 +238,12 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   translation, and if that were the hips a death would lie down in mid-air and a crouch would not
   lower the body. The engine has 1024 joint matrices per frame for ALL skinned draws:
   67 + 7 kinds x 2 pool slots x 66 = 991, so there is no room for a third pool slot.
+- The Trooper's rig sits on top of its clips (engine EN-064, the player block of `src/main.ts`):
+  the spine leans with the camera pitch, the off hand is pulled onto the weapon's handguard by IK,
+  and every clip except the run takes its torso and arms from the run clip (the only one that
+  holds the rifle; see SH-056). `build_cast.sh` closes the Trooper's fingers with `--grip`. The
+  weapon tables (`WEAPON_HAND_*`, `WEAPON_GRIP_*`) say where each hand holds each model. Judge any
+  change with the PLAYERSHOT harness: 13 side / front / back captures of the Trooper.
 - Enemies die by their authored clip; the engine's auto-ragdoll is switched off (`DEATH_RAGDOLL` in
   `src/main.ts`) because it mangles this skeleton.
 - Developer overlays (render-pass line, diagnostics bar) are hidden; F1 or `--debughud 1` shows them.

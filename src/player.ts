@@ -4,7 +4,7 @@ import {
   capsuleShape, createCharacter,
   updateCharacter, getCharacterPosition, getCharacterLinearVelocity,
   setCharacterLinearVelocity, isCharacterGrounded, getCharacterGroundNormal,
-  setCharacterPosition,
+  setCharacterPosition, setCharacterShape, compoundShape, raycast, Layer,
 } from 'bloom/physics';
 
 // Player character (third-person). Jolt's CharacterVirtual is anchored at the capsule center:
@@ -53,25 +53,40 @@ const MIN_GROUND_NY = 0.35;
 // SH-032 — sprint + dodge. The enemies (mantis darts, dragoon pounces) were
 // more mobile than the player, which is exactly backwards for a power fantasy.
 const SPRINT_MUL = 2.0;   // 4.5 -> 9.0 m/s; top speed unchanged from the old 6.0 x 1.5
-// SH-048 — crouch. Slower, steadier movement; the smaller silhouette + the
-// crouch pose are the read. Cosmetic-plus-speed for now: the capsule is NOT
-// resized, so it does not yet shrink the hitbox or fit under low geometry (there
-// is none in the arena) — that would be setCharacterShape, a follow-up.
-const CROUCH_MUL = 0.45;  // 4.5 -> ~2.0 m/s
+// SH-048 — crouch. Slower, steadier movement, and (plan 1.6) a shorter capsule: 1.20 m instead of
+// 1.84 m, feet in the same place, so a crouched Trooper fits under what a standing one does not
+// and bolts aimed at the chest pass over. Standing back up is refused while something is overhead.
+// The speed is what the crouch-walk clip can cover with planted feet (0.5 m/s authored, 2.4x).
+const CROUCH_MUL = 0.27;  // 4.5 -> ~1.2 m/s
+const CROUCH_HALF_HEIGHT = 0.28;
+const CROUCH_DROP = HALF_HEIGHT - CROUCH_HALF_HEIGHT;   // the capsule centre comes down this far
 const DODGE_SPEED = 18.0;    // m/s during the burst
 const DODGE_TIME = 0.25;     // seconds
 const DODGE_COOLDOWN = 1.2;
+// Invulnerable for this long from the start of a dodge (plan 1.5): claws whiff and bolts pass
+// through. Shorter than the move itself once the roll clip stretches it; equal to it today.
+const DODGE_IFRAMES = 0.25;
 
 let character: CharacterHandle = 0;
 let shape: ShapeHandle = 0;
+let crouchShape: ShapeHandle = 0;
+let worldH: WorldHandle = 0;
 
 // Mutable state in a flat array — the same reason feel.ts does it.
 //   0 dodge time left   1 dodge cooldown   2 dodge dir x   3 dodge dir z
 //   4 grounded (0/1)    5 horizontal speed  6 sprinting (0/1)  7 crouching (0/1)
-const P = [0, 0, 0, 0, 0, 0, 0, 0];
+//   8 i-frame time left 9 capsule is the crouch one (0/1)
+const P = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export function createPlayer(world: WorldHandle, spawn: Vec3): void {
+  worldH = world;
   shape = capsuleShape(HALF_HEIGHT, RADIUS);
+  // The crouch capsule hangs below the character's origin so the feet do not move and nothing
+  // that reads playerPosition() has to know which capsule is on.
+  crouchShape = compoundShape([{
+    shape: capsuleShape(CROUCH_HALF_HEIGHT, RADIUS),
+    local: { position: vec3(0, -CROUCH_DROP, 0), rotation: { x: 0, y: 0, z: 0, w: 1 } },
+  }]);
   character = createCharacter(world, shape, {
     position: spawn,
     mass: 70,
@@ -85,6 +100,9 @@ export function createPlayer(world: WorldHandle, spawn: Vec3): void {
 export function playerGrounded(): boolean { return P[4] !== 0; }
 export function playerSpeed(): number { return P[5]; }
 export function isDodging(): boolean { return P[0] > 0; }
+/// True while a dodge's invulnerability window is open. Every source of damage to the player
+/// from an enemy asks this first.
+export function isInvulnerable(): boolean { return P[8] > 0; }
 export function isSprinting(): boolean { return P[6] !== 0; }
 export function isCrouching(): boolean { return P[7] !== 0; }
 export function dodgeCooldownFrac(): number {
@@ -101,6 +119,7 @@ export function startDodge(dirX: number, dirZ: number): boolean {
   if (l < 0.001) return false;
   P[0] = DODGE_TIME;
   P[1] = DODGE_COOLDOWN;
+  P[8] = DODGE_IFRAMES;
   P[2] = dirX / l;
   P[3] = dirZ / l;
   return true;
@@ -118,6 +137,7 @@ export function updatePlayerController(
   const v = getCharacterLinearVelocity(character);
 
   if (P[1] > 0) P[1] = P[1] - dt;
+  if (P[8] > 0) P[8] = P[8] - dt;
 
   // A dodge overrides steering entirely — that is what makes it a commitment
   // and therefore a real decision, rather than just a speed boost you hold.
@@ -137,7 +157,25 @@ export function updatePlayerController(
   // Crouch wins over sprint — you cannot do both, and holding crouch is the more
   // deliberate intent. It applies airborne too (you stay crouched over a lip),
   // but the speed penalty only bites the grounded base like sprint's bonus does.
-  const crouching = crouch && grounded;
+  let crouching = crouch && grounded;
+  // Swap the capsule on the edge. Coming up needs headroom: one ray from the crouched head to
+  // where the standing head will be. Blocked means the player stays down, whatever the key says.
+  if (crouching && P[9] === 0) {
+    setCharacterShape(character, crouchShape);
+    P[9] = 1;
+  } else if (!crouching && P[9] !== 0) {
+    const cp = getCharacterPosition(character);
+    const headNow = cp.y - CROUCH_DROP + CROUCH_HALF_HEIGHT + RADIUS;
+    const rise = (HALF_HEIGHT + RADIUS) - (CROUCH_HALF_HEIGHT + RADIUS - CROUCH_DROP) + 0.08;
+    const roof = raycast(worldH, vec3(cp.x, headNow - 0.1, cp.z), vec3(0, 1, 0), rise + 0.1,
+      1 << Layer.NON_MOVING);
+    if (roof !== null && grounded) {
+      crouching = true;
+    } else {
+      setCharacterShape(character, shape);
+      P[9] = 0;
+    }
+  }
   const sprinting = !crouching && sprint && grounded && (moveX !== 0 || moveZ !== 0);
   P[6] = sprinting ? 1 : 0;
   P[7] = crouching ? 1 : 0;
@@ -200,7 +238,8 @@ export function updatePlayerController(
 }
 
 export function resetPlayerMotion(): void {
-  P[0] = 0; P[1] = 0; P[5] = 0; P[6] = 0; P[7] = 0;
+  P[0] = 0; P[1] = 0; P[5] = 0; P[6] = 0; P[7] = 0; P[8] = 0;
+  if (P[9] !== 0) { setCharacterShape(character, shape); P[9] = 0; }
 }
 
 export function playerPosition(): Vec3 {

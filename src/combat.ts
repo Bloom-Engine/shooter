@@ -252,7 +252,7 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
 export function updateWeaponTransform(): void {
   const CAM = DEPS.o.CAM;
   const ppW = playerPosition();
-  const modelYaw = Math.PI / 2 - CAM[0];   // engine applies skinned rotY inverted
+  const modelYaw = GS.playerModelYaw;      // the yaw the pose was built with (main sets it)
   const syW = Math.sin(CAM[0]), cyW = Math.cos(CAM[0]);
   // Aim pitch, so the gun points where the camera does.
   const pitch = -CAM[1];
@@ -275,16 +275,26 @@ export function updateWeaponTransform(): void {
     baseZ = ppW.z + rz * DEPS.o.PLAYER_SCALE;
   }
 
-  weaponX = baseX;
-  weaponY = baseY;
-  weaponZ = baseZ;
-
   // Barrel direction = camera forward. The muzzle is that far down the
   // barrel from the weapon's origin (build-weapons.ts prints these).
   const cp = Math.cos(pitch);
   const fx = syW * cp;
   const fy = Math.sin(pitch);
   const fz = -cyW * cp;
+
+  // The socket is the trigger hand. Slide the model back along the barrel and up, so the hand
+  // is on the pistol grip and the stock reaches the shoulder (weapon up = the barrel's
+  // perpendicular in the vertical plane).
+  if (DEPS.o.playerHandJoint >= 0) {
+    const wH = WPN.currentWeapon();
+    const hz = DEPS.o.WEAPON_HAND_Z[wH], hy = DEPS.o.WEAPON_HAND_Y[wH];
+    baseX = baseX - fx * hz + (-syW * fy) * hy;
+    baseY = baseY - fy * hz + cp * hy;
+    baseZ = baseZ - fz * hz + (cyW * fy) * hy;
+  }
+  weaponX = baseX;
+  weaponY = baseY;
+  weaponZ = baseZ;
   const mz = DEPS.o.WEAPON_MUZZLE_Z[WPN.currentWeapon()];
   GS.muzzleX = baseX + fx * mz;
   GS.muzzleY = baseY + fy * mz;
@@ -355,7 +365,20 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     const adx = CAM[5] - CAM[2], ady = CAM[6] - CAM[3], adz = CAM[7] - CAM[4];
     const alen = Math.sqrt(adx*adx + ady*ady + adz*adz);
     const camFwd = alen > 0 ? vec3(adx/alen, ady/alen, adz/alen) : vec3(0, 0, -1);
-    const aimTargetFar = 200;
+    // The target is what the crosshair is ON, not a point 200 m out: with the camera over one
+    // shoulder the muzzle and the eye are a metre apart, and aiming both at infinity puts a
+    // near shot visibly beside the crosshair. So cast the camera ray (starting just past the
+    // player, so nothing between the lens and the Trooper counts) and converge on what it hits.
+    const ppA = playerPosition();
+    let aimStart = (ppA.x - camOriginV.x) * camFwd.x + (ppA.y - camOriginV.y) * camFwd.y
+                 + (ppA.z - camOriginV.z) * camFwd.z + 1.6;
+    if (aimStart < 0) aimStart = 0;
+    let aimTargetFar = 200;
+    const aimHit = raycast(DEPS.o.physics,
+      vec3(camOriginV.x + camFwd.x * aimStart, camOriginV.y + camFwd.y * aimStart,
+           camOriginV.z + camFwd.z * aimStart),
+      camFwd, FIRE_RANGE, ALL_LAYERS_MASK);
+    if (aimHit) aimTargetFar = aimStart + aimHit.fraction * FIRE_RANGE;
     const tgtX = camOriginV.x + camFwd.x * aimTargetFar;
     const tgtY = camOriginV.y + camFwd.y * aimTargetFar;
     const tgtZ = camOriginV.z + camFwd.z * aimTargetFar;
@@ -365,9 +388,11 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     const originZ = GS.muzzleZ;
     const mdx = tgtX - originX, mdy = tgtY - originY, mdz = tgtZ - originZ;
     const mlen = Math.sqrt(mdx*mdx + mdy*mdy + mdz*mdz);
-    const aimX = mlen > 0 ? mdx / mlen : camFwd.x;
-    const aimY = mlen > 0 ? mdy / mlen : camFwd.y;
-    const aimZ = mlen > 0 ? mdz / mlen : camFwd.z;
+    // Closer than 2 m the convergence angle gets silly (a wall at the muzzle would fire
+    // sideways): shoot parallel to the camera instead.
+    const aimX = mlen > 2.0 ? mdx / mlen : camFwd.x;
+    const aimY = mlen > 2.0 ? mdy / mlen : camFwd.y;
+    const aimZ = mlen > 2.0 ? mdz / mlen : camFwd.z;
 
     // SH-028 — spread. The shot leaves inside a cone that grows as you hold the
     // trigger, so full-auto at range is a choice with a cost.

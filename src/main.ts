@@ -44,7 +44,7 @@ import {
   setBodyPosition,
 } from 'bloom/physics';
 import {
-  animPlay, animSetLayer, animUpdate,
+  animPlay, animSetLayer, animUpdate, animSetJointRotation, animSetIK, animSetIKPole,
   findJoint, jointWorld,
   createTextureArrayFromFiles, createTextureArrayFromTexels, setMaterialTextureArray,
   TEXTURE_ARRAY_ALBEDO, TEXTURE_ARRAY_NORMAL, TEXTURE_ARRAY_MR,
@@ -72,7 +72,7 @@ import {
 } from './combat';
 import {
   CAM, TP_PITCH_MIN, TP_PITCH_MAX, TP_FOVY, CAMDBG,
-  updateCameraLook, updateCameraOrbit,
+  updateCameraLook, updateCameraOrbit, swapShoulder,
 } from './camera';
 import { drawHud, drawOverlays, drawArenaNotice } from './hud';
 import {
@@ -1092,6 +1092,27 @@ const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 // read on screen as "the weapon isn't rendering at all". Sockets fail silently
 // like that; an exact tag is the whole defence.
 const playerHandJoint = findJoint(animPlayer, 'tag_weapon');
+// Plan 1.3 (engine EN-064): the torso follows the camera's pitch through the three spine joints,
+// and the off hand is pulled onto the weapon's foregrip. Exact names, for the reason above.
+const plSpine0 = findJoint(animPlayer, 'mixamorig:Spine');
+const plSpine1 = findJoint(animPlayer, 'mixamorig:Spine1');
+const plSpine2 = findJoint(animPlayer, 'mixamorig:Spine2');
+const plLeftHand = findJoint(animPlayer, 'mixamorig:LeftHand');
+// How much of the aim pitch the spine takes (the rest is the arms' own pose), and its limit.
+const AIM_SPINE_SHARE = 0.85;
+const AIM_SPINE_MAX = 0.9;
+// Where the off hand holds each weapon, in the weapon's own frame (m): along the barrel,
+// below the bore line. Rifle, blaster (a support hand under the grip), chaingun, cannon.
+const WEAPON_GRIP_Z = [0.68, 0.14, 0.72, 0.54];
+const WEAPON_GRIP_Y = [-0.06, -0.09, -0.10, -0.14];
+// Where the trigger hand holds it: the pistol grip, measured from the model's rear along the
+// barrel, and how far the bore line sits above the hand. The weapon is drawn so that this point
+// is on the weapon socket (before 2026-11 the socket held the very end of the stock).
+const WEAPON_HAND_Z = [0.32, 0.07, 0.38, 0.36];
+const WEAPON_HAND_Y = [0.07, 0.08, 0.10, 0.09];
+// Eased 0..1: how firmly the off hand is held on the weapon (let go for a reload or a dodge).
+//   0 off-hand hold   1 standing-pose layer weight
+const PLRIG = [0, 0];
 // ANIMDBG only — a joint that swings hard in any gait, so "is the pose actually
 // moving?" is a number and not an opinion.
 const dbgAnkle = findJoint(animPlayer, 'ankle.R');
@@ -1289,6 +1310,32 @@ let dbgSprint = 0;
 // exported by src/camera.ts and written every frame.)
 // 0 prevX  1 prevZ  2 have-prev  3 measured speed  4 ankle min  5 ankle max
 const AD = [0, 0, 0, 0, 1e9, -1e9];
+
+// ---- PLAYERSHOT harness ------------------------------------------------------
+// The Trooper from the side, the front and behind, in each thing the player can do, so the
+// animation work of plan Phase 1 is judged from pictures and not from the back of a helmet.
+// Six numbers per shot: camera pitch, moveZ, moveX, aim, crouch, sprint, view
+// (0 right side, 1 front three-quarter, 2 behind, 3 left side). 50 frames each, captured on the
+// 45th as shooter_player_NN.png. MUST be false in shipped builds.
+const PLAYERSHOT = false;
+const PSHOT_N = 7;
+const PSHOTS = [
+  0.35,  0, 0, 0, 0, 0, 0,     //  0 idle
+  -0.20, 0, 0, 0, 0, 0, 0,     //  1 idle, looking up
+  0.90,  0, 0, 0, 0, 0, 0,     //  2 idle, looking down
+  0.20,  0, 0, 1, 0, 0, 0,     //  3 aiming
+  0.20,  0, 0, 1, 0, 0, 1,     //  4 aiming, from the front
+  0.20,  0, 0, 1, 0, 0, 3,     //  5 aiming, off-hand side
+  0.30, -1, 0, 0, 0, 0, 0,     //  6 walk
+  0.30, -1, 0, 0, 0, 1, 0,     //  7 sprint
+  0.30,  0, 0, 0, 1, 0, 0,     //  8 crouch
+  0.30, -1, 0, 0, 1, 0, 0,     //  9 crouch walk
+  0.20,  0, 1, 1, 0, 0, 2,     // 10 aiming, strafing right
+  0.20,  1, 0, 1, 0, 0, 0,     // 11 aiming, backing up
+  0.20, -1, 0, 1, 0, 0, 0,     // 12 aiming, advancing
+];
+const PSHOT_COUNT = 19;   // 13 rows, then rows 3 and 5 again with each of the other three weapons
+const PSHOT_FRAMES = 50;
 
 // ---- COMBATSHOT harness -----------------------------------------------------
 // Drives a REAL fight and screenshots it, because the AAA-round systems (VFX,
@@ -1545,7 +1592,7 @@ setDirectorDeps({
 setCombatDeps({
   CAM, physics, TP_PITCH_MIN, TP_PITCH_MAX,
   animPlayer, playerHandJoint, PLAYER_SCALE, PLAYER_MODEL_Y_OFFSET,
-  mdlWeapons, WEAPON_MUZZLE_Z, WEAPON_DRAW_SCALE,
+  mdlWeapons, WEAPON_MUZZLE_Z, WEAPON_DRAW_SCALE, WEAPON_HAND_Z, WEAPON_HAND_Y,
   sfxFireRifle, sfxFireBlaster, sfxRicochet, sfxPlayerDie, stingDeath,
   sfxFireByWeapon, sfxFireRifleB, sfxExplosion, sfxPlayerPain,
   musicMenu, musicCalm, musicCombat,
@@ -1935,6 +1982,26 @@ function gameFrame(_hostDt: number): void {
       writeFile('tools/.testout/locoprobe.txt', locoLog);
     }
   }
+  if (PLAYERSHOT) {
+    if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+    GS.playerHP = 100; DIR.waveBreakTimer = 9999;
+    const psI = Math.floor((testFrame - 30) / PSHOT_FRAMES);
+    if (psI >= 0 && psI < PSHOT_COUNT) {
+      let row = psI;
+      if (psI >= 13) {
+        const wS = 1 + Math.floor((psI - 13) / 2);
+        row = ((psI - 13) % 2) === 0 ? 3 : 5;
+        WPN.unlock(wS);
+        if (WPN.currentWeapon() !== wS) WPN.selectWeapon(wS);
+      }
+      const o = row * PSHOT_N;
+      CAM[0] = 0; CAM[1] = PSHOTS[o];
+      input.moveZ = PSHOTS[o + 1]; input.moveX = PSHOTS[o + 2];
+      input.aimDown = PSHOTS[o + 3] !== 0;
+      input.crouchDown = PSHOTS[o + 4] !== 0;
+      input.sprintDown = PSHOTS[o + 5] !== 0;
+    }
+  }
   // FACETEST (SH-047) — verify the body turns to face its movement direction.
   // Auto-starts, pins the camera at yaw 0 (camera looks -Z, so strafe-right D is
   // world +X = screen-right), and holds one strafe so a capture shows the body
@@ -2078,6 +2145,7 @@ function gameFrame(_hostDt: number): void {
   if (isKeyPressed(Key.THREE)) WPN.selectWeapon(WPN.W_CHAIN);
   if (isKeyPressed(Key.FOUR))  WPN.selectWeapon(WPN.W_CANNON);
   if (input.swapWeapon) WPN.nextWeapon();
+  if (playing && input.shoulderPressed) swapShoulder();
 
   // SH-032 — dodge. Commits the player for 0.25 s, so it is a decision, not a
   // free extra speed. Direction is the movement input, or straight back if the
@@ -2196,6 +2264,27 @@ function gameFrame(_hostDt: number): void {
   // Smooth orbit camera follow after the physics step: occlusion-aware
   // (probe fan vs. static bodies + analytic canopy cylinders) - camera.ts.
   updateCameraOrbit(dt, physics);
+  if (PLAYERSHOT) {
+    const psI = Math.floor((testFrame - 30) / PSHOT_FRAMES);
+    if (psI >= 0 && psI < PSHOT_COUNT) {
+      const view = PSHOTS[(psI < 13 ? psI : (((psI - 13) % 2) === 0 ? 3 : 5)) * PSHOT_N + 6];
+      const ppS = playerPosition();
+      // camera yaw is pinned at 0: the Trooper faces -Z, its right is +X
+      let ox = 3.2, oz = 0;
+      if (view === 1) { ox = 2.0; oz = -2.6; }
+      if (view === 2) { ox = 0.6; oz = 3.0; }
+      if (view === 3) { ox = -3.2; oz = 0; }
+      CAM[2] = ppS.x + ox; CAM[3] = ppS.y + 0.55; CAM[4] = ppS.z + oz;
+      CAM[5] = ppS.x; CAM[6] = ppS.y + 0.15; CAM[7] = ppS.z;
+      if (((testFrame - 30) % PSHOT_FRAMES) === 44) {
+        takeScreenshot('shooter_player_' + (psI < 10 ? '0' : '') + psI + '.png');
+      }
+    } else if (psI >= PSHOT_COUNT) {
+      console.log('PLAYERSHOT done');
+      closeWindow();
+      return;
+    }
+  }
   // INDOORCAM — see the harness block above. Overrides the orbit with a fixed
   // interior viewpoint: NW corner of the ground floor looking across at the
   // stairs + south door.
@@ -2646,6 +2735,66 @@ function gameFrame(_hostDt: number): void {
     const rate = (wantClip === PLAYER_ANIM_IDLE || wantClip === PLAYER_ANIM_CROUCH)
       ? 1
       : Math.max(0.5, Math.min(wantClip === PLAYER_ANIM_RUN ? 2.9 : 2.4, spd / authored));
+    // ---- the rig over the clips (plan 1.3) ----
+    // Aim offset: lean the torso with the camera pitch. The model faces +X with +Y up, so its
+    // right is +Z and a positive turn about +Z lifts the chest. It fades out as the body turns
+    // away from the camera (running sideways from the hip), where "pitch" is no longer forward.
+    {
+      const facing = Math.cos(playerFaceOffset);
+      let lean = -CAM[1] * AIM_SPINE_SHARE * (facing > 0 ? facing : 0);
+      if (!playing) lean = 0;
+      if (lean > AIM_SPINE_MAX) lean = AIM_SPINE_MAX;
+      if (lean < -AIM_SPINE_MAX) lean = -AIM_SPINE_MAX;
+      animSetJointRotation(animPlayer, 0, plSpine0, 0, 0, 1, lean * 0.30);
+      animSetJointRotation(animPlayer, 1, plSpine1, 0, 0, 1, lean * 0.35);
+      animSetJointRotation(animPlayer, 2, plSpine2, 0, 0, 1, lean * 0.35);
+
+      // Off hand onto the foregrip. The weapon is drawn at the weapon socket, pointing down the
+      // aim; the grip is a fixed point on it. Everything here is model space: the socket's
+      // position from the last pose, and the aim turned back by the model yaw.
+      const holdWant = (playing && !WPN.isReloading() && !isDodging() && plLeftHand >= 0
+                        && playerHandJoint >= 0) ? 1 : 0;
+      PLRIG[0] = PLRIG[0] + (holdWant - PLRIG[0]) * (1 - Math.exp(-14 * dt));
+      if (PLRIG[0] > 0.01) {
+        const wNow = WPN.currentWeapon();
+        const ap = -CAM[1];
+        const cpA = Math.cos(ap);
+        const wfx = Math.sin(camYaw) * cpA, wfy = Math.sin(ap), wfz = -Math.cos(camYaw) * cpA;
+        const cM = Math.cos(modelYaw), sM = Math.sin(modelYaw);
+        // world direction -> model direction (the inverse of the lift in combat.ts)
+        const fX = wfx * cM - wfz * sM, fY = wfy, fZ = wfx * sM + wfz * cM;
+        // up of the weapon frame: perpendicular to the barrel, in the vertical plane
+        const hl = Math.sqrt(fX * fX + fZ * fZ);
+        const uX = hl > 0.001 ? -fX * fY / hl : 0, uY = hl, uZ = hl > 0.001 ? -fZ * fY / hl : 0;
+        const gz = (WEAPON_GRIP_Z[wNow] - WEAPON_HAND_Z[wNow]) / PLAYER_SCALE;
+        const gy = (WEAPON_GRIP_Y[wNow] + WEAPON_HAND_Y[wNow]) / PLAYER_SCALE;
+        const sx = jointWorld(animPlayer, playerHandJoint, 12);
+        const sy = jointWorld(animPlayer, playerHandJoint, 13);
+        const sz = jointWorld(animPlayer, playerHandJoint, 14);
+        animSetIK(animPlayer, 0, plLeftHand,
+          sx + fX * gz + uX * gy, sy + fY * gz + uY * gy, sz + fZ * gz + uZ * gy,
+          PLRIG[0], true);
+        // elbow down and out to the left (model left is -Z)
+        animSetIKPole(animPlayer, 0, sx, sy - 1.0, sz - 0.6, true);
+      } else {
+        animSetIK(animPlayer, 0, -1, 0, 0, 0, 0, false);
+      }
+    }
+    GS.playerModelYaw = modelYaw;
+    // Of the Trooper's five Text2Motion clips only the run carries the rifle properly (stock to
+    // the shoulder, both hands on it). Idle, walk and both crouch clips are hunched with the gun
+    // arm stretched out. So everything except the run takes its torso and arms from the run
+    // clip, played at a crawl so it reads as breathing. A stand-in until the Trooper has real
+    // rifle clips (plan 1.1).
+    {
+      const standing = wantClip !== PLAYER_ANIM_RUN;
+      PLRIG[1] = PLRIG[1] + ((standing ? 1 : 0) - PLRIG[1]) * (1 - Math.exp(-10 * dt));
+      if (PLRIG[1] > 0.01 && plSpine0 >= 0) {
+        animSetLayer(animPlayer, PLAYER_ANIM_RUN, PLRIG[1], plSpine0, 0.06, true);
+      } else {
+        animSetLayer(animPlayer, -1, 0, -1, 1, false);
+      }
+    }
     animPlay(animPlayer, wantClip, 0.15, rate, true);
     animUpdate(animPlayer, dt, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);

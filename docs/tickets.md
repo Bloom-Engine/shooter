@@ -1837,3 +1837,25 @@ same day as `3d814a0` and has no ticket of its own.)
 | 0.15 Leftovers | Dead constants, stale comments, the retired colour-blind key | compiled |
 
 Engine: `restartApp()` / `bloom_restart_app` on all nine platform crates.
+
+## SH-056 — AAA plan, Phase 1 (first pass): the player on screen 🟡 *(code landed 2026-11-14; the clip set is open)*
+
+What could be done without new animation clips. Judged from the new PLAYERSHOT harness
+(`src/main.ts`): the Trooper from the side, front and behind in 13 states.
+
+| Plan item | What changed | Checked how |
+|---|---|---|
+| 1.3 Aim offset | The three spine joints lean with the camera pitch (engine EN-064 `animSetJointRotation`) | PLAYERSHOT: rifle rises looking up, drops looking down |
+| 1.3 Weapon in hand | The weapon is drawn with its pistol grip on the weapon socket (it used to hang from the end of the stock); the off hand is pulled onto the handguard by two-bone IK (`animSetIK`), released for reload and dodge | PLAYERSHOT close-ups from three sides, rifle only |
+| 1.3 Hands | `studio_import.py --grip` closes the fingers in every clip (the Text2Motion clips leave them flat); Trooper rebuilt with it | same close-ups |
+| 1.1 stand-in | Only the run clip carries the rifle properly; idle, walk and both crouch clips are hunched with the gun arm stretched out. Everything but the run now takes torso and arms from the run clip on the masked layer | PLAYERSHOT before/after |
+| 1.4 Shoulder camera | The orbit pivots beside the head (0.95 m from the hip, 0.62 m aiming), V / RB / a touch button swaps sides, a wall beside the player shortens the offset; shots converge on what the crosshair is over | COMBATSHOT frames; swap and wall case **not played** |
+| 1.5 Dodge | 0.25 s of invulnerability: a claw spends its cooldown on air, bolts pass through | read, compiled; **not played** |
+| 1.6 Crouch | Capsule 1.84 m to 1.20 m with the feet fixed, standing up refused under a roof, camera drops 0.45 m, crouch speed 2.0 to 1.2 m/s (what the clip can cover with planted feet) | PLAYERSHOT crouch frames; roof case not exercised (no low geometry in either arena) |
+| Phase 0 leftover | The melee damage arc pointed away from the attacker (`director.ts`); fixed | read against the projectile path |
+
+Still open in Phase 1: the clip set itself (1.1: strafes, sprint, jump, roll, reload, swap, hit,
+death, a proper idle and walk), the strafe blend that needs it (1.2; the engine call exists:
+`animSetBlend`), the roll (1.5), and a weapon that follows the hand during reload.
+
+Engine: EN-064 (`animSetBlend`, `animSetJointRotation`, `animSetIK`, `animSetIKPole`, `animTime`).

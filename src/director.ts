@@ -25,7 +25,7 @@ import {
 } from './nav';
 import { routeGoal, flowRecompute, flowBlockedAt } from './flow';
 import { bootStage, BOOT_ALIENS } from './boot';
-import { playerPosition } from './player';
+import { playerPosition, isInvulnerable } from './player';
 import * as VFX from './vfx';
 import * as FEEL from './feel';
 import * as SCORE from './score';
@@ -775,6 +775,12 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         ? (enAIState[i] === AI_CHARGE && dist <= KIND_MELEE[k] * 1.1)
         : (dist <= KIND_MELEE[k] && enAIState[i] !== AI_WINDUP);
       if (KIND_RANGED[k] === 0 && sameFloor && meleeNow && enAttackCD[i] <= 0 &&
+          enAIState[i] !== AI_FLINCH && isInvulnerable()) {
+        // Dodged: the swing is spent on air. It still costs the enemy its cooldown, which is
+        // the opening the dodge buys.
+        enAttackCD[i] = KIND_CD[k];
+        if (slamKind) enAIState[i] = AI_APPROACH;
+      } else if (KIND_RANGED[k] === 0 && sameFloor && meleeNow && enAttackCD[i] <= 0 &&
           enAIState[i] !== AI_FLINCH) {
         GS.playerHP = GS.playerHP - KIND_DMG[k];
         GS.damageFlashT = 0.5;
@@ -782,7 +788,9 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
         // SH-029 — being hit is now unmistakable with your eyes on the
         // crosshair: the camera flinches AWAY from the attacker, the screen
         // flashes, and the music ducks so you hear the hit land.
-        const hitYaw = Math.atan2(toPX, -toPZ);
+        // Direction TO the attacker (toP points from it to the player, hence the minus signs).
+        // Until 2026-11 this was atan2(toPX, -toPZ), which drew the arc on the far side.
+        const hitYaw = Math.atan2(-toPX, toPZ);
         let rel = hitYaw - DEPS.o.CAM[0];
         while (rel > Math.PI) rel = rel - Math.PI * 2;
         while (rel < -Math.PI) rel = rel + Math.PI * 2;
@@ -942,7 +950,8 @@ export function updateEnemyProjectiles(dt: number, playing: boolean): void {
     const t = Math.max(0, Math.min(seg, rx * sx2 * inv2 + ry * sy2 * inv2 + rz * sz2 * inv2));
     const cxp = ox + sx2 * inv2 * t, cyp = oy + sy2 * inv2 * t, czp = oz + sz2 * inv2 * t;
     const dxp = ppE.x - cxp, dyp = (ppE.y + 0.2) - cyp, dzp = ppE.z - czp;
-    const hitPlayer = (dxp * dxp + dyp * dyp + dzp * dzp) < 0.55 * 0.55;
+    // A bolt passes through a dodging player (i-frames) and flies on.
+    const hitPlayer = (dxp * dxp + dyp * dyp + dzp * dzp) < 0.55 * 0.55 && !isInvulnerable();
 
     if (hitPlayer && playing) {
       GS.playerHP = GS.playerHP - eDmg[i];

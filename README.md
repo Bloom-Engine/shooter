@@ -27,7 +27,8 @@ Controls:
 | Right mouse      | Aim down sights (hold, or toggle — settings) |
 | Shift            | Sprint (hold, or toggle — settings)       |
 | C                | Crouch (hold)                             |
-| Ctrl             | Dodge                                     |
+| Ctrl             | Dodge (briefly invulnerable)              |
+| V                | Camera to the other shoulder              |
 | 1 / 2 / 3 / 4    | Switch weapon (rifle / blaster / chaingun / cannon) |
 | Q                | Cycle weapon                              |
 | R                | Reload / restart after death              |
@@ -63,7 +64,7 @@ Connect API-only). See `CLAUDE.md` for the provisioning details.
 
 Left stick moves, right stick looks, RT fires, LT aims, A jumps, B dodges,
 X reloads, Y cycles weapons, click the left stick to sprint and the right stick
-to crouch, Start pauses.
+to crouch, RB moves the camera to the other shoulder, Start pauses.
 
 ### The game
 
