@@ -2055,7 +2055,7 @@ and explosion sounds).
 
 ---
 
-## SH-061 — AAA plan, Phase 6 slice D: two arenas, two weapons, a boss 🟡 *(the free part landed 2026-11-14 with stand-in models; the three Tripo models are open)*
+## SH-061 — AAA plan, Phase 6 slice D: two arenas, two weapons, a boss ✅ *(landed 2026-11-14 with the three Tripo models; not played, hit shapes and hand positions estimated)*
 
 What is in, all of it without spending:
 
@@ -2077,8 +2077,20 @@ Found on the way.
   `audio-mix.ts`). Every per-kind table outside `enemies.ts` has been widened; a new one must
   be too.
 
-Open, in order: the three Tripo models (cost above; each needs Ralph); then
-`KIND_SCALE`/hit shapes for the Matriarch and `WEAPON_*` hand tables for the two weapons from
-the real models, silhouettes re-rendered from them, PLAYERSHOT for the two weapons; a look at
-the boss fight by a person; sounds for all of it (Phase 5).
+**The models (later the same day, Ralph's approval).** Tripo Studio, 250 credits: three
+generations, the Matriarch's retopology to 60,000 triangles, her rig and three Text2Motion clips
+(run, attack, death); workspace ids, prompts and the per-step costs are in `art/source/README.md`.
+`tools/gen/build_cast.sh enemy_matriarch` builds her (4.5 m, nine clips, 23 joints, normal map
+baked from the 1.9M-triangle original); `process_static.py` the two weapons (20,000 triangles
+each). The stand-ins are gone. Her weak point is the cluster of brood sacs on her upper back: a
+sphere behind the neck that the torso shields from the front. Checked: model and clip sheets in
+Blender; one bot run of the boss wave with the lance (won in 50 s; pictures show her standing
+over the Trooper with both arms raised, the lance in the Trooper's hands, the health bar and
+the PHASE 3 flash). **Estimated, not measured:** her hit-shape radii and offsets (read off the
+model's proportions) and the two weapons' hand, grip and magazine positions (read off the model
+sheets); PLAYERSHOT was not run for them. Her death clip falls backward although the prompt
+said forward, and is kept.
+
+Open: a look at the boss fight by a person; her hit shapes and the two weapons' hand positions
+tuned against pictures; sounds for all of it (Phase 5).
 

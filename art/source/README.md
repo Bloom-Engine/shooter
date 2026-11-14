@@ -20,6 +20,9 @@ Workspace URLs: `studio.tripo3d.ai/workspace/{generate|retopology|rigging|animat
 | enemy_bombard | 3ee3eb17-1f1c-4289-979e-403ac88a12f9 | clone: 2e7bc554-3ab1-4df7-86d6-adf0c90f08f4 |
 | enemy_colossus | 589f6170-c8f5-4fa7-b41f-c4d0455f08a6 | clone: 940c819c-adff-429a-b00c-97659f1b6157 |
 | player_trooper | e2d0829b-a51f-4f5f-804a-7c7878774b16 | 21 Text2Motion clips (5 + the 16 of `trooper_clips.md`), export 2 has them all; clone: a0342089-39e3-4cfb-a5a3-5a8ec8b86ab5 |
+| enemy_matriarch | 6c668ef7-77f6-4e0e-bc4b-c357511714d3 | the boss (slice D, 2026-11-14). Its dense original was exported BEFORE retopology (plain Export on the generate page), which is simpler than the History clone |
+| weapon_scattergun | 40ec25b5-9169-4381-8572-5685c0bdad11 | static (slice D) |
+| weapon_lance | 89dc2022-987c-4aa5-8d22-4f1c0f583d9d | static (slice D) |
 | weapon_rifle | 4a482aa9-e876-4976-9c4c-935ce3385f46 | static |
 | weapon_blaster | d534b695-30c4-4c63-9911-b31f843d10eb | static |
 | weapon_chaingun | eadf6c4e-a2af-4db7-8e89-2a95bcf6fa14 | static |
@@ -53,6 +56,20 @@ Credits: 1,575 spent on 2026-11-12/13 (17 generations, 8 retopologies, 8 rigs, 2
 380 on 2026-11-14 for the Trooper's second clip batch (20 per clip; the export itself was free).
 660 on 2026-11-14 for the twelve Phase 3 world models (55 per generation, image to 3D, HD Model,
 H3.1 Best Quality; a static model needs no retopology or rig). Balance after: 18,980.
+250 on 2026-11-14 for slice D: three generations (165), the Matriarch's retopology (5, with Smart
+Mesh OFF; it shows 40 with it on), her rig (20) and three Text2Motion clips (60). Presets and exports
+were free. The account was in use by someone else at the same time (seven image-to-model charges
+and a run of rigs that are not this project's), so the balance on the site, 16,050 afterwards, says
+nothing about what this cost.
+Matriarch clips: the six presets plus her own run ("Strides forward with long, slow, heavy steps,
+the body leaning forward, the long arms swinging low beside the knees, big movements, walking in
+place."), attack ("Raises both arms high above the head, then sweeps the right arm down and across
+from high on the right to the left hip in a huge clawing swipe, then the left arm from high on the
+left to the right hip, big fast movements, feet planted.") and death ("Hit hard in the chest, jerks
+backward, staggers two steps, the knees buckle, drops to the knees, then topples forward onto the
+ground with the arms falling to the sides and lies completely still, dead."; it fell backward
+instead). The shared creature death is no longer in the account's AI Animation list, which holds
+the twenty most recent clips. Weapons: `--kind weapon --size 0.75` (scattergun), `--size 1.35` (lance).
 
 Per-creature Text2Motion clips (5 s each; the phrases `tools/gen/build_cast.sh` matches on are the
 opening words): a run and an attack for each of the seven creatures, plus a second, more forceful

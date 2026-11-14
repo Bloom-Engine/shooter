@@ -5,7 +5,7 @@ Third-party material listed below keeps the terms of its source.
 
 ## Shipped assets (what release builds contain)
 
-- **Characters, weapons, furniture props** (`models/enemy_{skitter,stalker,ravager,spitter,bruiser,bombard,colossus}.glb`,
+- **Characters, weapons, furniture props** (`models/enemy_{skitter,stalker,ravager,spitter,bruiser,bombard,colossus,matriarch}.glb`,
   `player_trooper.glb`, `weapon_*.glb`, `prop_{barrel,crate,table,chair,bed}.glb`): original designs made for
   this game in November 2026. Concept images in `art/style/photoreal/`, meshes generated with Tripo Studio,
   processed in Blender. Provenance: `art/source/README.md`.

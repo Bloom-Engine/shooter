@@ -81,8 +81,7 @@ Five arenas (Outdoor Plaza in the afternoon, Riverbend Ravine in morning mist, C
 alien kinds: Skitter, Stalker, Ravager, Bruiser and the Colossus up close, and
 the Spitter and Bombard at range, so closing the distance is not the universal
 answer, and a boss, the Matriarch, on the last wave of the last arena. Rifle and blaster from
-the start; each arena cleared unlocks the next weapon: chaingun, cannon, scattergun, lance.
-(The Matriarch, the scattergun and the lance are drawn with stand-in models for now.) Picking another arena in the menu
+the start; each arena cleared unlocks the next weapon: chaingun, cannon, scattergun, lance. Picking another arena in the menu
 relaunches the game into it (on phones and TV boxes, which cannot relaunch an
 app, it asks you to reopen it). Ammo crates respawn around the arena.
 

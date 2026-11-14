@@ -313,7 +313,7 @@ projectile trails with a mesh or ribbon, spawn effects, water splashes that are 
 
 ---
 
-## Phase 6 - A game around the fight - SLICES A-C LANDED 2026-11-14 (SH-060); slice D IN PROGRESS (SH-061)
+## Phase 6 - A game around the fight - LANDED 2026-11-14 (SH-060 slices A-C, SH-061 slice D)
 
 **Decisions (Ralph, 2026-11-14).** Escalating survival with a meta layer, not a campaign.
 Upgrades are bought with credits earned in runs. Built in four slices; A to C landed without
@@ -339,15 +339,11 @@ hold seconds, nest health, the arena star gates) is a first guess.
 - **Length and difficulty are untuned.** The stand-in needed 6, 9 and 12 minutes for the three
   arenas with its health held full, and took several hundred hits in the later two. A nest wave
   ran over two minutes and, in arena_04, 74 kills. A person will be slower.
-- **Slice D: volume (SH-061, in progress).** Everything that costs nothing is in: arenas 5
-  (Quarry, overcast noon) and 6 (Brood Hollow, night), built from terrain and the Phase 3
-  props; the scattergun and the lance, with stand-in models (blaster, rifle) and silhouettes
-  keyed from their concept images; the boss, the Matriarch, as an eighth creature kind with
-  three phases, drawn as a Colossus a quarter larger. **Still to do, and it needs Tripo
-  (about 310 credits: about 200 for the boss with five motion clips, 55 for each weapon):**
-  the three models, then the Matriarch's hit shapes and the two weapons' hand positions
-  measured from them. Concepts: `art/style/photoreal/enemy_matriarch`, `weapon_scattergun`,
-  `weapon_lance`. The plan's second boss was cut.
+- **Slice D: volume (SH-061).** In: arenas 5 (Quarry, overcast noon) and 6 (Brood Hollow,
+  night); the scattergun and the lance; the boss, the Matriarch, with three phases, on wave 10
+  of Brood Hollow. The three models came from Tripo for 250 credits. Estimated and not yet
+  tuned against pictures: her hit shapes, the two weapons' hand positions. The plan's second
+  boss was cut. Volume now: 5 arenas x 10 waves, 6 weapons, 1 boss.
 - **Escort objectives.** Left out on purpose: they need a companion that paths, and a weak
   escort is worse than none.
 - **The nest is procedural** (`tools/blender/build_nest.py`): a fused mound with a baked

@@ -34,10 +34,11 @@ import { fileExists } from 'bloom/core';
 // up, and these two cannot, so cover and repositioning start to matter and the
 // whole encounter re-weights around them.
 export const KIND_COUNT = 8;
-/// Slice D: the eighth kind is the boss, the Matriarch. One body. Until its own model exists
-/// (assets/models/enemy_matriarch.glb) it is drawn as a Colossus a quarter larger, and every
-/// table below gives it the Colossus's measurements; with the model in, BOSS_SCALE is 1 and the
-/// hit-shape columns want measuring again.
+/// Slice D: the eighth kind is the boss, the Matriarch. One body, 4.5 m, lean, with a cluster
+/// of brood sacs across the upper back: that is her weak point, a sphere behind the neck that a
+/// shot from the front cannot reach (the torso is in the way). Her hit-shape columns below are
+/// ESTIMATED from the model's proportions, not measured joint by joint like the others.
+/// (Without assets/models/enemy_matriarch.glb she is drawn as a Colossus a quarter larger.)
 export const K_BOSS = 7;
 export const HAS_BOSS_MODEL = fileExists('assets/models/enemy_matriarch.glb');
 const BOSS_SCALE = HAS_BOSS_MODEL ? 1.0 : 1.28;
@@ -144,7 +145,7 @@ export const KIND_Y_OFF = [1.0,  1.0,  1.2,  1.5,  2.0,   1.2,     1.5, 2.0];
 // shots are tested against the hit shapes now, so the box no longer has to be "generous", and
 // the old one (2 m tall and 2 m wide for an 0.8 m Skitter) shoved the player from a metre away.
 // Half extents; the box is centred KIND_BOX_Y above the feet.
-export const KIND_BOX_HX = [0.28, 0.32, 0.42, 0.58, 0.95, 0.36, 0.62, 1.15];
+export const KIND_BOX_HX = [0.28, 0.32, 0.42, 0.58, 0.95, 0.36, 0.62, 0.65];
 export const KIND_BOX_HY = [0.38, 0.82, 0.92, 1.15, 1.70, 0.92, 1.15, 2.10];
 export const KIND_BOX_Y  = [0.40, 0.85, 0.95, 1.20, 1.75, 0.95, 1.20, 2.15];
 export const KIND_SPEED = [3.0,  4.5,  3.5,  2.5,  2.2,   4.0,     2.4, 2.6];
@@ -157,7 +158,7 @@ export const KIND_MELEE = [2.0,  2.0,  2.3,  2.6,  3.0,   2.3,     2.6, 3.0];
 // SH-052 — locomotion audio. Stride = metres of travel per audible step
 // (drives enStepPhase for EVERY kind now, not just the tyrant, whose 2.2 is
 // the pre-SH-052 value unchanged). Small things patter, big things pound.
-export const KIND_STRIDE = [0.7,  1.1,  1.3,  1.6,  2.2,   1.3,     1.6, 2.2];
+export const KIND_STRIDE = [0.7,  1.1,  1.3,  1.6,  2.2,   1.3,     1.6, 2.6];
 export const DRETCH_HIT_FLASH = 0.18;
 // Ichor colour per kind — drives the blood decal tint (SH-033).
 export const KIND_BLOOD_R = [0.55, 0.50, 0.62, 0.70, 0.45, 0.62, 0.70, 0.80];
@@ -322,23 +323,23 @@ export const enHasToken = new Array<number>(MAX_ENEMIES);   // holds an attack t
 // Sizes measured from each mesh in its idle pose (85th percentile of the vertices skinned to the
 // part), then floored: the Skitter's real torso is 6 cm thick and nobody could hit that.
 //                             skitter stalker ravager bruiser colossus spitter bombard
-export const KIND_HEAD_OFF_X = [0.03,  0.05,   0.07,   0.11,   0.18,    0.07,   0.15, 0.18];
-export const KIND_HEAD_OFF_Y = [0.03,  0.04,   0.07,   0.00,  -0.09,    0.07,  -0.05, -0.09];
-export const KIND_HEAD_R     = [0.14,  0.18,   0.20,   0.25,   0.31,    0.21,   0.21, 0.31];
-export const KIND_TORSO_R    = [0.16,  0.17,   0.28,   0.44,   0.74,    0.20,   0.47, 0.74];
-export const KIND_ARM_R      = [0.07,  0.10,   0.13,   0.18,   0.36,    0.09,   0.26, 0.36];
-export const KIND_LEG_R      = [0.08,  0.10,   0.14,   0.19,   0.42,    0.10,   0.18, 0.42];
+export const KIND_HEAD_OFF_X = [0.03,  0.05,   0.07,   0.11,   0.18,    0.07,   0.15, 0.08];
+export const KIND_HEAD_OFF_Y = [0.03,  0.04,   0.07,   0.00,  -0.09,    0.07,  -0.05, 0.10];
+export const KIND_HEAD_R     = [0.14,  0.18,   0.20,   0.25,   0.31,    0.21,   0.21, 0.27];
+export const KIND_TORSO_R    = [0.16,  0.17,   0.28,   0.44,   0.74,    0.20,   0.47, 0.40];
+export const KIND_ARM_R      = [0.07,  0.10,   0.13,   0.18,   0.36,    0.09,   0.26, 0.14];
+export const KIND_LEG_R      = [0.08,  0.10,   0.14,   0.19,   0.42,    0.10,   0.18, 0.20];
 export const KIND_HEIGHT     = [0.80,  1.70,   1.89,   2.40,   3.51,    1.90,   2.37, 4.50];
 // A weak point per heavy (the plan's phrase): a sphere riding a joint, offset in the model's axes
 // (X forward, Y up, Z right; a non-zero Z is mirrored to both sides). FRONT = it only counts for
 // a shot coming in from the front, where the pale belly is; the Bombard's launcher tubes sit on
 // top of its back and can be hit from anywhere.
-export const KIND_WEAK_JOINT_NAME = ['', '', '', 'mixamorig:Spine', 'mixamorig:Spine', '', 'mixamorig:Neck', 'mixamorig:Spine'];
-export const KIND_WEAK_X     = [0, 0, 0, 0.25, 0.36, 0, 0.00, 0.36];
-export const KIND_WEAK_Y     = [0, 0, 0, 0.00, 0.04, 0, 0.28, 0.04];
+export const KIND_WEAK_JOINT_NAME = ['', '', '', 'mixamorig:Spine', 'mixamorig:Spine', '', 'mixamorig:Neck', 'mixamorig:Neck'];
+export const KIND_WEAK_X     = [0, 0, 0, 0.25, 0.36, 0, 0.00, -0.50];
+export const KIND_WEAK_Y     = [0, 0, 0, 0.00, 0.04, 0, 0.28, -0.05];
 export const KIND_WEAK_Z     = [0, 0, 0, 0.00, 0.00, 0, 0.32, 0.00];
-export const KIND_WEAK_R     = [0, 0, 0, 0.27, 0.42, 0, 0.24, 0.42];
-export const KIND_WEAK_FRONT = [0, 0, 0, 1,    1,    0, 0, 1];
+export const KIND_WEAK_R     = [0, 0, 0, 0.27, 0.42, 0, 0.24, 0.55];
+export const KIND_WEAK_FRONT = [0, 0, 0, 1,    1,    0, 0, 0];
 // Shelled backs: a body shot that comes in from behind a Bruiser or a Colossus glances.
 export const KIND_SHELL      = [0, 0, 0, 1,    1,    0, 0, 0];
 export const LOC_LIMB = 0;

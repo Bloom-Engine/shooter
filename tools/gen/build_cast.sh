@@ -2,7 +2,7 @@
 # Rebuild every character's game model from its Tripo Studio exports (art/source/<name>_studio/).
 # The whole recipe for the cast lives here; see art/source/README.md for where the exports come from.
 #
-#   tools/gen/build_cast.sh                 all eight
+#   tools/gen/build_cast.sh                 all nine
 #   tools/gen/build_cast.sh enemy_skitter   named ones only
 #
 # Creature clips, sorted by name as the game addresses them (src/enemies.ts):
@@ -37,6 +37,14 @@ creature enemy_bruiser  2.4 "charges forward like a gorilla" "Heavy overhead ham
 creature enemy_colossus 3.5 "colossus advances"             "colossus attacks"
 creature enemy_spitter  1.9 "runs forward at a loose"       "spits venom"
 creature enemy_bombard  2.4 "trudges forward"               "fires a volley"
+# The boss (slice D): her own run, attack and death clips. Her death is a stagger, a drop to the
+# knees and a topple, so it keeps more of the take than the shared one.
+if on enemy_matriarch; then
+  echo "== enemy_matriarch"
+  tools/gen/make_character.sh enemy_matriarch 4.5 --rename "Hit=death,Strides forward=c_run,Raises both arms=c_attack" \
+    --trim "slash=1.0:2.6,death=0.4:4.7" --loop "c_run" --active "c_attack" --drop-clips "run_upstairs"
+  python3 tools/gen/strip_joints.py assets/models/enemy_matriarch.glb assets/models/enemy_matriarch.glb
+fi
 if on player_trooper; then
   echo "== player_trooper"
   # The first five Text2Motion clips are kept only where nothing replaced them (run); the rest

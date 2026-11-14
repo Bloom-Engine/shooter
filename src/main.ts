@@ -1243,8 +1243,9 @@ const HAS_LANCE_MDL = fileExists('assets/models/weapon_lance.glb');
 // precisely so these constants survive an art change.
 // New photoreal weapons (tools/blender/process_static.py): lengths 0.92 / 0.45 / 1.05 / 1.00 m,
 // rear of the gun at z = 0, so the muzzle is just short of the full length.
-// (The last two columns are the stand-ins' numbers, blaster and rifle, until the scattergun
-// and lance models exist; then 0.73 and 1.33 with their own hand positions.)
+// Scattergun 0.75 m and lance 1.35 m (slice D). Their hand positions below are read off the
+// model sheets, not tuned in PLAYERSHOT like the first four. (Without the models the game
+// draws the blaster and the rifle and uses their numbers.)
 const WEAPON_MUZZLE_Z = [0.90, 0.44, 1.03, 0.98, HAS_SCATTER_MDL ? 0.73 : 0.44, HAS_LANCE_MDL ? 1.33 : 0.90];
 const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
 
@@ -1273,16 +1274,16 @@ const AIM_SPINE_SHARE = 0.85;
 const AIM_SPINE_MAX = 0.9;
 // Where the off hand holds each weapon, in the weapon's own frame (m): along the barrel,
 // below the bore line. Rifle, blaster (a support hand under the grip), chaingun, cannon.
-const WEAPON_GRIP_Z = [0.68, 0.14, 0.72, 0.54, 0.14, 0.68];
-const WEAPON_GRIP_Y = [-0.06, -0.09, -0.10, -0.14, -0.09, -0.06];
+const WEAPON_GRIP_Z = [0.68, 0.14, 0.72, 0.54, HAS_SCATTER_MDL ? 0.53 : 0.14, HAS_LANCE_MDL ? 0.66 : 0.68];
+const WEAPON_GRIP_Y = [-0.06, -0.09, -0.10, -0.14, HAS_SCATTER_MDL ? -0.08 : -0.09, HAS_LANCE_MDL ? -0.07 : -0.06];
 // Where the trigger hand holds it: the pistol grip, measured from the model's rear along the
 // barrel, and how far the bore line sits above the hand. The weapon is drawn so that this point
 // is on the weapon socket (before 2026-11 the socket held the very end of the stock).
 // The magazine well, same frame: where the off hand goes during a reload.
-const WEAPON_MAG_Z = [0.47, 0.07, 0.52, 0.46, 0.07, 0.47];
-const WEAPON_MAG_Y = [-0.17, -0.13, -0.18, -0.16, -0.13, -0.17];
-const WEAPON_HAND_Z = [0.32, 0.07, 0.38, 0.36, 0.07, 0.32];
-const WEAPON_HAND_Y = [0.07, 0.08, 0.10, 0.09, 0.08, 0.07];
+const WEAPON_MAG_Z = [0.47, 0.07, 0.52, 0.46, HAS_SCATTER_MDL ? 0.38 : 0.07, HAS_LANCE_MDL ? 0.46 : 0.47];
+const WEAPON_MAG_Y = [-0.17, -0.13, -0.18, -0.16, HAS_SCATTER_MDL ? -0.17 : -0.13, HAS_LANCE_MDL ? -0.08 : -0.17];
+const WEAPON_HAND_Z = [0.32, 0.07, 0.38, 0.36, HAS_SCATTER_MDL ? 0.24 : 0.07, HAS_LANCE_MDL ? 0.30 : 0.32];
+const WEAPON_HAND_Y = [0.07, 0.08, 0.10, 0.09, HAS_SCATTER_MDL ? 0.08 : 0.08, HAS_LANCE_MDL ? 0.07 : 0.07];
 // Eased 0..1: how firmly the off hand is held on the weapon (let go for a reload or a dodge).
 //   0 off-hand hold          1 upper-body layer weight   2 squared-to-camera timer
 //   3 death clip (-1 alive)  4 strafe-left weight        5 strafe-right weight
@@ -1559,7 +1560,8 @@ const P2BOT = false;
 //   4 HP last frame
 //   5 nest to be put beside this frame (-1 none)   6 last boss picture taken (phase * 10 + special)
 //   7 the weapon `--weapon` asked for (-1 = whatever it holds)
-const PB = [-1, 0, 0, 0, 100, -1, 0, -1];
+//   8 frames the boss has been alive
+const PB = [-1, 0, 0, 0, 100, -1, 0, -1, 0];
 const P2OUT = [0, 0, 0, 0, 0];
 
 function p2Place(slot: number, x: number, z: number, heading: number): void {
@@ -2149,6 +2151,14 @@ function p2Bot(): boolean {
     const d = Math.hypot(pp.x - enX[i], pp.z - enZ[i]);
     // only what it could see: alerted, or within 30 m with a clear line
     if ((enAware[i] === 1 || enLos[i] === 1) && d < 45 && d < bestD) { bestD = d; best = i; }
+  }
+  // The boss, while she lives, is what the stand-in looks at (so the pictures have her in them),
+  // and one is taken every four seconds of the fight.
+  if (BOSS[0] > 0 && BOSS[7] >= 0 && enAlive[BOSS[7]] === 1) {
+    best = BOSS[7];
+    bestD = Math.hypot(pp.x - enX[best], pp.z - enZ[best]);
+    PB[8] = PB[8] + 1;
+    if ((PB[8] % 240) === 120 && PB[8] < 2400) takeScreenshot('shooter_boss_t' + Math.floor(PB[8] / 240) + '.png');
   }
   if (alive > PB[1]) PB[1] = alive;
   if (mid > PB[2]) PB[2] = mid;

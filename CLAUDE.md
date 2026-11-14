@@ -351,10 +351,11 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   and MENUTEST.
 - Slice D (SH-061). There are EIGHT kinds: kind 7 (`K_BOSS`) is the Matriarch, one body, and
   every per-kind table anywhere must have eight entries (a seven-entry one crashes with a
-  TypeError the moment she is alive). Until `assets/models/enemy_matriarch.glb`,
-  `weapon_scattergun.glb` and `weapon_lance.glb` exist the game draws a larger Colossus, the
-  blaster and the rifle in their place (`HAS_BOSS_MODEL`, `HAS_SCATTER_MDL`, `HAS_LANCE_MDL`);
-  when a model arrives its tables want measuring, not just the file dropped in. A weapon with
+  TypeError the moment she is alive). Her weak point is the brood-sac cluster on her back (a
+  sphere behind the neck). Her hit-shape columns and the scattergun's and lance's hand tables
+  are estimates: tune them against P2TEST / PLAYERSHOT pictures before trusting them. (If one
+  of the three slice D models is missing the game falls back to a larger Colossus, the blaster
+  or the rifle: `HAS_BOSS_MODEL`, `HAS_SCATTER_MDL`, `HAS_LANCE_MDL`.) A weapon with
   pellets or a piercing hitscan round goes through `combat.fireMulti`. Bot aids:
   `--wave N` starts the stand-in at a wave, `--weapon N` gives it a weapon.
 - No vertex colours (the engine multiplies `COLOR_0` into albedo).
