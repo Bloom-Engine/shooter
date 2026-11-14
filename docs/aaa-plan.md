@@ -59,16 +59,16 @@ direction back to the source, so one of the two points the wrong way. Check in p
 
 ---
 
-## Phase 1 - The player on screen (3-5 weeks) - FIRST PASS 2026-11-14 (ticket SH-056)
+## Phase 1 - The player on screen - LANDED 2026-11-14 (ticket SH-056)
 
-**State.** Done without new clips: 1.3 (torso aim offset, pistol grip on the socket, off-hand IK,
-closed fingers), 1.4 (shoulder camera, swap, crosshair convergence), 1.6 (capsule resize), the
-i-frames of 1.5. Engine EN-064 added the calls 1.2 and 1.3 needed. **Open: 1.1, and with it 1.2
-and the roll of 1.5.** A side-on capture (the PLAYERSHOT harness) showed that of the Trooper's five
-Text2Motion clips only the run holds the rifle; the others are hunched with the gun arm stretched
-out. As a stand-in the run clip's torso and arms are layered over everything else. The real fix is
-a motion-captured rifle set on this skeleton (it is the Mixamo skeleton, bone for bone), which
-needs a decision on the source: see SH-056.
+**State.** All six items have landed; `docs/tickets.md` SH-056 has the per-item record. The
+Trooper has 14 clips (a second Text2Motion batch), a strafe blend while aiming or firing, a roll
+with i-frames, an IK reload, hit reactions, two deaths, the torso aim offset, the off-hand grip, the
+shoulder camera and the crouch capsule. Engine EN-064 supplied the blend, joint-rotation and IK
+calls. **Carried forward:** a jump clip, a weapon-swap animation, turn-in-place, and a play-through:
+the phase gate asks for a 30-second capture, and what exists is still frames from the PLAYERSHOT
+harness. The clips are Text2Motion, not motion capture: legs are good, arm poses vary, and the game
+hides that by layering one clip's upper body over every gait.
 
 The player's back fills the middle of every frame, and it has five clips. This is the largest single
 gap.

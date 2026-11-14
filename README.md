@@ -24,10 +24,10 @@ Controls:
 | Mouse            | Look                                      |
 | Space            | Jump                                      |
 | Left mouse       | Fire (rifle = full-auto, blaster = tap)   |
-| Right mouse      | Aim down sights (hold, or toggle — settings) |
+| Right mouse      | Aim down sights (hold, or toggle — settings); moving while aiming or firing is at half speed |
 | Shift            | Sprint (hold, or toggle — settings)       |
 | C                | Crouch (hold)                             |
-| Ctrl             | Dodge (briefly invulnerable)              |
+| Ctrl             | Dodge: a roll, invulnerable for most of it |
 | V                | Camera to the other shoulder              |
 | 1 / 2 / 3 / 4    | Switch weapon (rifle / blaster / chaingun / cannon) |
 | Q                | Cycle weapon                              |

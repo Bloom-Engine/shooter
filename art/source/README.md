@@ -19,7 +19,7 @@ Workspace URLs: `studio.tripo3d.ai/workspace/{generate|retopology|rigging|animat
 | enemy_bruiser | 2c991580-2654-4536-8387-9c994d58ef13 | clone: 509da137-fe50-4ee2-bcc2-4b0d3bc2eb46 |
 | enemy_bombard | 3ee3eb17-1f1c-4289-979e-403ac88a12f9 | clone: 2e7bc554-3ab1-4df7-86d6-adf0c90f08f4 |
 | enemy_colossus | 589f6170-c8f5-4fa7-b41f-c4d0455f08a6 | clone: 940c819c-adff-429a-b00c-97659f1b6157 |
-| player_trooper | e2d0829b-a51f-4f5f-804a-7c7878774b16 | 5 Text2Motion rifle clips; clone: a0342089-39e3-4cfb-a5a3-5a8ec8b86ab5 |
+| player_trooper | e2d0829b-a51f-4f5f-804a-7c7878774b16 | 21 Text2Motion clips (5 + the 16 of `trooper_clips.md`), export 2 has them all; clone: a0342089-39e3-4cfb-a5a3-5a8ec8b86ab5 |
 | weapon_rifle | 4a482aa9-e876-4976-9c4c-935ce3385f46 | static |
 | weapon_blaster | d534b695-30c4-4c63-9911-b31f843d10eb | static |
 | weapon_chaingun | eadf6c4e-a2af-4db7-8e89-2a95bcf6fa14 | static |
@@ -37,7 +37,8 @@ still on the ground, dead.") reused from the account's AI Animation library. Imp
 `tools/gen/make_character.sh <name> <height> --rename "Hit=death"` (heights: skitter 0.8, stalker 1.7,
 ravager 1.9, spitter 1.9, bruiser 2.4, bombard 2.4, colossus 3.5, trooper 1.85).
 
-Credits: 1,575 spent on 2026-11-12/13 (17 generations, 8 retopologies, 8 rigs, 22 Text2Motion clips).
+Credits: 1,575 spent on 2026-11-12/13 (17 generations, 8 retopologies, 8 rigs, 22 Text2Motion clips);
+380 on 2026-11-14 for the Trooper's second clip batch (20 per clip; the export itself was free).
 
 Per-creature Text2Motion clips (5 s each; the phrases `tools/gen/build_cast.sh` matches on are the
 opening words): a run and an attack for each of the seven creatures, plus a second, more forceful

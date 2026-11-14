@@ -76,6 +76,8 @@ let weaponX = 0;
 let weaponY = 0;
 let weaponZ = 0;
 let weaponYaw = 0;
+// The drawn weapon's barrel (0-2) and up (3-5) directions, world space: see updateWeaponTransform.
+const WB = [0, 0, -1, 0, 1, 0];
 let weaponPitch = 0;
 
 // ---- Projectile pool (M7) -------------------------------------------------
@@ -288,9 +290,24 @@ export function updateWeaponTransform(): void {
   if (DEPS.o.playerHandJoint >= 0) {
     const wH = WPN.currentWeapon();
     const hz = DEPS.o.WEAPON_HAND_Z[wH], hy = DEPS.o.WEAPON_HAND_Y[wH];
-    baseX = baseX - fx * hz + (-syW * fy) * hy;
-    baseY = baseY - fy * hz + cp * hy;
-    baseZ = baseZ - fz * hz + (cyW * fy) * hy;
+    // Barrel and up as DRAWN: the aim, or the hand's own directions through a roll or a death
+    // (GS.weaponFree, set by main after the pose is built).
+    const kF = GS.weaponFree;
+    let dfx = fx + (GS.weaponFwdX - fx) * kF;
+    let dfy = fy + (GS.weaponFwdY - fy) * kF;
+    let dfz = fz + (GS.weaponFwdZ - fz) * kF;
+    const dfl = Math.sqrt(dfx * dfx + dfy * dfy + dfz * dfz);
+    if (dfl > 0.0001) { dfx = dfx / dfl; dfy = dfy / dfl; dfz = dfz / dfl; }
+    else { dfx = fx; dfy = fy; dfz = fz; }
+    let dux = (-syW * fy) + (GS.weaponUpX - (-syW * fy)) * kF;
+    let duy = cp + (GS.weaponUpY - cp) * kF;
+    let duz = (cyW * fy) + (GS.weaponUpZ - (cyW * fy)) * kF;
+    WB[0] = dfx; WB[1] = dfy; WB[2] = dfz; WB[3] = dux; WB[4] = duy; WB[5] = duz;
+    baseX = baseX - dfx * hz + dux * hy;
+    baseY = baseY - dfy * hz + duy * hy;
+    baseZ = baseZ - dfz * hz + duz * hy;
+  } else {
+    WB[0] = fx; WB[1] = fy; WB[2] = fz; WB[3] = 0; WB[4] = 1; WB[5] = 0;
   }
   weaponX = baseX;
   weaponY = baseY;
@@ -509,10 +526,7 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
 export function drawWeapon(): void {
   const recoilT = GS.muzzleFlashT > 0 ? GS.muzzleFlashT / MUZZLE_FLASH_DUR : 0;
   const recoilBack = recoilT * recoilT * 0.10;
-  const cpW = Math.cos(weaponPitch);
-  const fwx = Math.sin(weaponYaw) * cpW;
-  const fwy = Math.sin(weaponPitch);
-  const fwz = -Math.cos(weaponYaw) * cpW;
+  const fwx = WB[0], fwy = WB[1], fwz = WB[2];
   const wpnNow = WPN.currentWeapon();
   // SH-027 v2 / EN-039 — the gun now points where the camera points, pitch and
   // all. This used to be drawModelRotated, which takes a single Y rotation: the
@@ -535,11 +549,13 @@ export function drawWeapon(): void {
   // so the basis can never collapse.
   const sc = DEPS.o.WEAPON_DRAW_SCALE[wpnNow];
   // X = normalise(cross(worldUp, forward))
-  let rx = 1 * fwz - 0 * fwy;   // (up × f).x = up.y*f.z - up.z*f.y
-  let ry = 0 * fwx - 0 * fwz;   // (up × f).y = up.z*f.x - up.x*f.z
-  let rz = 0 * fwy - 1 * fwx;   // (up × f).z = up.x*f.y - up.y*f.x
+  // "Up" is world up while the weapon is aimed and the hand's up when it rides the hand.
+  let rx = WB[4] * fwz - WB[5] * fwy;
+  let ry = WB[5] * fwx - WB[3] * fwz;
+  let rz = WB[3] * fwy - WB[4] * fwx;
   const rl = Math.sqrt(rx * rx + ry * ry + rz * rz);
-  rx = rx / rl; ry = ry / rl; rz = rz / rl;
+  if (rl > 0.0001) { rx = rx / rl; ry = ry / rl; rz = rz / rl; }
+  else { rx = 1; ry = 0; rz = 0; }
   // Y = cross(forward, X) — completes a right-handed basis (X × Y = Z).
   const ux = fwy * rz - fwz * ry;
   const uy = fwz * rx - fwx * rz;

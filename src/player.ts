@@ -57,15 +57,21 @@ const SPRINT_MUL = 2.0;   // 4.5 -> 9.0 m/s; top speed unchanged from the old 6.
 // 1.84 m, feet in the same place, so a crouched Trooper fits under what a standing one does not
 // and bolts aimed at the chest pass over. Standing back up is refused while something is overhead.
 // The speed is what the crouch-walk clip can cover with planted feet (0.5 m/s authored, 2.4x).
-const CROUCH_MUL = 0.27;  // 4.5 -> ~1.2 m/s
+const CROUCH_MUL = 0.40;  // 4.5 -> 1.8 m/s (the crouch-walk clip covers 0.9 m/s; 2x plays well)
+// Aiming or firing squares the body to the camera and plays the strafe set, whose clips walk at
+// about 1 m/s. Half speed is what they can carry, and it makes moving while aiming a trade.
+const AIM_MUL = 0.5;      // 4.5 -> 2.25 m/s
 const CROUCH_HALF_HEIGHT = 0.28;
 const CROUCH_DROP = HALF_HEIGHT - CROUCH_HALF_HEIGHT;   // the capsule centre comes down this far
-const DODGE_SPEED = 18.0;    // m/s during the burst
-const DODGE_TIME = 0.25;     // seconds
+// The dodge is a shoulder roll (plan 1.5): 0.7 s, fast out of the blocks and slowing as the
+// Trooper comes back to the feet, about 4.5 m in all - the distance the old 0.25 s slide covered.
+const DODGE_SPEED = 10.5;    // m/s at the start of the roll
+const DODGE_SPEED_END = 2.5; // m/s as it ends
+const DODGE_TIME = 0.7;      // seconds
 const DODGE_COOLDOWN = 1.2;
 // Invulnerable for this long from the start of a dodge (plan 1.5): claws whiff and bolts pass
-// through. Shorter than the move itself once the roll clip stretches it; equal to it today.
-const DODGE_IFRAMES = 0.25;
+// through. Shorter than the roll itself: the recovery at the end can be punished.
+const DODGE_IFRAMES = 0.45;
 
 let character: CharacterHandle = 0;
 let shape: ShapeHandle = 0;
@@ -75,8 +81,8 @@ let worldH: WorldHandle = 0;
 // Mutable state in a flat array — the same reason feel.ts does it.
 //   0 dodge time left   1 dodge cooldown   2 dodge dir x   3 dodge dir z
 //   4 grounded (0/1)    5 horizontal speed  6 sprinting (0/1)  7 crouching (0/1)
-//   8 i-frame time left 9 capsule is the crouch one (0/1)
-const P = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+//   8 i-frame time left 9 capsule is the crouch one (0/1)   10 squared to the camera (0/1)
+const P = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export function createPlayer(world: WorldHandle, spawn: Vec3): void {
   worldH = world;
@@ -100,6 +106,14 @@ export function createPlayer(world: WorldHandle, spawn: Vec3): void {
 export function playerGrounded(): boolean { return P[4] !== 0; }
 export function playerSpeed(): number { return P[5]; }
 export function isDodging(): boolean { return P[0] > 0; }
+/// 0 at the start of a roll, 1 at its end (0 when not rolling).
+export function dodgeProgress(): number { return P[0] > 0 ? 1 - P[0] / DODGE_TIME : 0; }
+export function dodgeDirX(): number { return P[2]; }
+export function dodgeDirZ(): number { return P[3]; }
+export function dodgeDuration(): number { return DODGE_TIME; }
+/// Main says each frame whether the body is squared to the camera (aiming or firing):
+/// movement is then at AIM_MUL.
+export function setSquared(on: boolean): void { P[10] = on ? 1 : 0; }
 /// True while a dodge's invulnerability window is open. Every source of damage to the player
 /// from an enemy asks this first.
 export function isInvulnerable(): boolean { return P[8] > 0; }
@@ -143,8 +157,10 @@ export function updatePlayerController(
   // and therefore a real decision, rather than just a speed boost you hold.
   if (P[0] > 0) {
     P[0] = P[0] - dt;
+    const dk = P[0] > 0 ? P[0] / DODGE_TIME : 0;      // 1 -> 0 through the roll
+    const dv = DODGE_SPEED_END + (DODGE_SPEED - DODGE_SPEED_END) * dk;
     setCharacterLinearVelocity(character,
-      vec3(P[2] * DODGE_SPEED, grounded ? 0 : v.y, P[3] * DODGE_SPEED));
+      vec3(P[2] * dv, grounded ? 0 : v.y, P[3] * dv));
     updateCharacter(character, dt, GRAVITY);
     const pv = getCharacterLinearVelocity(character);
     P[4] = grounded ? 1 : 0;
@@ -181,7 +197,8 @@ export function updatePlayerController(
   P[7] = crouching ? 1 : 0;
   const base = grounded ? MOVE_SPEED : AIR_SPEED;
   const speed = crouching ? base * CROUCH_MUL
-              : (sprinting ? base * SPRINT_MUL : base);
+              : (sprinting ? base * SPRINT_MUL
+              : ((P[10] !== 0 && grounded) ? base * AIM_MUL : base));
   const targetX = (forwardFlat.x * -moveZ + rightFlat.x * moveX) * speed;
   const targetZ = (forwardFlat.z * -moveZ + rightFlat.z * moveX) * speed;
 

@@ -1838,7 +1838,7 @@ same day as `3d814a0` and has no ticket of its own.)
 
 Engine: `restartApp()` / `bloom_restart_app` on all nine platform crates.
 
-## SH-056 — AAA plan, Phase 1 (first pass): the player on screen 🟡 *(code landed 2026-11-14; the clip set is open)*
+## SH-056 — AAA plan, Phase 1: the player on screen ✅ *(landed 2026-11-14; jump and weapon-swap clips open)*
 
 What could be done without new animation clips. Judged from the new PLAYERSHOT harness
 (`src/main.ts`): the Trooper from the side, front and behind in 13 states.
@@ -1854,8 +1854,22 @@ What could be done without new animation clips. Judged from the new PLAYERSHOT h
 | 1.6 Crouch | Capsule 1.84 m to 1.20 m with the feet fixed, standing up refused under a roof, camera drops 0.45 m, crouch speed 2.0 to 1.2 m/s (what the clip can cover with planted feet) | PLAYERSHOT crouch frames; roof case not exercised (no low geometry in either arena) |
 | Phase 0 leftover | The melee damage arc pointed away from the attacker (`director.ts`); fixed | read against the projectile path |
 
-Still open in Phase 1: the clip set itself (1.1: strafes, sprint, jump, roll, reload, swap, hit,
-death, a proper idle and walk), the strafe blend that needs it (1.2; the engine call exists:
-`animSetBlend`), the roll (1.5), and a weapon that follows the hand during reload.
+Second pass, same day, after Ralph chose Tripo Text2Motion for the clips ("spend as much as you
+need to"): 16 clips generated on the Trooper rig (380 credits; prompts and outcome in
+`art/source/trooper_clips.md`), 13 of them in the model.
+
+| Plan item | What changed | Checked how |
+|---|---|---|
+| 1.1 Clip set | idle, walk, walk_back, strafe_left / right, sprint, crouch_idle / walk, roll, hit_front / back, death_back / front, plus the old run | every clip rendered from the side in Blender before wiring; PLAYERSHOT |
+| 1.2 Strafe blend | Aiming or firing squares the body to the camera; walk or walk_back is the base clip and the two sidesteps are mixed in by input (`animSetBlend`, phase-locked). Travel directions of the four clips measured in Blender | PLAYERSHOT: strafe right from behind, strafe left from the front, advancing, backing up |
+| 1.2 Speeds | Aiming / firing moves at half speed (2.25 m/s: the walk set covers about 1 m/s); crouch back up to 1.8 m/s on the new 0.9 m/s crouch-walk | measured clip speeds; **the feel is not played** |
+| 1.5 Roll | The dodge is a 0.7 s shoulder roll (10.5 to 2.5 m/s, about 4.5 m, 0.45 s invulnerable), body turned into the roll, weapon following the hand | PLAYERSHOT early and late in the roll |
+| 1.3 Reload | The off hand travels handguard, magazine well, belt, magazine well, handguard by IK, timed to each weapon's reload | PLAYERSHOT mid-reload, rifle only |
+| Hit reaction | A hit plays the front or back flinch on the upper-body layer for 0.75 s | PLAYERSHOT |
+| Death | Falls backward when hit from the front, forward when hit from behind; the weapon stays in the hand | PLAYERSHOT falling and down |
+
+Still open: a jump clip (the generated one barely leaves the ground, so a jump still plays the
+gait), a weapon-swap animation, turn-in-place, and nothing here has been played by a person:
+every check above is a still frame.
 
 Engine: EN-064 (`animSetBlend`, `animSetJointRotation`, `animSetIK`, `animSetIKPole`, `animTime`).

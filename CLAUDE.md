@@ -231,7 +231,9 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
 - Characters face glTF **+X**, +Y up, feet at the origin, authored in metres (scale tables are 1).
 - Clips are addressed **by index**. Every creature carries the same nine in sorted order:
   0 c_attack, 1 c_run, 2 death, 3 fall, 4 hit_to_body_01, 5 idle, 6 run, 7 slash, 8 walk
-  (c_* are that creature's own motion). Trooper: 0 crouch_idle, 1 crouch_walk, 2 idle, 3 run, 4 walk.
+  (c_* are that creature's own motion). Trooper (14 clips, `PLAYER_ANIM_*` in `src/main.ts`):
+  0 crouch_idle, 1 crouch_walk, 2 death_back, 3 death_front, 4 hit_back, 5 hit_front, 6 idle, 7 roll,
+  8 run, 9 sprint, 10 strafe_left, 11 strafe_right, 12 walk, 13 walk_back. Prompts: `art/source/trooper_clips.md`.
 - Trees are two primitives, bark then leaves (`TREE_GLB_PARTS`); leaves are alpha MASK, double sided.
 - Mixamo skeleton under a static `Root` bone that the importer adds: 66 joints (67 on the Trooper
   with `tag_weapon`). `Root` must stay joint 0: with root motion off the engine pins joint 0's
@@ -239,11 +241,15 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   lower the body. The engine has 1024 joint matrices per frame for ALL skinned draws:
   67 + 7 kinds x 2 pool slots x 66 = 991, so there is no room for a third pool slot.
 - The Trooper's rig sits on top of its clips (engine EN-064, the player block of `src/main.ts`):
-  the spine leans with the camera pitch, the off hand is pulled onto the weapon's handguard by IK,
-  and every clip except the run takes its torso and arms from the run clip (the only one that
-  holds the rifle; see SH-056). `build_cast.sh` closes the Trooper's fingers with `--grip`. The
-  weapon tables (`WEAPON_HAND_*`, `WEAPON_GRIP_*`) say where each hand holds each model. Judge any
-  change with the PLAYERSHOT harness: 13 side / front / back captures of the Trooper.
+  the spine leans with the camera pitch, the off hand is pulled onto the weapon's handguard by IK
+  (and walks handguard -> magazine -> belt -> magazine during a reload), and every gait except the
+  run takes its torso and arms from the run clip, which holds the rifle best (see SH-056). Aiming or
+  firing squares the body to the camera and blends walk / walk_back with the two strafes
+  (`animSetBlend`); otherwise the body faces its travel. Roll and death own the whole body and the
+  weapon then follows the hand. `build_cast.sh` closes the Trooper's fingers with `--grip`. The
+  weapon tables (`WEAPON_HAND_*`, `WEAPON_GRIP_*`, `WEAPON_MAG_*`) say where the hands go on each
+  model. Judge any change with the PLAYERSHOT harness: 26 captures of the Trooper (poses from three
+  sides, all four weapons, roll, reload, hit, death).
 - Enemies die by their authored clip; the engine's auto-ragdoll is switched off (`DEATH_RAGDOLL` in
   `src/main.ts`) because it mangles this skeleton.
 - Developer overlays (render-pass line, diagnostics bar) are hidden; F1 or `--debughud 1` shows them.

@@ -45,6 +45,7 @@ import {
 } from 'bloom/physics';
 import {
   animPlay, animSetLayer, animUpdate, animSetJointRotation, animSetIK, animSetIKPole,
+  animSetBlend, animClipDuration,
   findJoint, jointWorld,
   createTextureArrayFromFiles, createTextureArrayFromTexels, setMaterialTextureArray,
   TEXTURE_ARRAY_ALBEDO, TEXTURE_ARRAY_NORMAL, TEXTURE_ARRAY_MR,
@@ -55,6 +56,7 @@ import { initInput, readInput, drawTouchControls, MOBILE, ANDROID, WEB } from '.
 import {
   createPlayer, updatePlayerController, playerPosition,
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting, isCrouching,
+  dodgeDirX, dodgeDirZ, dodgeDuration, setSquared,
   setPlayerPosition,
 } from './player';
 import * as W from './world-runtime';
@@ -1017,28 +1019,34 @@ const animPlayer = loadModelAnimation('assets/models/player_trooper.glb');
 // relative to the hips over the frames it is planted. The run value used to be
 // 5.5 (a guess, 70% too high) and normal movement played the WALK clip, which
 // at 4.5 m/s wanted 2.8x and hit the clamp: that was the foot-slide.
-const ANIM_WALK_SPEED = 1.7;   // a steady tactical walk
+const ANIM_WALK_SPEED = 1.15;  // a steady march
 const ANIM_RUN_SPEED  = 3.25;  // a jog; sped up it carries the sprint too
 // Below this ground speed the walk clip is used, above it the run clip. It sits
 // between the speeds the game actually produces (crouch 2.0, walk 4.5, sprint
 // 9.0), so there is no boundary to flicker on.
 const ANIM_RUN_ABOVE = 2.8;
 
-const PLAYER_ANIM_IDLE   = 2;
-const PLAYER_ANIM_WALK   = 4;
-const PLAYER_ANIM_RUN    = 3;
-const PLAYER_ANIM_ATTACK = 2;   // unused; the aim pose is part of every clip
-// SH-048 — crouch clips (bsuit indices). Because the body turns to face its
-// movement direction (SH-047), the character always crouch-walks "forward"
-// relative to itself, so the single crouch_forward clip covers every heading —
-// the directional crouch_left/right/back clips (20/21/19) are not needed.
+// The Trooper's clips, by sorted name (tools/gen/build_cast.sh prints the list; the prompts are in
+// art/source/trooper_clips.md). Second Text2Motion batch, 2026-11-14.
 const PLAYER_ANIM_CROUCH     = 0;    // crouch idle
 const PLAYER_ANIM_CROUCH_FWD = 1;    // crouch walk
-// Authored ground speed of the crouch_walk clip, measured the same way. The
-// game's crouch speed is 2.0 m/s, four times this, and no playback rate makes a
-// creep look like that: the rate is capped (see the clamp) and some slide
-// remains until the Trooper gets a faster crouch clip (docs/aaa-plan.md 1.1).
-const ANIM_CROUCH_SPEED = 0.5;
+const PLAYER_ANIM_DEATH_BACK = 2;    // shot from the front, falls onto the back
+const PLAYER_ANIM_DEATH_FRONT = 3;   // shot from behind, pitches forward
+const PLAYER_ANIM_HIT_BACK   = 4;
+const PLAYER_ANIM_HIT_FRONT  = 5;
+const PLAYER_ANIM_IDLE       = 6;
+const PLAYER_ANIM_ROLL       = 7;
+const PLAYER_ANIM_RUN        = 8;
+const PLAYER_ANIM_SPRINT     = 9;
+const PLAYER_ANIM_STRAFE_L   = 10;
+const PLAYER_ANIM_STRAFE_R   = 11;
+const PLAYER_ANIM_WALK       = 12;
+const PLAYER_ANIM_WALK_BACK  = 13;
+// Authored ground speeds, measured like the two above (planted-foot median, m/s).
+const ANIM_CROUCH_SPEED = 0.9;
+const ANIM_SPRINT_SPEED = 3.0;
+const ANIM_BACK_SPEED   = 1.05;
+const ANIM_STRAFE_SPEED = 1.0;
 const PLAYER_SCALE = 1.0;
 const PLAYER_MODEL_Y_OFFSET = -0.95;    // character capsule center -> feet
 let playerAnimT = 0;
@@ -1092,6 +1100,8 @@ const WEAPON_DRAW_SCALE = [1.0, 1.0, 1.0, 1.0];
 // read on screen as "the weapon isn't rendering at all". Sockets fail silently
 // like that; an exact tag is the whole defence.
 const playerHandJoint = findJoint(animPlayer, 'tag_weapon');
+const PLAYER_ROLL_DUR = animClipDuration(animPlayer, PLAYER_ANIM_ROLL);
+const PLAYER_HIT_DUR = 0.75;
 // Plan 1.3 (engine EN-064): the torso follows the camera's pitch through the three spine joints,
 // and the off hand is pulled onto the weapon's foregrip. Exact names, for the reason above.
 const plSpine0 = findJoint(animPlayer, 'mixamorig:Spine');
@@ -1108,11 +1118,18 @@ const WEAPON_GRIP_Y = [-0.06, -0.09, -0.10, -0.14];
 // Where the trigger hand holds it: the pistol grip, measured from the model's rear along the
 // barrel, and how far the bore line sits above the hand. The weapon is drawn so that this point
 // is on the weapon socket (before 2026-11 the socket held the very end of the stock).
+// The magazine well, same frame: where the off hand goes during a reload.
+const WEAPON_MAG_Z = [0.47, 0.07, 0.52, 0.46];
+const WEAPON_MAG_Y = [-0.17, -0.13, -0.18, -0.16];
 const WEAPON_HAND_Z = [0.32, 0.07, 0.38, 0.36];
 const WEAPON_HAND_Y = [0.07, 0.08, 0.10, 0.09];
 // Eased 0..1: how firmly the off hand is held on the weapon (let go for a reload or a dodge).
-//   0 off-hand hold   1 standing-pose layer weight
-const PLRIG = [0, 0];
+//   0 off-hand hold          1 upper-body layer weight   2 squared-to-camera timer
+//   3 death clip (-1 alive)  4 strafe-left weight        5 strafe-right weight
+//   6 hit reaction time left 7 GS.lastHitT last frame    8 hit clip
+//   9 clip on the layer      10-12 weapon forward and 13-15 weapon up, in the hand's own frame
+//   16 those are known (0/1) 17 weapon follows the hand (eased 0..1)
+const PLRIG = [0, 0, 0, -1, 0, 0, 0, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0];
 // ANIMDBG only — a joint that swings hard in any gait, so "is the pose actually
 // moving?" is a number and not an opinion.
 const dbgAnkle = findJoint(animPlayer, 'ankle.R');
@@ -1334,7 +1351,9 @@ const PSHOTS = [
   0.20,  1, 0, 1, 0, 0, 0,     // 11 aiming, backing up
   0.20, -1, 0, 1, 0, 0, 0,     // 12 aiming, advancing
 ];
-const PSHOT_COUNT = 19;   // 13 rows, then rows 3 and 5 again with each of the other three weapons
+const PSHOT_COUNT = 26;   // 13 rows, rows 3 and 5 again with each of the other three weapons,
+                          // then seven action shots: roll, reload, hit, late in a roll, strafe
+                          // left from the front, death (falling, down)
 const PSHOT_FRAMES = 50;
 
 // ---- COMBATSHOT harness -----------------------------------------------------
@@ -1984,9 +2003,27 @@ function gameFrame(_hostDt: number): void {
   }
   if (PLAYERSHOT) {
     if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
-    GS.playerHP = 100; DIR.waveBreakTimer = 9999;
+    DIR.waveBreakTimer = 9999;
     const psI = Math.floor((testFrame - 30) / PSHOT_FRAMES);
-    if (psI >= 0 && psI < PSHOT_COUNT) {
+    if (psI < 24) GS.playerHP = 100;
+    if (psI >= 19 && psI < PSHOT_COUNT) {
+      const act = psI - 19;
+      const fr = (testFrame - 30) % PSHOT_FRAMES;
+      if (WPN.currentWeapon() !== 0) WPN.selectWeapon(0);
+      CAM[0] = 0; CAM[1] = 0.25;
+      input.moveX = 0; input.moveZ = 0; input.aimDown = false;
+      input.crouchDown = false; input.sprintDown = false;
+      if (act === 0 && fr === 0) setPlayerPosition(spawnPos);   // back into the open
+      if (act === 0) { if (fr >= 26) input.moveZ = -1; input.dodgePressed = fr === 32; }
+      if (act === 1) {
+        if (fr >= 2 && fr < 9) { input.fireDown = true; input.firePressed = fr === 2; }
+        input.reloadPressed = fr === 20;
+      }
+      if (act === 2 && fr === 36) { GS.lastHitAngle = 0; GS.lastHitT = 1.4; }
+      if (act === 3) { if (fr >= 16) input.moveZ = -1; input.dodgePressed = fr === 22; }
+      if (act === 4) { input.moveX = -1; input.aimDown = true; }
+      if (act === 5 && fr === 15) { GS.lastHitAngle = 0; GS.playerHP = 0; GS.gameOver = true; }
+    } else if (psI >= 0 && psI < 19) {
       let row = psI;
       if (psI >= 13) {
         const wS = 1 + Math.floor((psI - 13) / 2);
@@ -2267,7 +2304,8 @@ function gameFrame(_hostDt: number): void {
   if (PLAYERSHOT) {
     const psI = Math.floor((testFrame - 30) / PSHOT_FRAMES);
     if (psI >= 0 && psI < PSHOT_COUNT) {
-      const view = PSHOTS[(psI < 13 ? psI : (((psI - 13) % 2) === 0 ? 3 : 5)) * PSHOT_N + 6];
+      let view = psI === 23 ? 1 : 0;
+      if (psI < 19) view = PSHOTS[(psI < 13 ? psI : (((psI - 13) % 2) === 0 ? 3 : 5)) * PSHOT_N + 6];
       const ppS = playerPosition();
       // camera yaw is pinned at 0: the Trooper faces -Z, its right is +X
       let ox = 3.2, oz = 0;
@@ -2683,15 +2721,29 @@ function gameFrame(_hostDt: number): void {
     // otherwise face backward). Aiming down sights forces forward — you are
     // pointing the gun, not walking. `playing` gates it so the menu backdrop and
     // the death pose don't spin.
+    // Squared to the camera: aiming or firing (and for half a second after), the body faces
+    // where the gun points and the legs strafe under it. Otherwise it turns to face its travel.
+    if (playing && (input.aimDown || input.fireDown) && !isSprinting()) PLRIG[2] = 0.5;
+    else if (PLRIG[2] > 0) PLRIG[2] = PLRIG[2] - dt;
+    const squared = playing && PLRIG[2] > 0;
+    setSquared(squared);
+    const rolling = playing && isDodging();
     let faceTarget = 0;
-    if (playing && !input.aimDown && (input.moveX !== 0 || input.moveZ !== 0)) {
+    let turnRate = PLAYER_TURN_RATE;
+    if (rolling) {
+      // A roll goes head first: face the dodge direction (camera-relative), quickly.
+      const rf = dodgeDirX() * Math.sin(camYaw) - dodgeDirZ() * Math.cos(camYaw);
+      const rr = dodgeDirX() * Math.cos(camYaw) + dodgeDirZ() * Math.sin(camYaw);
+      faceTarget = Math.atan2(rr, rf);
+      turnRate = 40;
+    } else if (playing && !squared && (input.moveX !== 0 || input.moveZ !== 0)) {
       faceTarget = Math.atan2(input.moveX, -input.moveZ);
     }
     // Ease along the SHORTEST arc, so S+A -> S+D turns the near way, not 270°.
     let dOff = faceTarget - playerFaceOffset;
     while (dOff > Math.PI) dOff = dOff - Math.PI * 2;
     while (dOff < -Math.PI) dOff = dOff + Math.PI * 2;
-    playerFaceOffset = playerFaceOffset + dOff * (1 - Math.exp(-PLAYER_TURN_RATE * dt));
+    playerFaceOffset = playerFaceOffset + dOff * (1 - Math.exp(-turnRate * dt));
 
     // Rendered facing = camYaw + offset (the sign quirk above inverts rotY, so
     // the offset is SUBTRACTED here to add it to the rendered facing).
@@ -2713,67 +2765,135 @@ function gameFrame(_hostDt: number): void {
     const spd = playerSpeed();
     const sprinting = isSprinting();
     const crouching = isCrouching();
-    // Crouch is its own locomotion tier: crouch-walk when moving, crouch-idle
-    // when still. Otherwise the usual sprint/walk/idle ladder.
     const moving = spd > 0.4;
-    const wantClip = crouching
-      ? (moving ? PLAYER_ANIM_CROUCH_FWD : PLAYER_ANIM_CROUCH)
-      : (moving ? (spd > ANIM_RUN_ABOVE ? PLAYER_ANIM_RUN : PLAYER_ANIM_WALK)
-                : PLAYER_ANIM_IDLE);
+    const deadNow = GS.gameOver && GS.playerHP <= 0;
+    if (!deadNow) {
+      PLRIG[3] = -1;
+    } else if (PLRIG[3] < 0) {
+      // Fall away from the blow: hit from the front goes over backward.
+      const fromFront = Math.abs(GS.lastHitAngle) < Math.PI / 2;
+      PLRIG[3] = fromFront ? PLAYER_ANIM_DEATH_BACK : PLAYER_ANIM_DEATH_FRONT;
+    }
+    // Whole-body moves: the clip owns every joint, nothing is layered or pulled on top.
+    const freeBody = deadNow || rolling;
 
-    // Playback rate = actual speed / the speed the clip was authored to travel
-    // at. That is what plants the feet: the stride then covers exactly the ground
-    // the character does. Clamp generously — outside this the cycle stops reading
-    // as a gait at all — but the clamp should never be REACHED in normal play. If
-    // it is, the movement speed and the clip no longer belong together, and the
-    // fix is the speed constant, not a wider clamp.
-    const authored = wantClip === PLAYER_ANIM_RUN ? ANIM_RUN_SPEED
-                   : wantClip === PLAYER_ANIM_WALK ? ANIM_WALK_SPEED
-                   : wantClip === PLAYER_ANIM_CROUCH_FWD ? ANIM_CROUCH_SPEED
-                   : 1;
-    // Idle poses (standing idle, crouch idle) play at 1×; the moving clips scale.
-    const rate = (wantClip === PLAYER_ANIM_IDLE || wantClip === PLAYER_ANIM_CROUCH)
-      ? 1
-      : Math.max(0.5, Math.min(wantClip === PLAYER_ANIM_RUN ? 2.9 : 2.4, spd / authored));
-    // ---- the rig over the clips (plan 1.3) ----
-    // Aim offset: lean the torso with the camera pitch. The model faces +X with +Y up, so its
-    // right is +Z and a positive turn about +Z lifts the chest. It fades out as the body turns
-    // away from the camera (running sideways from the hip), where "pitch" is no longer forward.
+    // One base clip, chosen by what the player is DOING. Playback rate = ground speed / the
+    // speed the clip was authored to travel at, which is what plants the feet.
+    let wantClip = PLAYER_ANIM_IDLE;
+    let rate = 1;
+    let loopClip = true;
+    let fade = 0.15;
+    let wantL = 0;
+    let wantR = 0;
+    if (deadNow) {
+      wantClip = PLRIG[3]; loopClip = false; fade = 0.08;
+    } else if (rolling) {
+      wantClip = PLAYER_ANIM_ROLL; loopClip = false; fade = 0.06;
+      rate = PLAYER_ROLL_DUR / dodgeDuration();
+    } else if (crouching) {
+      wantClip = moving ? PLAYER_ANIM_CROUCH_FWD : PLAYER_ANIM_CROUCH;
+      if (moving) rate = Math.max(0.5, Math.min(2.4, spd / ANIM_CROUCH_SPEED));
+    } else if (moving && squared && !sprinting) {
+      // The strafe blend (plan 1.2): forward or back as the base clip, the two sidesteps mixed
+      // in by how sideways the input is. All four are phase-locked by the engine (EN-064).
+      let mf = -input.moveZ;
+      let mr = input.moveX;
+      let mn = Math.abs(mf) + Math.abs(mr);
+      if (mn < 0.01) { mf = 1; mr = 0; mn = 1; }     // coasting to a stop
+      mf = mf / mn; mr = mr / mn;
+      wantClip = mf >= 0 ? PLAYER_ANIM_WALK : PLAYER_ANIM_WALK_BACK;
+      wantL = mr < 0 ? -mr : 0;
+      wantR = mr > 0 ? mr : 0;
+      const authored = Math.abs(mf) * (mf >= 0 ? ANIM_WALK_SPEED : ANIM_BACK_SPEED)
+                     + (wantL + wantR) * ANIM_STRAFE_SPEED;
+      rate = Math.max(0.5, Math.min(2.4, spd / authored));
+    } else if (moving) {
+      if (sprinting) {
+        wantClip = PLAYER_ANIM_SPRINT;
+        rate = Math.max(0.5, Math.min(2.9, spd / ANIM_SPRINT_SPEED));
+      } else if (spd > ANIM_RUN_ABOVE) {
+        wantClip = PLAYER_ANIM_RUN;
+        rate = Math.max(0.5, Math.min(2.9, spd / ANIM_RUN_SPEED));
+      } else {
+        wantClip = PLAYER_ANIM_WALK;
+        rate = Math.max(0.5, Math.min(2.4, spd / ANIM_WALK_SPEED));
+      }
+    }
     {
+      const kB = 1 - Math.exp(-12 * dt);
+      PLRIG[4] = PLRIG[4] + (wantL - PLRIG[4]) * kB;
+      PLRIG[5] = PLRIG[5] + (wantR - PLRIG[5]) * kB;
+      animSetBlend(animPlayer, 0, PLAYER_ANIM_STRAFE_L, PLRIG[4] > 0.01 ? PLRIG[4] : 0);
+      animSetBlend(animPlayer, 1, PLAYER_ANIM_STRAFE_R, PLRIG[5] > 0.01 ? PLRIG[5] : 0);
+    }
+
+    // ---- the rig over the clips (plan 1.3, engine EN-064) ----
+    // The aim in MODEL space (the space jointWorld reports): the camera's forward turned back by
+    // the model yaw, and the weapon's up, perpendicular to it in the vertical plane.
+    const apR = -CAM[1];
+    const cpR = Math.cos(apR);
+    const wfxR = Math.sin(camYaw) * cpR, wfyR = Math.sin(apR), wfzR = -Math.cos(camYaw) * cpR;
+    const cMR = Math.cos(modelYaw), sMR = Math.sin(modelYaw);
+    const aFX = wfxR * cMR - wfzR * sMR, aFY = wfyR, aFZ = wfxR * sMR + wfzR * cMR;
+    const hlR = Math.sqrt(aFX * aFX + aFZ * aFZ);
+    const aUX = hlR > 0.001 ? -aFX * aFY / hlR : 0, aUY = hlR, aUZ = hlR > 0.001 ? -aFZ * aFY / hlR : 0;
+    {
+      // Aim offset: lean the torso with the camera pitch. The model faces +X with +Y up, so its
+      // right is +Z and a positive turn about +Z lifts the chest. It fades out as the body turns
+      // away from the camera (running sideways from the hip), where "pitch" is no longer forward.
       const facing = Math.cos(playerFaceOffset);
       let lean = -CAM[1] * AIM_SPINE_SHARE * (facing > 0 ? facing : 0);
-      if (!playing) lean = 0;
+      if (!playing || freeBody) lean = 0;
       if (lean > AIM_SPINE_MAX) lean = AIM_SPINE_MAX;
       if (lean < -AIM_SPINE_MAX) lean = -AIM_SPINE_MAX;
       animSetJointRotation(animPlayer, 0, plSpine0, 0, 0, 1, lean * 0.30);
       animSetJointRotation(animPlayer, 1, plSpine1, 0, 0, 1, lean * 0.35);
       animSetJointRotation(animPlayer, 2, plSpine2, 0, 0, 1, lean * 0.35);
 
+      // A hit jolts the upper body: the flinch clip rides the layer for most of a second.
+      if (GS.lastHitT > PLRIG[7] + 0.5 && !deadNow) {
+        PLRIG[6] = PLAYER_HIT_DUR;
+        PLRIG[8] = Math.abs(GS.lastHitAngle) < Math.PI / 2 ? PLAYER_ANIM_HIT_FRONT : PLAYER_ANIM_HIT_BACK;
+      }
+      PLRIG[7] = GS.lastHitT;
+      if (PLRIG[6] > 0) PLRIG[6] = PLRIG[6] - dt;
+
       // Off hand onto the foregrip. The weapon is drawn at the weapon socket, pointing down the
-      // aim; the grip is a fixed point on it. Everything here is model space: the socket's
-      // position from the last pose, and the aim turned back by the model yaw.
-      const holdWant = (playing && !WPN.isReloading() && !isDodging() && plLeftHand >= 0
-                        && playerHandJoint >= 0) ? 1 : 0;
+      // aim; the grip is a fixed point on it. Let go for a flinch, a roll and death.
+      const holdWant = (playing && !freeBody && PLRIG[6] <= 0
+                        && plLeftHand >= 0 && playerHandJoint >= 0) ? 1 : 0;
       PLRIG[0] = PLRIG[0] + (holdWant - PLRIG[0]) * (1 - Math.exp(-14 * dt));
       if (PLRIG[0] > 0.01) {
         const wNow = WPN.currentWeapon();
-        const ap = -CAM[1];
-        const cpA = Math.cos(ap);
-        const wfx = Math.sin(camYaw) * cpA, wfy = Math.sin(ap), wfz = -Math.cos(camYaw) * cpA;
-        const cM = Math.cos(modelYaw), sM = Math.sin(modelYaw);
-        // world direction -> model direction (the inverse of the lift in combat.ts)
-        const fX = wfx * cM - wfz * sM, fY = wfy, fZ = wfx * sM + wfz * cM;
-        // up of the weapon frame: perpendicular to the barrel, in the vertical plane
-        const hl = Math.sqrt(fX * fX + fZ * fZ);
-        const uX = hl > 0.001 ? -fX * fY / hl : 0, uY = hl, uZ = hl > 0.001 ? -fZ * fY / hl : 0;
         const gz = (WEAPON_GRIP_Z[wNow] - WEAPON_HAND_Z[wNow]) / PLAYER_SCALE;
         const gy = (WEAPON_GRIP_Y[wNow] + WEAPON_HAND_Y[wNow]) / PLAYER_SCALE;
         const sx = jointWorld(animPlayer, playerHandJoint, 12);
         const sy = jointWorld(animPlayer, playerHandJoint, 13);
         const sz = jointWorld(animPlayer, playerHandJoint, 14);
-        animSetIK(animPlayer, 0, plLeftHand,
-          sx + fX * gz + uX * gy, sy + fY * gz + uY * gy, sz + fZ * gz + uZ * gy,
-          PLRIG[0], true);
+        let tx = sx + aFX * gz + aUX * gy;
+        let ty = sy + aFY * gz + aUY * gy;
+        let tz = sz + aFZ * gz + aUZ * gy;
+        if (WPN.isReloading()) {
+          // The reload is this hand's journey, timed to the weapon's own reload: handguard ->
+          // magazine well (pull the empty) -> belt at the left hip -> magazine well (seat the
+          // new one, a short push up) -> handguard. The Text2Motion reload clip waved the hand
+          // at the helmet instead, and could not follow four different magazine positions.
+          const mz = (WEAPON_MAG_Z[wNow] - WEAPON_HAND_Z[wNow]) / PLAYER_SCALE;
+          const my = (WEAPON_MAG_Y[wNow] + WEAPON_HAND_Y[wNow]) / PLAYER_SCALE;
+          const mgx = sx + aFX * mz + aUX * my, mgy = sy + aFY * mz + aUY * my, mgz = sz + aFZ * mz + aUZ * my;
+          // belt: behind, below and left of the trigger hand (model -X back, -Y down, -Z left)
+          const bx = sx - 0.22, by = sy - 0.42, bz = sz - 0.30;
+          const rp = WPN.reloadProgress();
+          let ax = tx, ay = ty, az = tz, cx = mgx, cy = mgy, cz = mgz, u = 0;
+          if (rp < 0.18) { u = rp / 0.18; }
+          else if (rp < 0.45) { ax = mgx; ay = mgy; az = mgz; cx = bx; cy = by; cz = bz; u = (rp - 0.18) / 0.27; }
+          else if (rp < 0.72) { ax = bx; ay = by; az = bz; cx = mgx; cy = mgy - 0.05; cz = mgz; u = (rp - 0.45) / 0.27; }
+          else if (rp < 0.82) { ax = mgx; ay = mgy - 0.05; az = mgz; u = (rp - 0.72) / 0.10; }
+          else { ax = mgx; ay = mgy; az = mgz; cx = tx; cy = ty; cz = tz; u = (rp - 0.82) / 0.18; }
+          u = u * u * (3 - 2 * u);
+          tx = ax + (cx - ax) * u; ty = ay + (cy - ay) * u; tz = az + (cz - az) * u;
+        }
+        animSetIK(animPlayer, 0, plLeftHand, tx, ty, tz, PLRIG[0], true);
         // elbow down and out to the left (model left is -Z)
         animSetIKPole(animPlayer, 0, sx, sy - 1.0, sz - 0.6, true);
       } else {
@@ -2781,25 +2901,71 @@ function gameFrame(_hostDt: number): void {
       }
     }
     GS.playerModelYaw = modelYaw;
-    // Of the Trooper's five Text2Motion clips only the run carries the rifle properly (stock to
-    // the shoulder, both hands on it). Idle, walk and both crouch clips are hunched with the gun
-    // arm stretched out. So everything except the run takes its torso and arms from the run
-    // clip, played at a crawl so it reads as breathing. A stand-in until the Trooper has real
-    // rifle clips (plan 1.1).
+    // The upper-body layer, one tenant at a time: a flinch, else the rifle carry. The carry is the run clip's torso and arms at a crawl (it reads as breathing): the
+    // run is still the clip that holds the rifle best, and using it under every gait keeps the
+    // weapon in one place whatever the legs are doing.
     {
-      const standing = wantClip !== PLAYER_ANIM_RUN;
-      PLRIG[1] = PLRIG[1] + ((standing ? 1 : 0) - PLRIG[1]) * (1 - Math.exp(-10 * dt));
-      if (PLRIG[1] > 0.01 && plSpine0 >= 0) {
-        animSetLayer(animPlayer, PLAYER_ANIM_RUN, PLRIG[1], plSpine0, 0.06, true);
+      let layerClip = -1;
+      let layerSpeed = 0.06;
+      let layerLoop = true;
+      if (freeBody) {
+        layerClip = -1;
+      } else if (PLRIG[6] > 0) {
+        layerClip = PLRIG[8]; layerSpeed = 1; layerLoop = false;
+      } else if (wantClip !== PLAYER_ANIM_RUN) {
+        layerClip = PLAYER_ANIM_RUN;
+      }
+      if (layerClip !== PLRIG[9]) { PLRIG[1] = 0; PLRIG[9] = layerClip; }
+      PLRIG[1] = PLRIG[1] + ((layerClip >= 0 ? 1 : 0) - PLRIG[1]) * (1 - Math.exp(-14 * dt));
+      if (layerClip >= 0 && PLRIG[1] > 0.01 && plSpine0 >= 0) {
+        animSetLayer(animPlayer, layerClip, PLRIG[1], plSpine0, layerSpeed, layerLoop);
       } else {
         animSetLayer(animPlayer, -1, 0, -1, 1, false);
       }
     }
-    animPlay(animPlayer, wantClip, 0.15, rate, true);
+    animPlay(animPlayer, wantClip, fade, rate, loopClip);
     animUpdate(animPlayer, dt, PLAYER_SCALE,
       pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z, modelYaw);
     drawModel(mdlPlayer, vec3(pp.x, pp.y + PLAYER_MODEL_Y_OFFSET, pp.z),
               PLAYER_SCALE, WHITE);
+
+    // The weapon points down the aim while the Trooper holds it, and stays in the HAND through
+    // a roll or a death. While it is held, learn where "down the barrel" and "weapon up" are in
+    // the hand's own frame; when the body goes free, turn those back out through the hand.
+    if (playerHandJoint >= 0) {
+      const h0 = jointWorld(animPlayer, playerHandJoint, 0);
+      const h1 = jointWorld(animPlayer, playerHandJoint, 1);
+      const h2 = jointWorld(animPlayer, playerHandJoint, 2);
+      const h4 = jointWorld(animPlayer, playerHandJoint, 4);
+      const h5 = jointWorld(animPlayer, playerHandJoint, 5);
+      const h6 = jointWorld(animPlayer, playerHandJoint, 6);
+      const h8 = jointWorld(animPlayer, playerHandJoint, 8);
+      const h9 = jointWorld(animPlayer, playerHandJoint, 9);
+      const h10 = jointWorld(animPlayer, playerHandJoint, 10);
+      PLRIG[17] = PLRIG[17] + ((freeBody ? 1 : 0) - PLRIG[17]) * (1 - Math.exp(-16 * dt));
+      if (!freeBody && PLRIG[0] > 0.9 && PLRIG[17] < 0.05) {
+        const kC = PLRIG[16] === 0 ? 1 : 0.15;
+        PLRIG[10] = PLRIG[10] + ((h0 * aFX + h1 * aFY + h2 * aFZ) - PLRIG[10]) * kC;
+        PLRIG[11] = PLRIG[11] + ((h4 * aFX + h5 * aFY + h6 * aFZ) - PLRIG[11]) * kC;
+        PLRIG[12] = PLRIG[12] + ((h8 * aFX + h9 * aFY + h10 * aFZ) - PLRIG[12]) * kC;
+        PLRIG[13] = PLRIG[13] + ((h0 * aUX + h1 * aUY + h2 * aUZ) - PLRIG[13]) * kC;
+        PLRIG[14] = PLRIG[14] + ((h4 * aUX + h5 * aUY + h6 * aUZ) - PLRIG[14]) * kC;
+        PLRIG[15] = PLRIG[15] + ((h8 * aUX + h9 * aUY + h10 * aUZ) - PLRIG[15]) * kC;
+        PLRIG[16] = 1;
+      }
+      if (PLRIG[16] !== 0) {
+        const mfx = h0 * PLRIG[10] + h4 * PLRIG[11] + h8 * PLRIG[12];
+        const mfy = h1 * PLRIG[10] + h5 * PLRIG[11] + h9 * PLRIG[12];
+        const mfz = h2 * PLRIG[10] + h6 * PLRIG[11] + h10 * PLRIG[12];
+        const mux = h0 * PLRIG[13] + h4 * PLRIG[14] + h8 * PLRIG[15];
+        const muy = h1 * PLRIG[13] + h5 * PLRIG[14] + h9 * PLRIG[15];
+        const muz = h2 * PLRIG[13] + h6 * PLRIG[14] + h10 * PLRIG[15];
+        // model -> world, the same lift combat.ts gives the socket position
+        GS.weaponFwdX = mfx * cMR + mfz * sMR; GS.weaponFwdY = mfy; GS.weaponFwdZ = -mfx * sMR + mfz * cMR;
+        GS.weaponUpX = mux * cMR + muz * sMR;  GS.weaponUpY = muy;  GS.weaponUpZ = -mux * sMR + muz * cMR;
+        GS.weaponFree = PLRIG[17];
+      }
+    }
 
     // ANIMDBG readback — must run AFTER animUpdate, or the joint query reads
     // last frame's pose and the amplitude is a frame late.

@@ -34,6 +34,11 @@ export const GS: any = {
   // The yaw the Trooper's skeleton was last posed with (what animUpdate got), so anything
   // that lifts a joint out of model space uses the same number the pose did.
   playerModelYaw: 0,
+  // How much the weapon follows the hand instead of the aim (0 held and aimed .. 1 through a
+  // roll or a death), and the hand-driven barrel and up directions in world space.
+  weaponFree: 0,
+  weaponFwdX: 0, weaponFwdY: 0, weaponFwdZ: 1,
+  weaponUpX: 0, weaponUpY: 1, weaponUpZ: 0,
   muzzleX: 0,
   muzzleY: 0,
   muzzleZ: 0,
