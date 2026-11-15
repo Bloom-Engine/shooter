@@ -463,7 +463,7 @@ find are all loaded by constructed names.
 
 ---
 
-## The engine pass of 2026-11-15 (engine ticket EN-065, engine branch `local/phone`, commit `5ec4a3f`)
+## The engine pass of 2026-11-15 (engine ticket EN-065, engine branch `local/phone`, commits `5ec4a3f` and `0e793d5`, not pushed)
 
 Ralph asked for the engine items this plan called blocked. What it changed for the game:
 
@@ -494,9 +494,25 @@ Ralph asked for the engine items this plan called blocked. What it changed for t
 - **Crash reports**: a panic or fatal signal writes `crash-report.txt`; the next launch moves
   it to `crash-report.last.txt` and says so on stdout. No crash was provoked to prove it.
 - **UTF-8 file reads (EN-059)** were already correct; the garbled arena name was in the file.
-- **Not done in the engine:** lamp shadows on the house and terrain, volumetric fog, a
-  resolution list and monitor choice, the connected pad's type, grass LOD, more than 1024
-  joint matrices (it now warns when the limit is hit).
+- **Monitors**: the engine lists displays and moves the game between them (`getMonitorCount`,
+  `getMonitorName`, `setMonitor`; tried on this Mac's three displays, windowed and
+  fullscreen). **The game has no settings row for it yet.** There is no list of display
+  modes: output scale is the resolution control.
+- **Pad family**: `getGamepadKind` says Xbox / PlayStation / Nintendo. The game still draws
+  Xbox letters only (the atlas has no other glyph set), and no pad was connected to try it.
+- **Not done in the engine, each for a stated reason:**
+  - *Lamp shadows on the house and terrain.* Needs local-light shadow maps rendered through
+    the engine's cascade pass (one 1,500-line function with its own caches) and a new
+    binding in the material ABI that every material pipeline on every platform shares. Days
+    of work that has to be judged by eye; not something to land blind.
+  - *Volumetric fog.* The same class of work (a froxel volume, lit and shadowed).
+  - *Grass LOD (EN-060).* Capped at 1.6 ms by measurement and bound by "no visible loss",
+    which only a person looking at it can sign off.
+  - *More than 1024 joint matrices.* About a hundred shader build sites on nine backends;
+    the game uses 780. The engine now warns when the limit is hit.
+- **This game's `main` needs those engine commits.** `src/main.ts` imports
+  `setCrashReportPath`, which only the local engine has. Until they are pushed or merged,
+  a build against the engine's `origin/main` fails.
 
 ## Engine work this plan depends on
 
