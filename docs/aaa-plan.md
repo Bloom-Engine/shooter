@@ -453,7 +453,7 @@ find are all loaded by constructed names.
 
 **Carried forward:**
 
-- 60 fps on the reference machine (engine: trustworthy per-pass GPU timing on Metal).
+- 60 fps on the reference machine: **near it since the engine pass of 2026-11-15** (below), at 75% output resolution. Not met at native output.
 - CI that builds and runs the game needs a self-hosted Mac runner with Perry and the engine.
 - Crash capture off Windows; telemetry.
 - Perry: quirk #6 (`PERRY_LLVM_INPROCESS=0`) and the release patches are still not upstream.
@@ -463,6 +463,41 @@ find are all loaded by constructed names.
 
 ---
 
+## The engine pass of 2026-11-15 (engine ticket EN-065, engine branch `local/phone`, commit `5ec4a3f`)
+
+Ralph asked for the engine items this plan called blocked. What it changed for the game:
+
+| | Before | After |
+|---|---|---|
+| Title screen, render scale 0.5, native output | 20.8 ms (48 fps) | 18.6 ms (54 fps) |
+| Title screen, render scale 0.5, 75% output | 30 ms (33 fps) | 14.1 ms (71 fps) |
+| A fight, Ralph's settings (native, render 0.75, no auto-res) | 36 fps | about 41 fps |
+| A fight, a FRESH install | 45 fps | 57 to 61 fps |
+
+- **Two engine bugs were most of the "unexplained 18 ms".** The global-illumination cache
+  rebaked its nearest level every frame (its "sun moved" test assumed a unit-length sun
+  direction; ours is 0.998 long) and never baked the wider two. And a lower output resolution
+  rebuilt every render target on every frame, so it was slower than native and anti-aliasing
+  never accumulated: the Phase 7 note "lowering the output resolution did not help" was this.
+- **A fresh desktop install on a panel past six megapixels now starts at 75% output**
+  (`src/main.ts`, after `SET.loadSettings`). An existing `settings.json` is not touched:
+  Ralph's own file still says native and no auto-resolution.
+- **What the frame is made of now** (the engine's per-pass times add up since this pass): at
+  native output about 8 ms is passes that run at output resolution (anti-aliasing,
+  sharpening, exposure, composite, HUD), 4 ms the scene's depth pre-pass and main pass,
+  2 ms the water's planar reflection, 2 ms shadows in a fight. No single remaining bug.
+- **Ragdoll works on the cast** (three engine bugs: each body drove the wrong joint,
+  neighbouring bones collided, limits were on world axes). `./main --harness combatshot
+  --ragdoll 1` shows it. The authored deaths stay the default; nobody has compared them.
+- **Depth of field has a sharp band** (`setDepthOfFieldRange`); the game does not use it
+  while aiming yet. **Colour-grade tables** (`setColorGrade`) exist and are unused.
+- **Crash reports**: a panic or fatal signal writes `crash-report.txt`; the next launch moves
+  it to `crash-report.last.txt` and says so on stdout. No crash was provoked to prove it.
+- **UTF-8 file reads (EN-059)** were already correct; the garbled arena name was in the file.
+- **Not done in the engine:** lamp shadows on the house and terrain, volumetric fog, a
+  resolution list and monitor choice, the connected pad's type, grass LOD, more than 1024
+  joint matrices (it now warns when the limit is hit).
+
 ## Engine work this plan depends on
 
 | Need | Engine ticket | Blocks |
@@ -471,8 +506,8 @@ find are all loaded by constructed names.
 | Spot lights that shadow material-path geometry (the house, the terrain) | EN-034 landed `addShadowedSpotLight` for scene-shader draws only | 3.4 |
 | More than 1024 joint matrices | new | 2.6 |
 | Two-bone IK, additive and layered clips for the player | to check | 1.3 |
-| Ragdoll that survives the Mixamo skeleton | new | 2.4 |
-| UTF-8 file reads | EN-059 | 4.5 |
+| Ragdoll that survives the Mixamo skeleton | done, EN-065 | 2.4 |
+| UTF-8 file reads | already correct (probed 2026-11-15) | 4.5 |
 | Grass LOD | EN-060 | 7.1 |
 | Volumetric fog, colour-grading LUT, a depth of field with a usable focus band | checked 2026-11-14: none of the three exists | 3.5 |
 

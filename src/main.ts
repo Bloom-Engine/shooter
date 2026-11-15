@@ -35,7 +35,7 @@ import {
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled,
-  writeFile,
+  writeFile, readFile, setCrashReportPath,
 } from 'bloom/core';
 import { addPointLight, enableShadows } from 'bloom/scene';
 import {
@@ -143,12 +143,38 @@ import { initFlow, flowBlockedAt } from './flow';
 // resizes its swapchain + all render targets on the WM_SIZE this triggers).
 // The 1024×640 size is the windowed-mode fallback the engine restores to.
 initWindow(1024, 640, 'Bloom Shooter', true);
+
+// Crash reports (engine, 2026-11-15). A panic or a fatal signal writes what it knows to
+// crash-report.txt; text in that file at start-up means the LAST run crashed. It is moved to
+// crash-report.last.txt (so a second crash does not pile onto the first) and announced on
+// stdout. Nothing is sent anywhere. Both files are untracked.
+const CRASH_REPORT = 'crash-report.txt';
+if (fileExists(CRASH_REPORT)) {
+  const lastCrash = readFile(CRASH_REPORT);
+  if (lastCrash.length > 0) {
+    console.log('[crash] the previous run crashed; report kept in crash-report.last.txt ('
+      + lastCrash.length + ' characters)');
+    writeFile('crash-report.last.txt', lastCrash);
+    writeFile(CRASH_REPORT, '');
+  }
+}
+setCrashReportPath(CRASH_REPORT);
 setTargetFPS(60);
 initInput();
 
 // SH-037 — settings must load BEFORE anything reads them (input sensitivity,
 // audio volumes, FOV, shake). A missing file is a first run, not an error.
+const FIRST_RUN = !fileExists('settings.json');
 SET.loadSettings();
+// A first run on a desktop panel past six megapixels starts at 75% output resolution. At
+// native, the passes that run at output resolution (anti-aliasing, sharpening, the final
+// composite, the HUD) cost about 8 ms of a 16.7 ms frame on an M1 Max at 3456 x 2168;
+// at 75% a fight runs near 57 fps against 41. (Until the engine fix of 2026-11-15 a lower
+// output scale was SLOWER than native, which is why this default was 1.) The settings row
+// puts it back.
+if (FIRST_RUN && !MOBILE && !WEB && getPhysicalWidth() * getPhysicalHeight() > 6000000) {
+  SET.set(SET.SET_OUTPUT_SCALE, 0.75);
+}
 // Phase 6 - what the player has earned (credits, upgrades, stars). After the settings: a first
 // profile reads the best scores from them.
 PROFILE.loadProfile();
@@ -194,6 +220,9 @@ else if (cliPt === 'rt' || cliPt === '2') SET.set(SET.SET_PT, 2);
 const cliDbgOff = cliArg('--dbg-off');
 // `--debughud 1` starts with the developer overlays showing (F1 toggles them in a run).
 if (cliArg('--debughud') === '1') GS.debugHud = true;
+// `--ragdoll 1`: creatures die by the engine's ragdoll instead of their authored clip (see
+// DEATH_RAGDOLL). A switch for looking at it, not a setting.
+const cliRagdoll = cliArg('--ragdoll') === '1';
 
 // SH-052d — `--audiotest orbit|flyby|river` starts a quiet scene (waves
 // suppressed) so the 3D audio can be judged directly. orbit = a voice circles
@@ -4182,10 +4211,12 @@ function gameFrame(_hostDt: number): void {
   const RAG_HANDOFF = 0.22;
   // The photoreal cast (2026-11) dies by its authored clip instead: every creature carries a
   // purpose-made death (stagger, knees buckle, falls on its back), and the engine's auto-ragdoll
-  // (at most 12 capsules, walked breadth-first from the root) covers only the torso end of the
-  // 65-joint Mixamo skeleton, which stretched the corpse into a rigid plank. Set this back to true
-  // once the ragdoll can be given a per-rig bone list.
-  const DEATH_RAGDOLL = false;
+  // stretched the corpse into a rigid plank. That was an engine bug, fixed 2026-11-15: each body
+  // drove the joint at the far end of its bone, so every stretch of skin followed the bone before
+  // its own, and neighbouring capsules collided with each other. The ragdoll now works on these
+  // rigs (`./main --harness combatshot --ragdoll 1` to look), but the authored deaths stay the
+  // default: Phase 2 chose them, and nobody has compared the two in play.
+  const DEATH_RAGDOLL = cliRagdoll;
   for (let i = 0; i < MAX_ENEMIES; i++) {
     if (enDying[i] !== 1) continue;
     enDeathT[i] = enDeathT[i] + dt;

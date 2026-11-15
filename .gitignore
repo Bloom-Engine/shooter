@@ -50,6 +50,9 @@ assets/worlds/__painttest.world.json
 settings.json
 profile.json
 level.txt
+# What a crash leaves behind (engine crash capture; see src/main.ts).
+crash-report.txt
+crash-report.last.txt
 
 # Raw Suno renders the mastering pipeline reads (tools/music-master.ts).
 # 94 MB of untrimmed WAV masters — keep them archived OUTSIDE the repo; the

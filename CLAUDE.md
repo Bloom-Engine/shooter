@@ -65,8 +65,9 @@ see SH-052) — runnable with
   and lighting), 4 (UI and front end) and 6 (encounters, progression, objectives, onboarding,
   volume) landed 2026-11-14; each phase's header says what it left open. Phase 5 (audio and VFX
   depth) landed 2026-11-15 after them, without anyone listening to it; its music (a new set of
-  all seven tracks, boss theme included) went in the same day. Phase 7 (performance and production) is partly done: measured at
-  40-51 fps on the M1 Max, 60 not reached, see its table.
+  all seven tracks, boss theme included) went in the same day. Phase 7 (performance and production) is partly done. After the
+  engine pass of 2026-11-15 (the plan has a section on it) a fresh install runs fights at 57-61 fps
+  on the M1 Max at 75% output resolution; native output does not reach 60.
 
 ## Read before changing things
 
@@ -376,6 +377,20 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   beds mixed by a four-rung ladder (`MIX.updateMusicIntensity`), and `music_boss.ogg` replaces
   both while the Matriarch lives. All seven tracks are the 2026-11-15 Suno set; whether calm
   and combat share a key is not confirmed (`assets/music/SUNO-PROMPTS.md`, top).
+- Engine pass rules (2026-11-15, engine EN-065; the engine checkout is `../engine` on
+  `local/phone`, and its commits there are not pushed). The game binary needs that engine:
+  after pulling the shooter alone, `activateRagdoll` and friends still link, but the frame
+  rates in the plan do not hold. Frame rate is measured with `./main --harness fpsprobe`
+  (uncapped; add `--render-scale` / `--output-scale` 0.5, 0.75 or 1, no other values are
+  parsed) and `--harness perftest` (a fight; every third window stalls on a screenshot and
+  the last third runs the blocking profiler, so read the first 24 windows). `--harness
+  perfstages` prints `PERFPASS` rows that now add up to the frame's GPU time.
+  `BLOOM_SKIP=<pass>` in the environment skips an engine pass for bisecting. Do not benchmark
+  while anything else is building: the machine's load swung results by 1.5 ms. The sun
+  direction handed to the engine need not be unit length any more, but keep `outputScale`
+  changes to the settings row (`setOutputScale`), never per frame. `--ragdoll 1` switches
+  creature deaths to the engine ragdoll. `crash-report.txt` / `crash-report.last.txt` are
+  written by a crash and by the next start; untracked.
 - Slice D (SH-061). There are EIGHT kinds: kind 7 (`K_BOSS`) is the Matriarch, one body, and
   every per-kind table anywhere must have eight entries (a seven-entry one crashes with a
   TypeError the moment she is alive). Her weak point is the brood-sac cluster on her back (a
