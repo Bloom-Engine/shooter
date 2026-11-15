@@ -2382,3 +2382,19 @@ to 47 MB each now (were 25 to 29).
   measurable against the run-to-run spread.
 - **Seen in motion:** twelve consecutive walk frames only (no flicker or dither pattern visible
   in them); nobody has watched it run.
+
+**Closing notes (SH-067 / SH-068, 2026-11-15 evening).**
+- Leaf floor raised to 3.4 m: eleven of the twelve walk steps keep the camera clear of leaves.
+  The twelfth is the step right after the harness teleports the player under a tree on the
+  slope at the Plaza's edge.
+- Distant leaves stay soft at the 0.75 render scale. Sharpening 0.45 against 0.80 showed no
+  difference in a side-by-side crop and was left at 0.45: it is the reconstruction, and the
+  RENDER SCALE row is the control.
+- Perry `main` now builds the host, iOS and tvOS runtimes this game needs
+  (`PERRY_HOME=~/projects/perry/worktrees/perry-main-latest tools/release/build_toolchain.sh`).
+  tvOS needed one more upstream fix, Perry pull request #14768 (a Linux-only function used
+  `dl_iterate_phdr`). `release.py` still defaults to the patched 0.5.1665 checkout: a release
+  dry run on the new toolchain was not made, because the release tooling was being edited in
+  another session at the time.
+- Engine: `local/phone` is pushed (`origin/local/phone`) and differs from engine `main` in five
+  files only, all of them the open pull requests #190, #193 and #194.
