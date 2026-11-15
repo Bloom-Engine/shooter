@@ -398,6 +398,18 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   changes to the settings row (`setOutputScale`), never per frame. `--ragdoll 1` switches
   creature deaths to the engine ragdoll. `crash-report.txt` / `crash-report.last.txt` are
   written by a crash and by the next start; untracked.
+- Lit fog (engine `renderer/volumetric_fog.rs`, `setVolumetricFog` / `setVolumetricFogLight`).
+  A second medium on top of the flat haze of `setFog`: the sun lights it through its shadow
+  maps (shafts between the trees, a dark volume behind the house) and the nearest eight point
+  lights give it a halo. Per arena, from the `look` entity: `vfog=1` switches it on (arena_03,
+  arena_04, arena_06; desktop only), `vfog_density` / `vfog_height` / `vfog_falloff` /
+  `vfog_range` describe the medium, `vfog_ambient` scales the world's fog colour for its unlit
+  share, `vfog_sun` / `vfog_lights` / `vfog_g` are how strongly the sun and the lamps scatter
+  and how much of the sun is thrown forward; `vfog_fog_density` and `vfog_shafts` replace
+  `fog_density` and `shafts` while it is on. `--vfog 0` / `--vfog 1` overrides the arena for an
+  A/B. It fogs transparent things (water, glass, particles) by the opaque surface behind them,
+  as the flat haze does. Lamps are not shadowed, so their halo is kept tight. Judge it with
+  SCENESHOT: the last view of arena_03 and arena_04 looks toward the sun.
 - Slice D (SH-061). There are EIGHT kinds: kind 7 (`K_BOSS`) is the Matriarch, one body, and
   every per-kind table anywhere must have eight entries (a seven-entry one crashes with a
   TypeError the moment she is alive). Her weak point is the brood-sac cluster on her back (a

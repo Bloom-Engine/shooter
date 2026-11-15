@@ -29,6 +29,7 @@ import {
   beginMode2DRaw,
   setVignette, setFilmGrain,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
+  setVolumetricFog, setVolumetricFogLight,
   setCloudShadows, setTonemap, setColorSaturation, setDepthOfField, setMotionBlurEnabled,
   setAutoResolution, getPhysicalWidth, getPhysicalHeight,
   setTaaEnabled, setRenderScale, setCasStrength,
@@ -497,13 +498,31 @@ setAutoExposureKey(W.lookNum('exposure_key', 0.155));
 // full valley length — the visible "milk band" hugged the waterline and
 // spilled over the banks. Drop the reference below ground and thin the
 // density: low pooling survives, the white sheet does not.
-setFog(W.ENV_FOG_R, W.ENV_FOG_G, W.ENV_FOG_B, W.lookNum('fog_density', 0.016),
+// Lit fog (engine renderer/volumetric_fog.rs): a second medium that the sun's shadowed light and
+// the arena's lamps light, on top of the flat haze above. Per arena, from the `look` entity
+// (`vfog=1` and the `vfog_*` keys); desktop only. `--vfog 0` / `--vfog 1` overrides the arena for
+// an A/B. An arena with it on may also name the flat haze density and the screen-space shaft
+// strength that go with it (`vfog_fog_density`, `vfog_shafts`), so nothing is counted twice.
+const VFOG_ARG = cliArg('--vfog');
+const VFOG_ON = !MOBILE && !WEB && VFOG_ARG !== '0'
+  && (VFOG_ARG === '1' || W.lookNum('vfog', 0) > 0.5);
+const FOG_DENSITY = VFOG_ON ? W.lookNum('vfog_fog_density', W.lookNum('fog_density', 0.016))
+  : W.lookNum('fog_density', 0.016);
+const SHAFTS = VFOG_ON ? W.lookNum('vfog_shafts', W.lookNum('shafts', 0.18)) : W.lookNum('shafts', 0.18);
+setFog(W.ENV_FOG_R, W.ENV_FOG_G, W.ENV_FOG_B, FOG_DENSITY,
        W.lookNum('fog_height', -0.6), W.lookNum('fog_falloff', 6.0));
+if (VFOG_ON) {
+  const vfogAmb = W.lookNum('vfog_ambient', 1.0);
+  setVolumetricFog(true, W.lookNum('vfog_density', 0.012), W.lookNum('vfog_height', 0.0),
+                   W.lookNum('vfog_falloff', 0.12), W.lookNum('vfog_range', 80));
+  setVolumetricFogLight(W.ENV_FOG_R * vfogAmb, W.ENV_FOG_G * vfogAmb, W.ENV_FOG_B * vfogAmb,
+                        W.lookNum('vfog_sun', 1.0), W.lookNum('vfog_lights', 1.0), W.lookNum('vfog_g', 0.4));
+}
 // Tier 1.7 — warm god-rays through the trees. Round-2 retune (audit F3):
 // at 0.4/0.96 the 32-tap shaft march added up to ~+0.14 HDR of warm veil
 // on every sunward silhouette — a big share of the "pale backlit
 // treeline". 0.18/0.90 keeps the god-ray read without the wash.
-setSunShafts(W.lookNum('shafts', 0.18), 0.90, W.ENV_SUN_R, W.ENV_SUN_G * 0.95, W.ENV_SUN_B * 0.85);
+setSunShafts(SHAFTS, 0.90, W.ENV_SUN_R, W.ENV_SUN_G * 0.95, W.ENV_SUN_B * 0.85);
 // EN-013 — global wind UBO. All foliage materials (grass, trees,
 // future ferns/clovers) read these values from PerFrame.wind so
 // one source of truth drives the whole scene's swing.
@@ -1740,6 +1759,7 @@ const SCENE_VIEWS_03 = [
   0.5, -14, 0.0, 0.03, -1,      // in the river, upstream
   14, -20, 2.4, 0.10, -1,       // north-east rim, back down
   10, 22, 0.9, 0.05, -1,        // the camp by the spawn
+  0.5, -4, -1.57, -0.04, -1,    // in the river, toward the low sun through the west bank's trees (lit fog)
 ];
 const SCENE_VIEWS_04 = [
   0, 26, 0.0, 0.10, -1,
@@ -1750,6 +1770,7 @@ const SCENE_VIEWS_04 = [
   18, -14, -2.2, 0.08, -1,
   4, 12, 1.57, 0.02, -1,
   -6, -2, -1.57, 0.10, -1,
+  16, 2, -1.45, -0.02, -1,      // toward the setting sun across the yard (lit fog)
 ];
 const SCENE_VIEWS_05 = [
   0, 31, 0.0, 0.14, -1,         // spawn, on the rim, into the pit
