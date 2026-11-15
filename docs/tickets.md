@@ -2410,3 +2410,7 @@ to 47 MB each now (were 25 to 29).
   edits and was not touched).
 - **Camera:** the canopy check uses the leaf cards' lower edge (3.3 m): all twelve walk steps
   are clear of foliage now.
+- **In motion (a recording, not a person):** eight seconds of the stand-in playing the Plaza were
+  recorded off the built-in screen (`screencapture -v`, 335 frames) and consecutive frames looked
+  at: wind moves crowns and grass, no flicker, no dither pattern from the edge fade, no popping.
+  Still not a replacement for someone watching it.
