@@ -2414,3 +2414,8 @@ to 47 MB each now (were 25 to 29).
   recorded off the built-in screen (`screencapture -v`, 335 frames) and consecutive frames looked
   at: wind moves crowns and grass, no flicker, no dither pattern from the edge fade, no popping.
   Still not a replacement for someone watching it.
+- **Render scale and leaf sharpness, measured.** Same view, title screen, native output: at
+  render scale 0.75 the frame is 24.0 ms (41.6 fps) and distant crowns are a soft, painterly
+  mass; at 1.0 it is 33.1 ms (30.2 fps) and single leaves resolve. Two interleaved runs each,
+  load average about 13. The default stays 0.75: nine milliseconds is the player's choice
+  (RENDER SCALE row).
