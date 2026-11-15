@@ -24,6 +24,7 @@ import {
   isGamepadAvailable, isGamepadButtonPressed, getGamepadAxis,
 } from 'bloom';
 import { drawTextureProRaw } from 'bloom/textures';
+import { setLocalLightShadows } from 'bloom/scene';
 import {
   setOutputScale, setRenderScale, setShadowsEnabled, setMotionBlurEnabled, setAutoResolution,
   setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
@@ -370,6 +371,7 @@ function applyLive(idx: number): void {
     UI.setPalette(SET.get(SET.SET_PALETTE));
   } else if (idx === SET.SET_PRESET) {
     applyPreset(SET.get(SET.SET_PRESET));
+    applyLampShadows();
   } else if (idx === SET.SET_WINDOW) {
     toggleFullscreen();
   } else if (idx === SET.SET_VSYNC || idx === SET.SET_FPS_CAP) {
@@ -397,6 +399,17 @@ function applyLive(idx: number): void {
     if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
   }
   if (isPresetRow(idx)) SET.set(SET.SET_PRESET, 4);
+  if (isPresetRow(idx)) applyLampShadows();
+}
+
+/// Lamps that cast shadows on the house and the ground (engine EN-066). The four work lights
+/// nearest the camera get a shadow cube. Desktop only (the engine refuses elsewhere), only with
+/// the sun's shadows on (it reuses their caster lists), and not on the two lowest presets,
+/// which are for machines with no frame time to spare.
+export function applyLampShadows(): void {
+  if (MOBILE || WEB) return;
+  const on = SET.get(SET.SET_SHADOWS) !== 0 && SET.get(SET.SET_PRESET) >= 2;
+  setLocalLightShadows(on ? 4 : 0, 512);
 }
 
 /// The render passes, from the settings. Phones and the browser never get global
@@ -410,6 +423,7 @@ function pushGraphics(): void {
   setSsgiEnabled(!small && SET.get(SET.SET_SSGI) !== 0);
   setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
   if (!small) setMotionBlurEnabled(SET.get(SET.SET_MOTION_BLUR) !== 0);
+  applyLampShadows();
 }
 
 /// Push every setting that lives outside the frame loop into the engine and the game's own

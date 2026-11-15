@@ -179,9 +179,12 @@ models (660 credits, twelve models). **Carried forward:**
   world behind menus and end screens. Motion blur and dynamic resolution are settings rows,
   off by default, and nobody has looked at either.
 - **Volumetric fog (3.5).** The engine has none. The ravine's mist is the height fog, thicker.
-- **Shadows from indoor lamps, and visible bounce (3.4).** Lamps are unshadowed: a face turned
-  away gets nothing, which keeps a room's lamp off the far side of its walls, but furniture
-  casts no lamp shadow. Characters and props indoors still take the open sky's ambient light.
+- **Shadows from indoor lamps, and visible bounce (3.4).** The lamps of the world file cast
+  shadows on the house and the ground since SH-064 (2026-11-15): walls stop a lamp, and
+  furniture, the Trooper and the creatures throw shadows from it. Judged from stills only. The
+  house's ceilings are darker for it (they were lit through the floor by the lamps below), and
+  nobody has re-balanced the interior lamps. Characters and props are still lit by a lamp
+  through a wall, and indoors still take the open sky's ambient light. No visible bounce.
 - **Damage and decals on the house (3.4).** Variation is procedural (soot, re-pointing, lime
   bloom, a plastered ceiling); there are no broken corners, holes or posters.
 - **Emissive eyes and visor (3.6).** Not done: it needs an emissive map per character. What

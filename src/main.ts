@@ -38,7 +38,7 @@ import {
   setShadowsEnabled, setBloomEnabled,
   writeFile, readFile, setCrashReportPath,
 } from 'bloom/core';
-import { addPointLight, enableShadows } from 'bloom/scene';
+import { addPointLight, addPointLightWithShadow, enableShadows, setLocalLightShadows } from 'bloom/scene';
 import {
   createWorld, step as stepPhysics,
   boxShape, heightfieldShape, createBody, MotionType, Layer,
@@ -224,6 +224,9 @@ if (cliArg('--debughud') === '1') GS.debugHud = true;
 // `--ragdoll 1`: creatures die by the engine's ragdoll instead of their authored clip (see
 // DEATH_RAGDOLL). A switch for looking at it, not a setting.
 const cliRagdoll = cliArg('--ragdoll') === '1';
+// `--spin 1`: the perftest fight with the camera turning steadily (a turn every 12 s), so what
+// the camera can see keeps changing. A fixed camera hides every cost that comes from that.
+const cliPerfSpin = cliArg('--spin') === '1';
 
 // SH-052d — `--audiotest orbit|flyby|river` starts a quiet scene (waves
 // suppressed) so the 3D audio can be judged directly. orbit = a voice circles
@@ -664,6 +667,12 @@ if (WEB) {
 // set what the player cannot change there (TAA, sun shafts); the passes they used to pin are
 // the settings file's DEFAULTS on those platforms (settings.ts platformDefaults).
 applyGraphicsSettings();
+// Lamps that cast shadows on the house and the ground: `applyGraphicsSettings` switched them
+// on or off from the settings (menu.ts applyLampShadows). `--lamp-shadows 0` forces them off
+// for this launch and `--lamp-shadows 1` on, for an A/B or a capture.
+const cliLampShadows = cliArg('--lamp-shadows');
+if (!MOBILE && !WEB && cliLampShadows === '0') setLocalLightShadows(0, 0);
+if (!MOBILE && !WEB && cliLampShadows === '1') setLocalLightShadows(4, 512);
 // --dbg-off (see the CLI block above) applies after the persisted settings
 // so it always wins for the launch it was asked for.
 if (cliDbgOff === 'shadows') setShadowsEnabled(false);
@@ -1773,6 +1782,10 @@ const SCENE_VIEWS_04 = [
   18, -14, -2.2, 0.08, -1,
   4, 12, 1.57, 0.02, -1,
   -6, -2, -1.57, 0.10, -1,
+  // Lamp shadows (the work light in the guard house's east room, at 10.9, -14.4):
+  12.3, -11.0, 2.75, 0.20, 0.2, // east room, lamp behind the camera: the Trooper's shadow on floor and wall
+  6.0, -12.0, 1.57, 0.10, 0.2,  // west room, at the partition wall the lamp is behind
+  13.4, -7.3, -0.785, 0.12, -1, // outside, between the work light at 14.7, -6.4 and the house's south wall
   16, 2, -1.45, -0.02, -1,      // toward the setting sun across the yard (lit fog)
 ];
 const SCENE_VIEWS_05 = [
@@ -1794,6 +1807,9 @@ const SCENE_VIEWS_06 = [
   0, -18, 3.14, 0.06, -1,       // north edge, back across
   22, -22, -2.4, 0.08, -1,      // outside the rim, north-east gap
   -24, 0, 1.57, 0.04, -1,       // the creek side
+  // Lamp shadows: the Trooper two metres in front of a work light, seen from the side.
+  2.0, -23.7, 1.57, 0.30, -1,   // the north lamp (2.0, -21.5), which faces north
+  -13.65, 6.35, -2.62, 0.30, -1, // the wreck's lamp (-15.6, 5.3), which faces east-south-east
 ];
 // Start x, z, step x, z, yaw, pitch. Arena 02: the south-west meadow; arena 05: along the south rim.
 const GRASS_WALK = W.WORLD_ID === 'arena_05' ? [-12, 31, 1.25, 0, 0.0, 0.14] : [-37, 37, 0.88, -0.88, 0.9, 0.02];
@@ -2934,6 +2950,7 @@ function gameFrame(_hostDt: number): void {
     }
     GS.playerHP = PLAYER_HP_MAX;
     GS.gameOver = false;
+    if (cliPerfSpin) CAM[0] = getTime() * 0.52;
     // Spike attribution: dt covers the previous frame, so dump the phase
     // brackets recorded during it (plus this frame's beginDrawing time).
     if (dt > 0.1 && perfPrevEnd > 0) {
@@ -3539,6 +3556,29 @@ function gameFrame(_hostDt: number): void {
       if (ph === 0) setPlayerPosition(vec3(vx, (vy < 0 ? terrainHeightAt(vx, vz) : vy) + 1.2, vz));
       CAM[0] = SCENE_VIEWS[vi * 5 + 2];
       CAM[1] = SCENE_VIEWS[vi * 5 + 3];
+      // The first lamp view of arena_04 and arena_06 gets one creature standing in the lamp's
+      // light, so the picture shows a creature's shadow as well as the Trooper's.
+      if (ph === 0 && (W.WORLD_ID === 'arena_04' || W.WORLD_ID === 'arena_06')) {
+        const slot = KIND_SLOT0[1];                // a stalker
+        if (vi === 8) {
+          const k = enKind[slot];
+          const in04 = W.WORLD_ID === 'arena_04';
+          enX[slot] = in04 ? 10.6 : 0.4;
+          enZ[slot] = in04 ? -11.4 : -24.2;
+          enY[slot] = in04 ? 0.2 : terrainHeightAt(enX[slot], enZ[slot]);
+          enHP[slot] = KIND_HP[k];
+          enAlive[slot] = 1;
+          enDying[slot] = 0;
+          enAnimClip[slot] = -1;
+          enAttackCD[slot] = 99;
+          enRangedCD[slot] = 99;
+          enHeading[slot] = Math.PI;
+          setBodyPosition(enBody[slot], vec3(enX[slot], enY[slot] + KIND_BOX_Y[k], enZ[slot]), true);
+        } else if (vi === 9) {
+          enAlive[slot] = 0;
+        }
+      }
+      if (ph === 44) console.log('SCENEFPS view=' + vi + ' fps=' + getFPS().toFixed(1));
       if (ph === 45) takeScreenshot('shooter_scene_' + vi + '.png');
     }
     if (testFrame >= 30 && vi >= nViews) {
@@ -3817,7 +3857,7 @@ function gameFrame(_hostDt: number): void {
   }
   SFX.addFlashLights();   // plan 5.6: explosions and bolts light what is round them
   for (let i = 0; i < W.LIGHT_COUNT; i++) {
-    addPointLight(W.LIGHT_X[i], W.LIGHT_Y[i], W.LIGHT_Z[i],
+    addPointLightWithShadow(W.LIGHT_X[i], W.LIGHT_Y[i], W.LIGHT_Z[i],
                   W.LIGHT_RANGE[i],
                   W.LIGHT_R[i], W.LIGHT_G[i], W.LIGHT_B[i],
                   W.LIGHT_INT[i]);

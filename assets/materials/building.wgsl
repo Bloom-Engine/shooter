@@ -29,6 +29,7 @@
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
 #include "common/shadows.wgsl"
+#include "common/local_shadows.wgsl"
 #include "common/clouds.wgsl"
 
 // Array slices — the ABI shared with tools/build-building-textures.ts. Change
@@ -324,9 +325,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let fill   = (sample_env_diffuse(nrm) + view.ambient.rgb * 0.20) * select(1.0, 0.34, indoors);
   // Phase 3.4 - lamps. The house had no light of its own: indoors was sky fill through the
   // windows and nothing else. Every point light the game submits (the lamps inside, the work
-  // lights outside, muzzle flashes) now lights these walls, floors and ceilings. Unshadowed:
-  // a face turned away from the lamp gets nothing, which is what keeps a room's lamp off the
-  // outside of its own walls and off the floor above.
+  // lights outside, muzzle flashes) now lights these walls, floors and ceilings. A face turned
+  // away from a lamp gets nothing; and the world's lamps (the ones the game submits with
+  // addPointLightWithShadow) are shadowed where the engine draws their shadow cubes:
+  // local_light_shadow is 1 for every other light and on every other platform.
   var local = vec3<f32>(0.0);
   let pl_n = min(u32(view.point_light_count.x), 24u);
   for (var i = 0u; i < pl_n; i = i + 1u) {
@@ -337,7 +339,11 @@ fn fs_main(in: VsOut) -> OpaqueOut {
       let k   = 1.0 - d / lp.w;
       let ndl = max(dot(nrm, lv / max(d, 0.001)), 0.0);
       // x2.5: these lamps are authored for the engine's own shading, which is brighter at range
-      local = local + view.point_lights[i].color.rgb * (view.point_lights[i].color.w * k * k * ndl * 2.5);
+      var c = view.point_lights[i].color.w * k * k * ndl * 2.5;
+      // The shadow lookup only where the lamp adds something that can be seen: most of a
+      // lamp's reach is its faint tail.
+      if (c > 0.01) { c = c * local_light_shadow(i, in.world_pos, n); }
+      local = local + view.point_lights[i].color.rgb * c;
     }
   }
   let lit    = albedo * (fill + direct + local);

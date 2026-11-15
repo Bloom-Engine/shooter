@@ -2186,3 +2186,50 @@ before), no runtime error in either log. Fight frame rate 36.0 fps (36.3 before)
   observed happening: the code paths ran without error in the stand-in runs, and that is all.
 - The ambience mix indoors, and the boss bed slot, have no test.
 
+
+## SH-064 — Lamps that cast shadows on the house and the ground ✅ *(2026-11-15, branch feat/local-light-shadows; needs engine EN-066; judged from stills, not played)*
+
+The work lights and the house's lamps (the world file's `lights`) lit walls, floors and the
+terrain with no shadow: nothing in front of a lamp threw one, and a lamp lit the next room
+through the wall. Both came from the same place: the house and the terrain are drawn by the
+game's own shaders, which loop over the engine's point lights and had nothing to sample.
+
+**What changed.** The world's lamps are submitted with `addPointLightWithShadow` (engine
+EN-066) and `building.wgsl` and `terrain.wgsl` multiply each light by
+`local_light_shadow(i, position, normal)` from the new include `common/local_shadows.wgsl`.
+The engine keeps a shadow cube (six depth maps, 512 texels a side) for up to four lamps,
+those nearest the camera and in view. Everything that casts a sun shadow casts a lamp shadow:
+the house itself, props, trees, the Trooper, creatures, pickups. Muzzle flashes, explosion
+flashes, the hold ring and the creature lights stay unshadowed (they come and go in a frame,
+and a shadow cube takes three frames to build).
+
+**When it is on.** Desktop, with the sun's shadows on, on the high and ultra presets and on
+custom (`menu.ts` `applyLampShadows`); off on low and medium. Phones and the browser never:
+the engine refuses there and the shaders compile against a stub that returns "lit".
+`--lamp-shadows 0` / `1` forces it for one launch.
+
+**Cost** (M1 Max, native output, interleaved off/on runs in arena_04; two runs of the same
+build differ by about 0.4 ms): title screen at render scale 0.5, 17.29 ms off and 17.54 ms on;
+a `perftest` fight, 27.56 / 28.31 and 23.09 / 23.42 ms; the same fight with the camera turning
+(`--spin 1`, new), 22.17 / 22.16, 21.42 / 21.61 and 21.63 / 21.57 ms. About 0.3 ms in a
+fight. More where the Trooper stands in the reach of several lamps: the SCENESHOT tour of
+arena_04 (the new lamp views, a jump every 50 frames) averaged 20.78 ms a frame off and
+21.27 ms on, the tour of arena_06 20.10 and 20.15.
+
+**What it looks like** (SCENESHOT, three new views in arena_04 and two in arena_06; the first
+of each puts one stalker in the lamp's light). The guard house's east room: the Trooper's,
+the crate's and the creature's shadows on wall and floor. Its west room: dark except through
+the doorway, where the lamp used to light it through the partition. Outdoors: the tripod's
+shadow and, behind every work light, the shadow of its own heads (the light sits half a
+metre in front of them). No acne and no detached shadows in any capture looked at.
+
+**Side effects to know about.**
+- The house in arena_02 is darker indoors, on the ceilings most of all: they were lit through
+  the floor by the lamps of the storey below. The interior lamps have not been re-balanced.
+- Outdoors the effect is small. The grass is not lit by lamps at all (its shader has no lamp
+  loop), so a lamp's pool, and any shadow in it, shows only on the bare ground between tufts.
+- Creatures, props and the Trooper are drawn by the engine's own shader, which does not sample
+  these shadows: they are still lit by a lamp through a wall.
+
+**Harness changes.** SCENESHOT prints `SCENEFPS view=N fps=...` before each capture.
+`--spin 1` turns the camera during `perftest`.

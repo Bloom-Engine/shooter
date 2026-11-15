@@ -336,7 +336,13 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   the water surface, not the water volume's edge: the drawn surface overhangs the volume by
   2.5 m a side, and "in the river" is asked of the terrain height. Custom material shaders
   light themselves, so a point light only reaches the house and the ground because
-  `building.wgsl` and `terrain.wgsl` loop over `view.point_lights` (unshadowed). A long prop is
+  `building.wgsl` and `terrain.wgsl` loop over `view.point_lights`. The world's lamps cast
+  shadows there since SH-064 (engine EN-066): they are submitted with
+  `addPointLightWithShadow`, the four nearest the camera get a shadow cube, and the two
+  shaders multiply each light by `local_light_shadow(i, pos, normal)`. Desktop only, with the
+  sun's shadows on, on the high and ultra presets and custom (`menu.ts` `applyLampShadows`);
+  `--lamp-shadows 0|1` forces it for one launch. Flashes and effect lights stay unshadowed.
+  Creatures and props (the engine's own shader) are still lit by a lamp through a wall. A long prop is
   a row of obstacle circles; keep them closer than a radius apart or walkers catch between
   them. A spawn below the terrain falls through it for ever. Do not use bit-mixing hashes
   (`| 0` on products past 2^53) for noise: compiled by Perry they came out nearly constant;

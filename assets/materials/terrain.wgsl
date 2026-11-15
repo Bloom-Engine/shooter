@@ -27,6 +27,7 @@
 #include "material_abi.wgsl"
 #include "common/pbr.wgsl"
 #include "common/shadows.wgsl"
+#include "common/local_shadows.wgsl"
 #include "common/clouds.wgsl"
 
 struct TerrainParams {
@@ -322,6 +323,7 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   let direct = view.sun_color.rgb * n_dot_l * cloud * sun_shadow;
   let fill   = sample_env_diffuse(nrm) + view.ambient.rgb * 0.20;
   // Lamps (plan 3.4 / 3.5): the work lights and anything else submitted as a point light.
+  // The work lights cast shadows (local_light_shadow; 1 for a light without a shadow cube).
   var local = vec3<f32>(0.0);
   let pl_n = min(u32(view.point_light_count.x), 24u);
   for (var i = 0u; i < pl_n; i = i + 1u) {
@@ -330,8 +332,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
     let d  = length(lv);
     if (d < lp.w) {
       let k = 1.0 - d / lp.w;
-      local = local + view.point_lights[i].color.rgb
-            * (view.point_lights[i].color.w * k * k * max(dot(nrm, lv / max(d, 0.001)), 0.0));
+      var c = view.point_lights[i].color.w * k * k * max(dot(nrm, lv / max(d, 0.001)), 0.0);
+      // The shadow lookup only where the lamp adds something that can be seen.
+      if (c > 0.01) { c = c * local_light_shadow(i, p, n); }
+      local = local + view.point_lights[i].color.rgb * c;
     }
   }
   let lit    = albedo * (fill + direct + local);
