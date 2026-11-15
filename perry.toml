@@ -7,8 +7,8 @@ entry = "src/main.ts"
 name = "bloom-shooter"
 bundle_id = "com.bloomengine.shooter"
 display_name = "Bloom Shooter"
-version = "0.1.0"
-build_number = 6
+version = "1.0.0"
+build_number = 7
 # `ios-game-loop` is mandatory for any Bloom game on iOS. UIKit needs
 # UIApplicationMain() to own the main thread forever, but the engine's
 # `while (!windowShouldClose())` loop also wants it. The feature makes Perry
