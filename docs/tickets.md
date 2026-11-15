@@ -2234,6 +2234,31 @@ metre in front of them). No acne and no detached shadows in any capture looked a
 **Harness changes.** SCENESHOT prints `SCENEFPS view=N fps=...` before each capture.
 `--spin 1` turns the camera during `perftest`.
 
+## SH-065 — Lamp shadows on creatures, the Trooper and props ✅ *(2026-11-15, branch feat/scene-lamp-shadows; needs engine EN-069; judged from stills, not played)*
+
+SH-064 left one thing: everything the engine's own shader draws (creatures, the Trooper,
+weapons, props) was still lit by a lamp through a wall and took no lamp shadow. Engine EN-069
+closes it inside the engine; the game needs no code for it. Whenever lamp shadows are on (the
+same presets and `--lamp-shadows 0|1` as SH-064) the models take them too.
+
+**What it looks like** (SCENESHOT, arena_04). New view 10: the guard house's west room, looking
+away from the partition wall the east room's lamp stands behind, with the Trooper and one
+stalker. Before, the Trooper's back, the stalker, the table, the shelf and the crate were
+lit warm from behind through the wall in a dark room; after, they sit in the room's own light.
+View 8 (east room, in the lamp's light): the crate is now in the Trooper's shadow, the stalker
+is lit on the lamp's side, no acne on either. View 11 (outdoors): the generator and the plants
+behind the work light's own heads are a little darker.
+
+**Cost.** Not measurable: `perftest` in arena_04, three interleaved rounds, 22.9 ms off,
+22.8 ms on, 22.6 ms on with the models left out (numbers in engine EN-069).
+
+**Harness.** SCENESHOT's arena_04 table has the new view at index 10; the outdoor lamp view is
+now 11 and the view toward the sun 12 (still the last). `BLOOM_LOCAL_LIGHT_SHADOWS=material`
+in the environment gives the SH-064 picture on the same build.
+
+**Not looked at.** arena_02's house interior and arena_06 with this change; a fight indoors;
+anything in motion.
+
 ## SH-066 — Follow-ups to the engine items: settings rows, harness hygiene ◐ *(2026-11-15; rows seen in captures, the display row tried once from the command line)*
 
 - **Three video rows** (desktop): LAMP SHADOWS and LIT FOG (toggles, part of the quality

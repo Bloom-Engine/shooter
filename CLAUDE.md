@@ -342,7 +342,10 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   shaders multiply each light by `local_light_shadow(i, pos, normal)`. Desktop only, with the
   sun's shadows on, and the LAMP SHADOWS settings row on (the low and medium presets switch it
   off; `menu.ts` `applyLampShadows`); `--lamp-shadows 0|1` forces it for one launch. Flashes and effect lights stay unshadowed.
-  Creatures and props (the engine's own shader) are still lit by a lamp through a wall. A long prop is
+  Creatures, the Trooper and props (the engine's own shader) take the same lamp shadows since
+  SH-065 (engine EN-069) with no game code: a lamp no longer lights them through a wall
+  (`BLOOM_LOCAL_LIGHT_SHADOWS=material` in the environment gives the older picture for an
+  A/B; SCENESHOT view 10 of arena_04 is the one to look at). A long prop is
   a row of obstacle circles; keep them closer than a radius apart or walkers catch between
   them. A spawn below the terrain falls through it for ever. Do not use bit-mixing hashes
   (`| 0` on products past 2^53) for noise: compiled by Perry they came out nearly constant;

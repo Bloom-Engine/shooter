@@ -183,8 +183,8 @@ models (660 credits, twelve models). **Carried forward:**
   shadows on the house and the ground since SH-064 (2026-11-15): walls stop a lamp, and
   furniture, the Trooper and the creatures throw shadows from it. Judged from stills only. The
   house's ceilings are darker for it (they were lit through the floor by the lamps below), and
-  nobody has re-balanced the interior lamps. Characters and props are still lit by a lamp
-  through a wall, and indoors still take the open sky's ambient light. No visible bounce.
+  nobody has re-balanced the interior lamps. Characters and props take the lamps'
+  shadows too since SH-065 (no lamp light through a wall), but indoors still take the open sky's ambient light. No visible bounce.
 - **Damage and decals on the house (3.4).** Variation is procedural (soot, re-pointing, lime
   bloom, a plastered ceiling); there are no broken corners, holes or posters.
 - **Emissive eyes and visor (3.6).** Not done: it needs an emissive map per character. What

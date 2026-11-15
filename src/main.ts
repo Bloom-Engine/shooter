@@ -1808,6 +1808,7 @@ const SCENE_VIEWS_04 = [
   // Lamp shadows (the work light in the guard house's east room, at 10.9, -14.4):
   12.3, -11.0, 2.75, 0.20, 0.2, // east room, lamp behind the camera: the Trooper's shadow on floor and wall
   6.0, -12.0, 1.57, 0.10, 0.2,  // west room, at the partition wall the lamp is behind
+  6.0, -12.6, -1.57, 0.10, 0.2, // west room, looking away from the partition: Trooper and a stalker, the lamp behind the wall at their backs (SH-065)
   13.4, -7.3, -0.785, 0.12, -1, // outside, between the work light at 14.7, -6.4 and the house's south wall
   16, 2, -1.45, -0.02, -1,      // toward the setting sun across the yard (lit fog)
 ];
@@ -3588,11 +3589,13 @@ function gameFrame(_hostDt: number): void {
       // light, so the picture shows a creature's shadow as well as the Trooper's.
       if (ph === 0 && (W.WORLD_ID === 'arena_04' || W.WORLD_ID === 'arena_06')) {
         const slot = KIND_SLOT0[1];                // a stalker
-        if (vi === 8) {
+        const in04 = W.WORLD_ID === 'arena_04';
+        // In arena_04 it comes back in view 10, in the west room, facing the partition wall the
+        // lamp is behind: lit through the wall before SH-065, dark since.
+        if (vi === 8 || (vi === 10 && in04)) {
           const k = enKind[slot];
-          const in04 = W.WORLD_ID === 'arena_04';
-          enX[slot] = in04 ? 10.6 : 0.4;
-          enZ[slot] = in04 ? -11.4 : -24.2;
+          enX[slot] = in04 ? (vi === 8 ? 10.6 : 4.4) : 0.4;
+          enZ[slot] = in04 ? (vi === 8 ? -11.4 : -12.2) : -24.2;
           enY[slot] = in04 ? 0.2 : terrainHeightAt(enX[slot], enZ[slot]);
           enHP[slot] = KIND_HP[k];
           enAlive[slot] = 1;
@@ -3600,9 +3603,9 @@ function gameFrame(_hostDt: number): void {
           enAnimClip[slot] = -1;
           enAttackCD[slot] = 99;
           enRangedCD[slot] = 99;
-          enHeading[slot] = Math.PI;
+          enHeading[slot] = vi === 8 ? Math.PI : 0;
           setBodyPosition(enBody[slot], vec3(enX[slot], enY[slot] + KIND_BOX_Y[k], enZ[slot]), true);
-        } else if (vi === 9) {
+        } else if (vi === 9 || vi === 11) {
           enAlive[slot] = 0;
         }
       }
