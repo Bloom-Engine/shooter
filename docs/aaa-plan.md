@@ -178,12 +178,13 @@ models (660 credits, twelve models). **Carried forward:**
   band at fight distances and softened the target with everything else. It now only blurs the
   world behind menus and end screens. Motion blur and dynamic resolution are settings rows,
   off by default, and nobody has looked at either.
-- **Volumetric fog (3.5).** The engine has none. The ravine's mist is the height fog, thicker.
+- **Volumetric fog (3.5).** Landed 2026-11-15: lit fog in arena_03, arena_04 and arena_06, with a
+  LIT FOG settings row (SH-066). Judged from stills, not in motion.
 - **Shadows from indoor lamps, and visible bounce (3.4).** The lamps of the world file cast
   shadows on the house and the ground since SH-064 (2026-11-15): walls stop a lamp, and
   furniture, the Trooper and the creatures throw shadows from it. Judged from stills only. The
   house's ceilings are darker for it (they were lit through the floor by the lamps below), and
-  nobody has re-balanced the interior lamps. Characters and props take the lamps'
+  three Plaza house lamps were raised for it (SH-066); the other arenas' interiors were not re-balanced. Characters and props take the lamps'
   shadows too since SH-065 (no lamp light through a wall), but indoors still take the open sky's ambient light. No visible bounce.
 - **Damage and decals on the house (3.4).** Variation is procedural (soot, re-pointing, lime
   bloom, a plastered ceiling); there are no broken corners, holes or posters.
@@ -504,12 +505,14 @@ Ralph asked for the engine items this plan called blocked. What it changed for t
 - **Pad family**: `getGamepadKind` says Xbox / PlayStation / Nintendo. The game still draws
   Xbox letters only (the atlas has no other glyph set), and no pad was connected to try it.
 - **Not done in the engine, each for a stated reason:**
-  - *Lamp shadows on the house and terrain.* Needs local-light shadow maps rendered through
+  - *Lamp shadows on the house and terrain.* Done afterwards (engine EN-068 and EN-069, game
+    SH-064 and SH-065). The reason given at the time: needs local-light shadow maps rendered through
     the engine's cascade pass (one 1,500-line function with its own caches) and a new
     binding in the material ABI that every material pipeline on every platform shares. Days
     of work that has to be judged by eye; not something to land blind.
-  - *Volumetric fog.* The same class of work (a froxel volume, lit and shadowed).
-  - *Grass LOD (EN-060).* Capped at 1.6 ms by measurement and bound by "no visible loss",
+  - *Volumetric fog.* Done afterwards (engine `renderer/volumetric_fog.rs`).
+  - *Grass LOD (EN-060).* Done afterwards (far tufts thinned on desktop; nobody has signed off
+    "no visible loss" in motion). The reason given at the time: capped at 1.6 ms by measurement and bound by "no visible loss",
     which only a person looking at it can sign off.
   - *More than 1024 joint matrices.* Done afterwards (engine EN-066, branch
     `feat/joint-palette-storage`): the palette is pages of 1024, 16384 joints a frame, no
