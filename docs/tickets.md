@@ -2344,3 +2344,21 @@ to 47 MB each now (were 25 to 29).
   source tree in its own colours.
 - **River foam** 0.50 / 0.55 to 0.20 / 0.18: a white band of paint round every bank.
 - The engine checkout was merged up to the engine's `main` the same day.
+
+## SH-068 — Toolchain brought up to date ✅ *(2026-11-15)*
+
+- **Engine.** `../engine` (`local/phone`) was merged up to the engine's `main` (merge `009edc0`):
+  it now holds everything on `main` plus the commits of the open engine pull requests #190 to
+  #194. All engine work of 2026-11-15 is on `main` (pull requests #223 to #234).
+- **Perry.** The `perry` on PATH now runs Perry `main` of 2026-11-15 (`1514d79ecd`, worktree
+  `perry-main-latest`; the launcher's previous version is `~/.local/bin/perry.0.5.1664.bak`).
+  The game compiles with it, `tools/check.sh --no-build` passes, the title screen runs at the
+  same speed. Quirk #6 is still there: without `PERRY_LLVM_INPROCESS=0` `src/main.ts` fails with
+  `unknown type { double, i64 }`. Not reported upstream (no small reproduction).
+- **Perry patches upstream.** The two patches the release build still carries (shape region
+  size on iOS-family targets, no `execve` on tvOS / watchOS) are Perry pull request #14766. The
+  third (`mark_slots.rs`) is already on Perry `main`. Until #14766 is merged and released,
+  TestFlight builds keep using the patched 0.5.1665 checkout in `PERRY_HOME`.
+- **Not found:** the Perry branch `fix/wasm-new-array-sized` that the web build's notes name is
+  on no remote and in no local checkout; whether those three fixes are on Perry `main` was not
+  checked (the web build was not run).
