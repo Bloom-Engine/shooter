@@ -294,10 +294,17 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   (with `tag_weapon`), 23 on every creature (`tools/gen/strip_joints.py` drops fingers, toe ends
   and the head top after import; `build_cast.sh` runs it; their hands are open claws in every clip). `Root` must stay joint 0: with root motion off the engine pins joint 0's
   translation, and if that were the hips a death would lie down in mid-air and a crouch would not
-  lower the body. The engine has 1024 joint matrices per frame for ALL skinned draws
-  and fails silently past it (the draw that does not fit is posed with another model's matrices):
-  67 + 31 pool slots x 23 = 780 (the 31st is the boss). The pool is per kind (`KIND_POOL` / `KIND_SLOT0` in
-  `src/enemies.ts`: 8 Skitters down to 2 Colossi); 41 creature slots is the ceiling.
+  lower the body. The engine holds 16384 joint matrices per frame for all skinned draws (engine
+  EN-066: pages of 1024, one model's joints never split over two, so one MODEL is limited to
+  1024 joints); a model past the cap is not drawn and the engine says so once on stderr. Before
+  EN-066 the limit was 1024 for the whole frame and the model that did not fit was posed with
+  another's matrices, which is why the pool is what it is: 67 + 31 pool slots x 23 = 780 (the
+  31st is the boss). The pool is per kind (`KIND_POOL` / `KIND_SLOT0` in `src/enemies.ts`:
+  8 Skitters down to 2 Colossi). Joints no longer cap it; the frame rate does
+  (`./main --harness crowdshot` draws 84 creatures beyond the pool, about 2000 joints, to see
+  both). Raising the pool means new `KIND_POOL` / `KIND_SLOT0` / `MAX_ENEMIES` numbers and
+  nothing else in the engine's way: every per-slot array is sized by `MAX_ENEMIES`, and each
+  slot costs a physics body and an animation instance at boot.
 - The Trooper's rig sits on top of its clips (engine EN-064, the player block of `src/main.ts`):
   the spine leans with the camera pitch, the off hand is pulled onto the weapon's handguard by IK
   (and walks handguard -> magazine -> belt -> magazine during a reload), and every gait except the

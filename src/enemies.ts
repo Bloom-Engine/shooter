@@ -197,9 +197,11 @@ export const RANGED_WINDUP = [0, 0, 0, 0, 0, 0.35, 0.6, 0];
 // shapes can't be swapped in-place. BODIES_PER_KIND dormant bodies per kind
 // give us a fixed pool of MAX_ENEMIES = KIND_COUNT * BODIES_PER_KIND.
 // Plan 2.6 - the pool is sized PER KIND now. The creature rigs lost their finger and toe joints
-// (tools/gen/strip_joints.py: 66 -> 23 joints), and the engine's budget is 1024 joint matrices a
-// frame for every skinned draw: 67 (Trooper) + 30 slots x 23 = 757. Past the budget the engine
-// does not fail loudly: the draw that does not fit is posed with another model's matrices. Slots of one kind are
+// (tools/gen/strip_joints.py: 66 -> 23 joints), and the engine's budget WAS 1024 joint matrices a
+// frame for every skinned draw: 67 (Trooper) + 30 slots x 23 = 757. Past that budget the draw
+// that did not fit was posed with another model's matrices. Since engine EN-066 the budget is
+// 16384 (and a model past it is not drawn), so these sizes are a design and frame-rate choice,
+// no longer a joint count: see the CROWDSHOT harness in main.ts. Slots of one kind are
 // contiguous: kind k owns KIND_SLOT0[k] .. KIND_SLOT0[k] + KIND_POOL[k] - 1.
 //                      skitter stalker ravager bruiser colossus spitter bombard
 export const KIND_POOL  = [8,    5,     5,      3,      2,       4,      3, 1];

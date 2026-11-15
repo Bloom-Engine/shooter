@@ -508,8 +508,9 @@ Ralph asked for the engine items this plan called blocked. What it changed for t
   - *Volumetric fog.* The same class of work (a froxel volume, lit and shadowed).
   - *Grass LOD (EN-060).* Capped at 1.6 ms by measurement and bound by "no visible loss",
     which only a person looking at it can sign off.
-  - *More than 1024 joint matrices.* About a hundred shader build sites on nine backends;
-    the game uses 780. The engine now warns when the limit is hit.
+  - *More than 1024 joint matrices.* Done afterwards (engine EN-066, branch
+    `feat/joint-palette-storage`): the palette is pages of 1024, 16384 joints a frame, no
+    shader changed. The game still uses 780; `--harness crowdshot` shows 2000.
 - **This game's `main` needs those engine commits.** `src/main.ts` imports
   `setCrashReportPath`, which only the local engine has. Until they are pushed or merged,
   a build against the engine's `origin/main` fails.

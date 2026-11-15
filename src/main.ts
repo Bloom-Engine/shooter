@@ -10,7 +10,7 @@ import {
   isKeyPressed, isKeyDown, Key, Vec3, injectKeyDown, injectKeyUp,
   disableCursor, enableCursor, takeScreenshot,
   endMode2D,
-  loadModel, setProceduralSky, setSunDirection, drawModel, drawModelRotated, drawSphere, getModelBounds, loadModelAnimation, updateModelAnimation,
+  loadModel, instantiateAnimation, setProceduralSky, setSunDirection, drawModel, drawModelRotated, drawSphere, getModelBounds, loadModelAnimation, updateModelAnimation,
   stageModels, stageModelsSync, commitModel,
   setModelFoliageWind, setFoliageShadowMotion,
   drawMeshWithMaterial, drawMeshWithMaterialInstanced,
@@ -88,7 +88,7 @@ import {
   // KIND_COUNT + ALIEN_GLB re-added by the EN-055 merge: the boot-time
   // stageModels batch needs the kind GLB paths (a green Perry compile would
   // NOT have caught their absence — ReferenceError at boot).
-  KIND_COUNT, KIND_NAME, mdlAliens, ALIEN_GLB,
+  KIND_COUNT, KIND_NAME, mdlAliens, ALIEN_GLB, animAliens,
   ANIM_WALK_IDX, ANIM_ATTACK_IDX, ANIM_DIE_IDX, ANIM_PAIN_IDX, ANIM_DIE_DUR,
   KIND_SPINE_JOINT, KIND_TINTO,
   KIND_SCALE, KIND_Y_OFF, KIND_SPEED, KIND_HP, KIND_MELEE, DRETCH_HIT_FLASH,
@@ -1659,6 +1659,41 @@ function p2Probe(ox: number, oy: number, oz: number, i: number, j: number, side:
 // a few points. Same dormancy contract as the other harnesses: MUST be false in
 // shipped builds.
 const COMBATSHOT = HARNESS === 'combatshot';
+// CROWDSHOT: 84 creatures beyond the pool, standing in rows in front of the player, so that a
+// frame poses about 2000 joints. The engine used to hold 1024 a frame and posed the model that
+// did not fit with another model's matrices (it holds 16384 now, in pages of 1024). The crowd
+// is not in the enemy pool: it has its own animation instances and is only drawn, so the pool
+// tables and everything sized by MAX_ENEMIES are untouched. `--crowd N` draws fewer (1..84).
+const CROWDSHOT = HARNESS === 'crowdshot';
+const CROWD_COLS = 7;                       // one column per kind, the boss left out
+const CROWD_ROWS = 12;
+const CROWD_MAX = 84;
+const CROWD_CLIP = [1, 5, 0, 8];            // run, idle, the creature's own attack, walk
+const crowdAnim = new Array<number>(CROWD_MAX);
+const cliCrowd = cliArg('--crowd');
+let crowdN = CROWD_MAX;
+if (cliCrowd === '41') crowdN = 41;
+if (cliCrowd === '42') crowdN = 42;
+let crowdMade = 0;
+function drawCrowd(dt: number): void {
+  if (crowdMade === 0) {
+    for (let i = 0; i < CROWD_MAX; i++) crowdAnim[i] = instantiateAnimation(animAliens[i % CROWD_COLS]);
+    crowdMade = 1;
+    console.log('CROWDSHOT creatures=' + crowdN + ' joints=' + (67 + crowdN * 23));
+  }
+  for (let i = 0; i < crowdN; i++) {
+    const k = i % CROWD_COLS;
+    const row = Math.floor(i / CROWD_COLS);
+    const x = (k - 3) * 2.6 + ((row % 2) === 0 ? 0 : 1.3);
+    const z = 9 + row * 2.6;
+    const y = terrainHeightAt(x, z);
+    // Facing the player, each turned a little differently so no two poses are the same.
+    const yaw = Math.PI + ((i * 37) % 11 - 5) * 0.09;
+    animPlay(crowdAnim[i], CROWD_CLIP[(row + k) % 4], 0.15, 1.0, true);
+    animUpdate(crowdAnim[i], dt, 1.0, x, y, z, Math.PI / 2 - yaw);
+    drawModel(mdlAliens[k], vec3(x, y, z), 1.0, KIND_TINTO[k]);
+  }
+}
 // VFXSHOT (plan Phase 5): the effects that have no fight of their own to be seen in. An
 // explosion at three moments, one impact per material in a row, a spawn, the boss's ring and
 // an acid burst, each captured; then what `SFX.surfaceAt` says of five known places, and the
@@ -3277,6 +3312,25 @@ function gameFrame(_hostDt: number): void {
   let forceFire = false;
   if (P2TEST) forceFire = p2Late();
   if (P2BOT) forceFire = p2Bot();
+  if (CROWDSHOT) {
+    if (testFrame === 20 && GS.gameState === 0) {
+      startRun();
+      cursorLocked = true;
+      SCORE.resetScore();
+      GS.runElapsed = 0;
+    }
+    GS.playerHP = PLAYER_HP_MAX;
+    GS.gameOver = false;
+    DIR.waveBreakTimer = 9999;             // no waves: the crowd is the only company
+    CAM[0] = 0;
+    CAM[1] = testFrame < 170 ? 0.30 : 0.55;
+    if (testFrame === 150 || testFrame === 230) takeScreenshot('shooter_crowd_f' + testFrame + '.png');
+    if (testFrame === 260) {
+      console.log('CROWDSHOT done fps=' + getFPS().toFixed(1));
+      closeWindow();
+      return;
+    }
+  }
   if (COMBATSHOT) {
     if (testFrame === 20 && GS.gameState === 0) {
       startRun();
@@ -4190,6 +4244,7 @@ function gameFrame(_hostDt: number): void {
     }
     drawContact(enX[i], enY[i], enZ[i], 0.9 + KIND_HEIGHT[k] * 0.75, 0.50);
   }
+  if (CROWDSHOT && testFrame > 30) drawCrowd(dt);
   // Dying enemies: play the death animation once, frozen on its final
   // collapsed pose (the engine wraps anim time, so playback clamps just
   // short of the real clip duration), then sink the corpse into the
