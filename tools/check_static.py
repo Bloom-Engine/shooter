@@ -122,7 +122,9 @@ def check_worlds():
 
 
 # Literal paths the code tries and survives without (it asks fileExists first).
-OPTIONAL = set()
+OPTIONAL = {
+    'assets/music/music_boss.ogg',   # plan 5.5: the boss bed, made in Suno when Ralph gets to it
+}
 
 
 def check_asset_literals():

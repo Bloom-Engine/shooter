@@ -67,7 +67,7 @@ let sfxUiError: Sound = NO_SOUND;
 let sfxUiStart: Sound = NO_SOUND;
 
 // Weapon tails, indexed by weapon id (see weapons.ts).
-const weaponTail = new Array<Sound>(4);
+const weaponTail = new Array<Sound>(6);
 
 // SH-001/SH-052 — wind-coupled ambience. The grass, the canopies and the cloud
 // deck all move on the same wind vector; the audio was a static loop. This ties
@@ -135,8 +135,8 @@ for (let i = 0; i < RIVER_MAX; i++) { riverVoice[i] = 0; riverVoiceA[i] = 0; riv
 for (let i = 0; i < CRAWL_VOICES; i++) { crawlVoice[i] = 0; crawlEnemy[i] = -1; }
 
 //   0 stride accumulator  1 last surface  2 reverb wet (current)
-//   3 music intensity (0 calm, 1 combat)  4 intensity blend
-const S = [0, 0, 0, 0, 0];
+//   3 music intensity target (the ladder)  4 intensity blend  5 boss-bed blend
+const S = [0, 0, 0, 0, 0, 0];
 
 export function initAudioMix(): void {
   for (let i = 0; i < STEP_VARIANTS; i++) {
@@ -159,15 +159,12 @@ export function initAudioMix(): void {
   sfxUiError     = optional('assets/sounds/ui_error.wav',  0.40, BUS_UI, 0);
   sfxUiStart     = optional('assets/sounds/ui_start.wav',  0.50, BUS_UI, 0);
 
-  // SH-052d — wind is intentionally LEFT OUT. The synth bed read as white
-  // noise (SH-052c improved it but could not make synthesis pass as a
-  // spectral-only, always-on ambience), and part 1of9 of the Sonniss bundle
-  // has no wind-in-trees recording to swap in. The whole wind SYSTEM stays
-  // live and dormant: force the handle to null and every wind path
-  // early-returns exactly as it does for a missing file. Re-enable in one line
-  // — restore this `optional(...)` call — the moment a real recording lands
-  // (ASSET-TODO A3). The asset + generator are kept for that A/B.
-  sfxWind = NO_SOUND;
+  // Plan 5.4 - the wind bed is back. It was muted while it was a synthesised bed that read
+  // as white noise; the file is a generated recording now. Measured, not heard: its energy
+  // sits 20-28 dB lower above 200 Hz than below (white noise is flat) and its level moves
+  // 13 dB over the loop (gusts). It is kept low until someone has listened to it; to mute it
+  // again, set the handle to NO_SOUND here and every wind path stands down.
+  sfxWind = optional('assets/sounds/ambient_wind.wav', 0.30, BUS_SFX, 0.0);
   sfxRiver = optional('assets/sounds/river_loop.wav', 0.5, BUS_SFX, 0.05);
   sfxCrawl = optional('assets/sounds/crawl_loop.wav', 0.45, BUS_SFX, 0.1);
   for (let i = 0; i < 4; i++) {
@@ -190,6 +187,11 @@ export function initAudioMix(): void {
   weaponTail[1] = optional('assets/sounds/blaster_tail.wav', 0.5, BUS_SFX, 1.0);
   weaponTail[2] = optional('assets/sounds/chain_tail.wav',   0.5, BUS_SFX, 1.0);
   weaponTail[3] = optional('assets/sounds/cannon_tail.wav',  0.6, BUS_SFX, 1.0);
+  // Plan 5.1: the scattergun and the lance have their own (cannon and rifle until the files exist).
+  weaponTail[4] = optional('assets/sounds/scatter_tail.wav', 0.55, BUS_SFX, 1.0);
+  weaponTail[5] = optional('assets/sounds/lance_tail.wav',   0.5, BUS_SFX, 1.0);
+  if (weaponTail[4].handle === 0) weaponTail[4] = weaponTail[3];
+  if (weaponTail[5].handle === 0) weaponTail[5] = weaponTail[0];
 
   applyVolumes();
   // A dry-ish outdoor default: some size, quite damped, barely any wet. The
@@ -251,9 +253,7 @@ export function tyrantStep(x: number, y: number, z: number): void {
 /// The tail is what makes a gun sound big. It rides the reverb send, so the
 /// same shot is dry in the open field and cracks off the walls indoors.
 export function weaponTailFor(weapon: number, x: number, y: number, z: number): void {
-  // The two slice D weapons borrow a tail each (cannon, rifle) until they have their own.
-  const wt = weapon === 4 ? 3 : (weapon === 5 ? 0 : weapon);
-  if (wt >= 0 && wt < 4) play3d(weaponTail[wt], x, y, z);
+  if (weapon >= 0 && weapon < 6) play3d(weaponTail[weapon], x, y, z);
 }
 
 export function reloadStart(): void { play(sfxReloadStart); }
@@ -304,19 +304,38 @@ export function duckForLowHealth(active: boolean): void {
   if (active) duckBus(BUS_MUSIC, 0.35, 0.4, 1.5, 0.6);
 }
 
-/// Track combat intensity so the music (once real stems exist — ASSET-TODO A4)
-/// can crossfade between calm and combat. Today both stems are the same track,
-/// so this drives only the bus level; the moment two stems land, the crossfade
-/// has somewhere to go.
-export function updateMusicIntensity(dt: number, enemiesAlive: number, waveActive: boolean): void {
-  const target = (waveActive && enemiesAlive > 0) ? 1 : 0;
+/// Plan 5.5 - the intensity ladder. Four rungs on the two beds, by what the fight is doing:
+///
+///   0.0  calm     between waves, or nothing alive
+///   0.4  tense    a wave is on and nothing has noticed the player yet
+///   0.8  combat   something has
+///   1.0  peak     an elite, an objective wave, the boss, or ten and more alive
+///
+/// The beds are crossfaded by this number (main's applyMusicCrossfade), so "tense" is both
+/// at once, the combat bed underneath. It rises in under a second and falls over three: a
+/// fight should arrive, and should not snap back to calm because one creature lost sight of
+/// the player. A wave starting takes a short breath out of the music first, so the entry
+/// lands. With `music_boss.ogg` present the boss gets a bed of its own (`bossBlend`).
+export function updateMusicIntensity(dt: number, enemiesAlive: number, waveActive: boolean,
+                                     aware: number, peak: boolean, boss: boolean): void {
+  let target = 0;
+  if (waveActive && enemiesAlive > 0) {
+    target = aware > 0 ? 0.8 : 0.4;
+    if (peak || boss || enemiesAlive >= 10) target = 1.0;
+  }
+  if (target > 0 && S[3] === 0) duckBus(BUS_MUSIC, 0.45, 0.03, 0.25, 0.7);
   S[3] = target;
-  const k = 1 - Math.exp(-0.5 * dt);   // ~2 s crossfade, with natural hysteresis
+  const k = 1 - Math.exp(-(target > S[4] ? 1.6 : 0.35) * dt);
   S[4] = S[4] + (target - S[4]) * k;
+  const bk = 1 - Math.exp(-0.8 * dt);
+  S[5] = S[5] + ((boss ? 1 : 0) - S[5]) * bk;
   const base = get(SET_MUSIC_VOL) * get(SET_MASTER_VOL);
-  // Calm sits ~35% quieter than combat.
+  // Calm sits ~35% quieter than the peak.
   setBusGain(BUS_MUSIC, base * (0.65 + 0.35 * S[4]));
 }
+
+/// 0..1: how far the boss's own bed has taken over (main mixes the three streams by it).
+export function bossBlend(): number { return S[5]; }
 
 export function musicIntensity(): number { return S[4]; }
 

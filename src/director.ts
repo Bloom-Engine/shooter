@@ -31,6 +31,7 @@ import {
   playerPosition, isInvulnerable, isCrouching, isSprinting, playerSpeed,
 } from './player';
 import * as VFX from './vfx';
+import * as SFX from './sfx';
 import * as FEEL from './feel';
 import * as SCORE from './score';
 import * as MIX from './audio-mix';
@@ -152,7 +153,8 @@ function alertEnemy(i: number, react: number, share: boolean): void {
   enLastX[i] = pp.x; enLastY[i] = pp.y - PLAYER_FEET_OFF; enLastZ[i] = pp.z;
   if (enReactT[i] < react) enReactT[i] = react;
   if (!share) return;
-  playSound3D(DEPS.o.sfxAlienAttack[enKind[i]], enX[i], enY[i] + 1, enZ[i]);
+  // Plan 5.2: the alert call (one at a time). The attack snarl stood in for it before.
+  if (!SFX.alertCall(enKind[i], enX[i], enY[i], enZ[i])) SFX.vox(DEPS.o.sfxAlienAttack[enKind[i]], enX[i], enY[i] + 1, enZ[i]);
   for (let j = 0; j < MAX_ENEMIES; j++) {
     if (j === i || enAlive[j] === 0 || enAware[j] === 1) continue;
     const dx = enX[j] - enX[i], dz = enZ[j] - enZ[i];
@@ -450,6 +452,8 @@ function spawnEnemy(entry: number): boolean {
   }
   setBodyPosition(enBody[slot],
     vec3(enX[slot], enY[slot] + KIND_BOX_Y[kind], enZ[slot]), true);
+  // Plan 5.6: it comes up out of the ground, and is heard doing it.
+  SFX.spawned(kind, enX[slot], enY[slot], enZ[slot], enElite[slot] === 1);
   if (summoned) return true;
   DIR.waveSpawned = DIR.waveSpawned + 1;
   DIR.groupN = DIR.groupN + 1;
@@ -505,7 +509,7 @@ function bossSpecial(i: number, dt: number, striking: boolean, pdist: number,
       enStateT[i] = 1.6;
       enHitK[i] = 1;
       BOSS[2] = 0; BOSS[6] = 3.0; BOSS[5] = 0;
-      playSound3D(DEPS.o.sfxAlienPain[K_BOSS], enX[i], enY[i] + 2, enZ[i]);
+      if (!SFX.bossRoar(enX[i], enY[i] + 3, enZ[i])) SFX.vox(DEPS.o.sfxAlienPain[K_BOSS], enX[i], enY[i] + 2, enZ[i]);
       FEEL.addTrauma(0.5);
       FEEL.rumble(0.8, 0.6, 0.4);
     }
@@ -526,7 +530,7 @@ function bossSpecial(i: number, dt: number, striking: boolean, pdist: number,
     // AI_WINDUP is what the HUD's threat marks and the wind-up subtitle read.
     enAIState[i] = AI_WINDUP;
     enStateT[i] = BOSS[3];
-    playSound3D(DEPS.o.sfxAlienAttack[K_BOSS], enX[i], enY[i] + 2, enZ[i]);
+    SFX.vox(DEPS.o.sfxAlienAttack[K_BOSS], enX[i], enY[i] + 2, enZ[i]);
     return true;
   }
   BOSS[3] = BOSS[3] - dt;
@@ -545,10 +549,11 @@ function bossSpecial(i: number, dt: number, striking: boolean, pdist: number,
                            Math.sin(a) * BOSS_BOLT_SPEED, dyv * BOSS_BOLT_SPEED, -Math.cos(a) * BOSS_BOLT_SPEED,
                            BOSS_BOLT_DMG, K_ADV_DRAGOON);
     }
-    playSound3D(DEPS.o.sfxAlienAttack[K_ADV_DRAGOON], enX[i], my, enZ[i]);
+    if (!SFX.spit(true, enX[i], my, enZ[i])) SFX.vox(DEPS.o.sfxAlienAttack[K_ADV_DRAGOON], enX[i], my, enZ[i]);
     BOSS[4] = BOSS[4] - 1;
     if (BOSS[4] > 0) { BOSS[3] = 0.6; enStateT[i] = 0.6; over = false; }
   } else if (BOSS[2] === 2) {
+    SFX.bossSummon(enX[i], enY[i] + 3, enZ[i]);
     const a0 = Math.random() * 6.28;
     bossSummon(i, 0, 0, a0);
     bossSummon(i, 0, 0, a0 + 2.1);
@@ -564,7 +569,7 @@ function bossSpecial(i: number, dt: number, striking: boolean, pdist: number,
     }
     FEEL.addTrauma(0.7);
     FEEL.requestHitstop(0.05);
-    playSound3D(DEPS.o.sfxSwing, enX[i], gy + 1, enZ[i]);
+    if (!SFX.bossSlam(enX[i], gy, enZ[i], BOSS_SLAM_R)) playSound3D(DEPS.o.sfxSwing, enX[i], gy + 1, enZ[i]);
     GS.capEvent = 5;
     if (pdist < BOSS_SLAM_R && sameFloor) {
       if (isInvulnerable()) DIR.dodgedT = 0.8;
@@ -659,12 +664,12 @@ export function damageEnemy(i: number, dmg: number,
   if (loc === LOC_SHELL) {
     // Armour: sparks and a ricochet, no ichor. The picture says "wrong side".
     VFX.emitImpactHard(hx, hy, hz, -dirX, -dirY, -dirZ, Math.random() * 6.28);
-    playSound3D(DEPS.o.sfxRicochet[i & 1], hx, hy, hz);
+    SFX.ricochet(hx, hy, hz);
   } else {
     VFX.emitImpactFlesh(hx, hy, hz, dirX, dirY, dirZ,
                         KIND_BLOOD_R[k], KIND_BLOOD_G[k], KIND_BLOOD_B[k],
                         groundY + 0.02, Math.random() * 6.28);
-    playSound3D(DEPS.o.sfxImpactFlesh, hx, hy, hz);
+    SFX.fleshHit(hx, hy, hz);
   }
   GS.hitMarkT = crit ? 0.28 : 0.18;
   GS.hitMarkCrit = crit ? 1 : 0;
@@ -724,7 +729,7 @@ export function damageEnemy(i: number, dmg: number,
       }
     }
     setBodyPosition(enBody[i], vec3(enX[i], -100, enZ[i]), false);
-    playSound3D(DEPS.o.sfxAlienDie[k * 3 + (i % 3)], enX[i], enY[i] + 1, enZ[i]);
+    SFX.vox(DEPS.o.sfxAlienDie[k * 3 + (i % 3)], enX[i], enY[i] + 1, enZ[i]);
 
     VFX.emitDeathBurst(hx, hy, hz,
                        KIND_BLOOD_R[k], KIND_BLOOD_G[k], KIND_BLOOD_B[k],
@@ -773,11 +778,11 @@ export function damageEnemy(i: number, dmg: number,
       enDmgWindow[i] = 0;
       enHasToken[i] = 0;
       enHitK[i] = 1;
-      playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
+      SFX.vox(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
     }
   }
   if ((i & 3) === 0) {
-    playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
+    SFX.vox(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);
   }
 }
 
@@ -1037,7 +1042,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
               DIR.dodgedT = 0.8;
             } else {
               damagePlayer(KIND_DMG[k] * (enElite[i] === 1 ? ELITE_DMG : 1), enX[i], enZ[i], i);
-              playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
+              SFX.vox(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);
             }
           }
         }
@@ -1163,7 +1168,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
             enAIState[i] = AI_WINDUP;
             enStateT[i] = 0.65;
             enStrikeSeq[i] = enStrikeSeq[i] + 1;
-            playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);  // roar
+            SFX.vox(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + 1, enZ[i]);  // roar
           }
         } else if (enAIState[i] === AI_WINDUP) {
           // Rooted — the player's dodge window.
@@ -1271,7 +1276,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
               enX[i], muzY, enZ[i],
               (tx / tl + jx) * vsp, (ty / tl + jy) * vsp, (tz / tl + jz) * vsp,
               RANGED_DMG[k] * (enElite[i] === 1 ? ELITE_DMG : 1), k);
-            playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], muzY, enZ[i]);
+            if (!SFX.spit(k === K_ADV_DRAGOON, enX[i], muzY, enZ[i])) SFX.vox(DEPS.o.sfxAlienAttack[k], enX[i], muzY, enZ[i]);
             VFX.emitMuzzle(enX[i], muzY, enZ[i], tx / tl, ty / tl, tz / tl, 0, 0);
           }
           if (enBurst[i] <= 0) {
@@ -1325,7 +1330,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
               enStateT[i] = RANGED_WINDUP[k];
               enBlockT[i] = 0;
               enStrikeSeq[i] = enStrikeSeq[i] + 1;
-              playSound3D(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);   // hiss/tell
+              SFX.vox(DEPS.o.sfxAlienPain[k], enX[i], enY[i] + 1, enZ[i]);   // hiss/tell
             } else {
               enRangedCD[i] = 0.25;
               enBlockT[i] = enBlockT[i] + 0.25;
@@ -1353,7 +1358,7 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
           tokensOut = tokensOut + 1;
           vx = 0; vz = 0;
           // The tell you can hear: every kind has its own attack voice.
-          playSound3D(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + KIND_HEIGHT[k] * 0.7, enZ[i]);
+          SFX.vox(DEPS.o.sfxAlienAttack[k], enX[i], enY[i] + KIND_HEIGHT[k] * 0.7, enZ[i]);
         } else if (k < 3 && stNow !== AI_CHARGE && sameFloor
                    && (tokensOut >= maxTokens || enAttackCD[i] > 0)
                    && pdist < STRIKE_START[k] + RING_EXTRA + 1.0) {
@@ -1633,7 +1638,18 @@ export function updateDirector(dt: number, dtReal: number, playing: boolean): vo
 
     // Wave director
     const alive = countAlive();
-    MIX.updateMusicIntensity(dtReal, alive, DIR.waveBreakTimer <= 0);
+    {
+      // Plan 5.5: what the music needs to know about the fight.
+      let awareN = 0, eliteN = 0;
+      for (let q = 0; q < MAX_ENEMIES; q++) {
+        if (enAlive[q] === 0) continue;
+        if (enAware[q] === 1) awareN = awareN + 1;
+        if (enElite[q] === 1) eliteN = eliteN + 1;
+      }
+      const wtM = DIR.waveIdx < wavePlan.length ? W.WAVE_TYPE[DIR.waveIdx] : 0;
+      MIX.updateMusicIntensity(dtReal, alive, DIR.waveBreakTimer <= 0, awareN,
+                               eliteN > 0 || wtM !== 0, bossHealth() > 0);
+    }
     if (DIR.waveIdx < wavePlan.length) {
       if (DIR.waveBreakTimer > 0) {
         // The tutorial holds the first countdown until it has been answered or skipped.
@@ -1773,9 +1789,8 @@ export function updateEnemyProjectiles(dt: number, playing: boolean): void {
     const hitPlayer = (dxp * dxp + dyp * dyp + dzp * dzp) < pcR * pcR && !isInvulnerable();
 
     if (hitPlayer && playing) {
-      playSound3D(DEPS.o.sfxImpactFlesh, cxp, cyp, czp);
-      VFX.emitImpactHard(cxp, cyp, czp, -sx2 * inv2, -sy2 * inv2, -sz2 * inv2,
-                         Math.random() * 6.28);
+      SFX.fleshHit(cxp, cyp, czp);
+      VFX.emitAcid(cxp, cyp, czp);
       // Where it came from: back along its flight.
       damagePlayer(eDmg[i], ppE.x - sx2 * inv2 * 4, ppE.z - sz2 * inv2 * 4, i);
       eLife[i] = 0;
@@ -1786,15 +1801,14 @@ export function updateEnemyProjectiles(dt: number, playing: boolean): void {
                          vec3(sx2 * inv2, sy2 * inv2, sz2 * inv2),
                          seg, 1 << Layer.NON_MOVING);
     if (hitW) {
-      const nw = hitW.normal;
-      VFX.emitImpactHard(hitW.point.x, hitW.point.y, hitW.point.z,
-                         nw.x, nw.y, nw.z, Math.random() * 6.28);
+      SFX.acid(hitW.point.x, hitW.point.y, hitW.point.z);
       eLife[i] = 0;
       continue;
     }
 
     eX[i] = nx2; eY[i] = ny2; eZ[i] = nz2;
     eLife[i] = eLife[i] - dt;
+    VFX.emitTrail(1, nx2, ny2, nz2);
   }
 
 }

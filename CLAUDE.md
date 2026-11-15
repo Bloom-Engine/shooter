@@ -42,7 +42,8 @@ see SH-052) — runnable with
   glyphs), `binds.ts` (which key / mouse button / pad button each action is on),
   `strings.ts` (GENERATED string table, four languages), `profile.ts` (what a player keeps:
   credits, upgrades, stars, lifetime numbers, in `profile.json`), `objective.ts` (hold and nest
-  waves), `tutor.ts` (the tutorial and the one-time hints), `environment.ts`
+  waves), `tutor.ts` (the tutorial and the one-time hints), `sfx.ts` (Phase 5: sound variation, impact
+  materials, creature idle/alert calls, occlusion, ambience loops, explosion lights), `environment.ts`
   (water/grass/building/glass/GI proxies), `gamestate.ts` (shared run
   scalars as `const GS`), plus `feel/vfx/weapons/menu/settings/score/
   audio-mix/boot/terrain`. Module headers state the Perry rules each
@@ -63,7 +64,7 @@ see SH-052) — runnable with
   order. Phases 0 (bugs and hygiene), 1 (the player on screen), 2 (combat), 3 (world art
   and lighting), 4 (UI and front end) and 6 (encounters, progression, objectives, onboarding,
   volume) landed 2026-11-14; each phase's header says what it left open. Phase 5 (audio and VFX
-  depth) was skipped, not done. Phase 7 (performance and production) is partly done: measured at
+  depth) landed 2026-11-15 after them, without new music and without anyone listening to it. Phase 7 (performance and production) is partly done: measured at
   40-51 fps on the M1 Max, 60 not reached, see its table.
 
 ## Read before changing things
@@ -239,6 +240,7 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
    the decals are generated photographs converted by `tools/gen/vfx_from_image.py`
    (`art/style/vfx/`); spark, droplet and shell are still procedural (`build-vfx-textures.ts`,
    which would overwrite the photographic ones if re-run, so re-run the converter after it).
+   The explosion flipbook and the chip are drawn by `tools/gen/vfx_flipbook.py`.
    **Grass**: one instance is a seven-blade TUFT built in `src/environment.ts` (80k on desktop, 36k
    on mobile). **House**: the wall boxes of a world get drawn-only dressing (concrete frame, steel
    window linings, sills, awnings) from `tools/gen/house_trim.py <world.json>` as `building_trim`
@@ -357,6 +359,21 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   have. Judge changes with P2BOT (it is PUT at each objective; it does not walk),
   UISHOT (captures 21-26: tutorial, elite, objective waves; run it per arena with `level.txt`)
   and MENUTEST.
+- Audio and effects rules the code rests on (Phase 5, SH-063). **Nobody has listened to the
+  Phase 5 sounds; levels in `sfx.ts` are guesses.** A round hitting the world goes through
+  `SFX.impact` (it classifies the surface and plays that material's sound and particles), never
+  `VFX.emitImpactHard` directly; a creature vocal goes through `SFX.vox` (pitch spread and
+  occlusion). Every sound in `sfx.ts` is optional and every caller has a fallback, so the
+  functions return false when their file is missing. Particles: read scene depth the way
+  `particle.wgsl` does now (fragment pixel, `proj[2][2]` / `proj[3][2]`); the earlier
+  `inv_proj` version made every particle invisible for months and nothing reported it, so
+  after touching that shader LOOK at a capture (`./main --harness vfxshot`, run it in a day
+  arena and in arena_06). A pool whose material intensity is negative is alpha-blended
+  (it can darken), unlit, and scaled by `VFX.setDaylight`; everything else is additive. The
+  fireball is a 4 x 4 flipbook played by particle age (`cfg.w`). A point light lasts one
+  frame: timed flashes live in `sfx.ts` and are re-added by `addFlashLights`. The music is two
+  beds mixed by a four-rung ladder (`MIX.updateMusicIntensity`); `music_boss.ogg` is optional
+  and does not exist yet (`assets/music/SUNO-PROMPTS.md` section 7).
 - Slice D (SH-061). There are EIGHT kinds: kind 7 (`K_BOSS`) is the Matriarch, one body, and
   every per-kind table anywhere must have eight entries (a seven-entry one crashes with a
   TypeError the moment she is alive). Her weak point is the brood-sac cluster on her back (a

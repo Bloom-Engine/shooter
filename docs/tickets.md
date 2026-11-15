@@ -2144,3 +2144,45 @@ macOS binary imports), copied into the iOS, tvOS and macOS bundles by `release.p
 - `--bot` and the web checks are not part of the default check.
 - 7.3 entirely; 7.4 beyond the audit; age rating and store text.
 
+---
+
+## SH-063 — AAA plan, Phase 5: audio and VFX depth ✅ *(landed 2026-11-15 except new music; judged from captures and file measurements, not heard)*
+
+**Bug found on the way: every particle in the game was invisible.** `particle.wgsl` rebuilt a
+screen UV from the clip position and un-projected the scene depth through `inv_proj`; the
+result came out in front of every particle, so the soft-fade factor was 0 everywhere. Decals
+(another shader) were unaffected, which is why bullet holes and splats showed and nothing
+else did. Found because the new explosion lit the ground and left a scorch mark with no
+fireball between them. Now: depth by fragment pixel, linearised with `proj[2][2]` and
+`proj[3][2]`, as `water.wgsl` does. Confirmed in captures, day and night.
+
+**New module `src/sfx.ts`**: weapon reports and mechanisms, casings, dry fire, swap, staged
+reload, impact materials (`surfaceAt`, `impact`), creature idle / alert / spawn / boss / spit
+/ acid, occlusion (`vox`), three ambience loops, flash lights. Every file optional, every
+caller falls back to the old sound when one is missing. `src/audio-mix.ts`: wind re-enabled,
+six tails, the intensity ladder (`updateMusicIntensity` takes aware count, peak, boss),
+`bossBlend`. `src/vfx.ts`: ten new pools, `emitImpactMat`, `emitSpawn`, `emitTrail`,
+`emitAcid`, `emitShockRing`, alpha-blended pools (a negative intensity), `setDaylight`.
+
+**Sounds.** 87 files from ElevenLabs (`tools/gen/sfx.py`, fifth pass), about 136 seconds,
+about 1,500 credits (the account showed 13,190 used before and 14,707 after, of 40,000).
+Three came back empty or under 0.1 s and were regenerated with louder prompts.
+
+**Harness.** `./main --harness vfxshot`: explosion at three moments, one impact per material,
+spawn / slam ring / acid, then `surfaceAt` at known places and the material handles.
+arena_02: ground 0, tree 1, water 4, house 2, stump 1 as wanted; arena_06: barrel 3.
+
+**Checked.** `tools/check.sh` passes (static, build, boot, AI, 22 menu checks). Stand-in:
+arena_02 ten waves won in 401 s (379 before), boss wave with the lance won in 64 s (50 to 63
+before), no runtime error in either log. Fight frame rate 36.0 fps (36.3 before).
+
+**Not done / not verified.**
+- Nothing was heard. See the plan's Phase 5 "carried forward".
+- No music was made.
+- The stand-in with the cannon never hurt the boss in 150 s. Not investigated: the stand-in
+  most likely cannot use a charge weapon (it holds the trigger). The cannon was not otherwise
+  changed here, but nobody has confirmed it still fires for a person.
+- Dry fire, swap, staged reload, casings, the idle and alert calls and occlusion were never
+  observed happening: the code paths ran without error in the stand-in runs, and that is all.
+- The ambience mix indoors, and the boss bed slot, have no test.
+

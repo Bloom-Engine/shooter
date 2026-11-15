@@ -290,26 +290,47 @@ coverage. Engine EN-059 (UTF-8 read as Latin-1) must close first.
 
 ---
 
-## Phase 5 - Audio and VFX depth (3-5 weeks)
+## Phase 5 - Audio and VFX depth - LANDED 2026-11-15 except the music (ticket SH-063)
 
-5.1 **Weapons.** Three or more variations per shot with pitch spread, mechanical and tail layers,
-dry-fire, swap, reload stages, shell casings on the surface they land on.
+**State.** Done after Phases 6 and 7, not before them. `docs/tickets.md` SH-063 has the record.
+**Nobody has listened to any of it.** The sounds were checked by length, level and spectrum,
+the effects from captures (the new VFXSHOT harness, day and night), and the wiring by the
+check script and two stand-in runs. Every level in `src/sfx.ts` is a first guess.
 
-5.2 **Creatures.** A voice set for each of the seven kinds (Spitter and Bombard share others'
-today), plus idle, alert and spawn vocals.
+**The find of the phase: no particle in the game was visible.** The particle shader's
+soft-fade read the scene depth wrongly and faded every particle to nothing: muzzle flash,
+smoke, blood, sparks, dust, casings, tracers, since some engine change after SH-033. The
+pools were full and the draws were issued, so nothing reported it, and no earlier capture was
+ever looked at for it. Fixed in `assets/materials/particle.wgsl` (depth read the way
+`water.wgsl` reads it). Every effect older than this phase is therefore being seen for the
+first time too, and was tuned blind: the muzzle smoke was cut from five puffs a shot to two
+because it hid the Trooper's head.
 
-5.3 **Impacts.** Per-material sound and particle sets (dirt, grass, wood, brick, metal, water,
-flesh) in place of two classes.
+| Item | What landed |
+|---|---|
+| 5.1 Weapons | Three reports per weapon (eighteen), never the same twice running, pitch spread per shot. The mechanism after the shot (bolt, pump a beat later, capacitor). A casing landing on soft or hard ground. Dry click. Swap. Reload in three stages for the magazine weapons and its own two-stage set for the energy weapons; a cancelled reload makes no end sound. Tails for the scattergun and the lance. |
+| 5.2 Creatures | Voices of their own for the Spitter, the Bombard and the Matriarch. An idle murmur from creatures that have not noticed the player, an alert call from the one that has (one at a time). A sound and thrown earth when one comes up. A growl for an elite. The Matriarch's roar, slam and summon. Spit, lob and acid-landing sounds. Every vocal is low-passed when a wall stands between it and the camera (one ray per vocal). |
+| 5.3 Impacts | `SFX.impact` asks what a round hit (earth, wood, masonry, metal, water: from the terrain, the water volumes, the trees, the building footprint and each prop's model) and plays that material's two sounds and its particles. Three flesh sounds. |
+| 5.4 Ambience | The wind bed is back on (its spectrum is not white noise any more; kept low). Birds by day, insects at night, room tone indoors, mixed by the arena's sky and the enclosure. |
+| 5.5 Music | **Code only.** A four-rung intensity ladder on the two existing beds (calm, tense, combat, peak), fast up and slow down, a breath out of the music as a wave starts, and a slot for a boss bed. **No new music exists**: the beds are still under three minutes and there is no boss theme. The Suno prompt and the steps are in `assets/music/SUNO-PROMPTS.md` (section 7). |
+| 5.6 VFX | A sixteen-frame fireball flipbook (drawn by `tools/gen/vfx_flipbook.py`, played by particle age with frame blending). A light on every explosion and acid burst. Dark smoke that stays, embers, thrown earth and chips. An alpha-blended particle mode (dust, chips, clods, casings and dark smoke can now be darker than what is behind them), dimmed at night. Trails behind the player's and the creatures' projectiles. Spawn and slam effects. A real water splash in place of the ichor pool. |
 
-5.4 **Ambience.** The wind bed is still muted (`src/audio-mix.ts:154`) although a new file exists:
-re-enable and judge it. Birds, insects, interior room tone. Wire the unused `setOccluded`.
+**Carried forward:**
 
-5.5 **Music.** Under three minutes exist. Longer beds, an intensity ladder with more than two
-states, a boss theme, transitions on wave events.
-
-5.6 **VFX.** Flipbook explosions and fire, a light on every explosion, lit particles, debris,
-projectile trails with a mesh or ribbon, spawn effects, water splashes that are not the blood pool
-(`src/vfx.ts:330`), gibs or dismemberment if the rating allows.
+- **Listening.** All of it. Most at risk: the levels of the eighteen reports against each
+  other, the idle murmurs' frequency (one every 2 to 5 seconds), the ambience beds' levels,
+  whether the wind still reads as noise, and whether muffling sounds right.
+- **Music**: longer beds, a boss theme, more states than two beds can give (Suno, by Ralph).
+- **Per-material impacts are guessed from position**, not from what the ray hit: the engine's
+  ray returns no material. A crate inside the house is metal; the house's steel window
+  linings are masonry; grass and dirt share one set.
+- **Not built:** lit particles (they are unlit and scaled by one time-of-day number), ribbon
+  or mesh trails, fire that burns on, gibs or dismemberment, interior birds/insects
+  occlusion beyond the enclosure mix, more than one room tone.
+- **Trails and casings cost pool space**, not measured beyond the fight frame rate, which did
+  not move (36 fps before and after on the M1 Max at the old default).
+- **Subtitles** were not extended to the new sounds.
+- **Other platforms**: not run. The flipbook texture is 2048 square (5 MB).
 
 ---
 
@@ -319,7 +340,7 @@ projectile trails with a mesh or ribbon, spawn effects, water splashes that are 
 Upgrades are bought with credits earned in runs. Built in four slices; A to C landed without
 spending anything, D (the boss, two more weapons, two more arenas) needs Tripo credits and is
 not started. Phase 5 was skipped on the way here, so everything below arrives with the sounds
-and effects the game already had.
+and effects the game already had. (Phase 5 landed afterwards, 2026-11-15: SH-063.)
 
 **State.** `docs/tickets.md` SH-060 has the record. Judged from the UISHOT harness (27 captures
 per arena run), the MENUTEST harness (22 scripted checks through the real key path) and P2BOT

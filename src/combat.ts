@@ -45,6 +45,7 @@ import * as SET from './settings';
 import * as SCORE from './score';
 import * as OBJECTIVE from './objective';
 import * as TUTOR from './tutor';
+import * as SFX from './sfx';
 
 const WHITE = { r: 255, g: 255, b: 255, a: 255 };
 
@@ -207,6 +208,7 @@ export function resetRun(): void {
   TUTOR.resetTutor();
   FEEL.resetFeel();
   VFX.resetVfx();     // last run's blood shouldn't greet the new one
+  SFX.resetSfx();
   GS.runElapsed = 0;
   SCORE.beginWave(0);
 }
@@ -227,6 +229,7 @@ export function startRun(): void {
   stopMusic(DEPS.o.musicMenu);
   playMusic(DEPS.o.musicCalm);
   playMusic(DEPS.o.musicCombat);
+  if (DEPS.o.HAS_BOSS_MUSIC) playMusic(DEPS.o.musicBoss);
   WPN.selectWeapon(WPN.W_BLASTER);
   WPN.selectWeapon(WPN.W_RIFLE);
   DIR.waveBreakTimer = WAVE_BREAK_DELAY;   // wave-1 countdown starts fresh
@@ -244,7 +247,7 @@ function explode(x: number, y: number, z: number, radius: number, dmg: number): 
   FEEL.addTrauma(0.6);
   FEEL.requestHitstop(0.06);
   FEEL.rumble(0.9, 0.6, 0.3);
-  playSound3D(DEPS.o.sfxExplosion, x, y, z);
+  if (!SFX.explosion(x, y, z)) playSound3D(DEPS.o.sfxExplosion, x, y, z);
   GS.capEvent = 5;                 // subtitle: explosion (hud.ts CAP_EXPLOSION)
 
   makeNoise(60);
@@ -571,7 +574,7 @@ function fireMulti(wpn: number, ox: number, oy: number, oz: number,
         if (hit && wallMarks < 4) {
           wallMarks = wallMarks + 1;
           const n = hit.normal;
-          VFX.emitImpactHard(hit.point.x, hit.point.y, hit.point.z, n.x, n.y, n.z, Math.random() * 6.28);
+          SFX.impact(hit.point.x, hit.point.y, hit.point.z, n.x, n.y, n.z);
         }
         stopped = true;
       }
@@ -609,6 +612,8 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
   // respects the real cooldown, spread and reload — otherwise the capture would
   // be of a weapon that doesn't exist.
   const harnessFire = forceFire && combatActive && WPN.canFire(true);
+  // The trigger pulled on an empty weapon with nothing left to load (otherwise it reloads).
+  if (combatActive && firePressed && WPN.isEmpty() && GS.meleeT < 0) SFX.dryFire();
 
   if (wantFire || chargeShot >= 0 || harnessFire) {
     SCORE.noteShot();
@@ -632,8 +637,13 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
     FEEL.rumble(0.25 + kick[0] * 0.1, 0.15, 0.05);
 
     // One sound per weapon; the rifle alternates its two samples.
-    if (wpn === WPN.W_RIFLE && Math.random() < 0.5) playSound(DEPS.o.sfxFireRifleB);
-    else playSound(DEPS.o.sfxFireByWeapon[wpn]);
+    // Plan 5.1: three reports per weapon at a varied pitch, the mechanism and the casing
+    // (sfx.ts). The old single sample is the fallback for a checkout without the new files.
+    const ppS = playerPosition();
+    if (!SFX.fireShot(wpn, ppS.x, ppS.y - 0.9, ppS.z)) {
+      if (wpn === WPN.W_RIFLE && Math.random() < 0.5) playSound(DEPS.o.sfxFireRifleB);
+      else playSound(DEPS.o.sfxFireByWeapon[wpn]);
+    }
 
     // Third-person aiming: the crosshair is at screen centre, so trace the
     // camera-forward line out to a far point, treat that as the aim target, and
@@ -757,10 +767,7 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
       } else if (hit) {
         // World hit — sparks, dust and a bullet hole that stays.
         const n = hit.normal;
-        VFX.emitImpactHard(hit.point.x, hit.point.y, hit.point.z,
-                           n.x, n.y, n.z, Math.random() * 6.28);
-        playSound3D(DEPS.o.sfxRicochet[SCORE.shotsFired() & 1],
-                    hit.point.x, hit.point.y, hit.point.z);
+        SFX.impact(hit.point.x, hit.point.y, hit.point.z, n.x, n.y, n.z);
       }
       }
     } else {
@@ -839,12 +846,13 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
         }
       } else {
         const n = hit.normal;
-        VFX.emitImpactHard(ix, iy, iz, n.x, n.y, n.z, Math.random() * 6.28);
+        SFX.impact(ix, iy, iz, n.x, n.y, n.z);
         pLife[i] = 0;
       }
     } else {
       pX[i] = nx; pY[i] = ny; pZ[i] = nz;
       pLife[i] = pLife[i] - dt;
+      VFX.emitTrail(0, nx, ny, nz);
     }
   }
 }

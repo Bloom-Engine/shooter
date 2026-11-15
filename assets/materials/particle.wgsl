@@ -18,8 +18,10 @@
 #include "material_abi.wgsl"
 
 struct ParticleParams {
-  // x = texture-array layer, y = additive-intensity multiplier,
-  // z = soft-fade distance in metres, w = unused.
+  // x = texture-array layer, y = additive-intensity multiplier (NEGATIVE: an alpha-blended
+  // pool, and its brightness is the absolute value),
+  // z = soft-fade distance in metres, w = flipbook grid (0 = one image; 4 = a 4 x 4 sheet
+  // played once over the particle's life, neighbouring frames blended).
   //
   // The layer is per-MATERIAL, not per-instance: each particle system draws
   // with its own look anyway, so one material per look costs one draw call and
@@ -50,6 +52,7 @@ struct VsOut {
   @location(1)       tint:     vec4<f32>,
   @location(2)       view_z:   f32,
   @location(3)       screen_uv: vec2<f32>,
+  @location(4)       age:      f32,
 };
 
 @vertex
@@ -92,6 +95,7 @@ fn vs_main(in: InstancedVertexInput) -> VsOut {
   out.screen_uv = clip.xy / clip.w * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
   out.uv   = in.uv;
   out.tint = in.instance_tint;
+  out.age  = in.instance_extra.x;
   return out;
 }
 
@@ -100,7 +104,19 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // Texture ARRAY, not a 2D texture: the engine's per-material bind group
   // hardwires a white stub into the plain 2D slots, so binding 14 (the albedo
   // array) is the only route a custom material has to its own art.
-  let tex = textureSample(albedo_array, albedo_array_samp, in.uv, i32(pp.cfg.x));
+  var tex = textureSample(albedo_array, albedo_array_samp, in.uv, i32(pp.cfg.x));
+  // Flipbook (plan 5.6): the sheet is grid x grid frames, read left to right, top to bottom.
+  // Both samples are taken outside any branch on a varying (derivatives stay defined).
+  let grid = max(pp.cfg.w, 1.0);
+  let frames = grid * grid;
+  let fpos = clamp(in.age, 0.0, 0.999) * (frames - 1.0);
+  let f0 = floor(fpos);
+  let f1 = min(f0 + 1.0, frames - 1.0);
+  let uv0 = (vec2<f32>(f0 % grid, floor(f0 / grid)) + in.uv) / grid;
+  let uv1 = (vec2<f32>(f1 % grid, floor(f1 / grid)) + in.uv) / grid;
+  let s0 = textureSampleLevel(albedo_array, albedo_array_samp, uv0, i32(pp.cfg.x), 0.0);
+  let s1 = textureSampleLevel(albedo_array, albedo_array_samp, uv1, i32(pp.cfg.x), 0.0);
+  if (pp.cfg.w > 1.5) { tex = mix(s0, s1, fpos - f0); }
   var rgb = tex.rgb * in.tint.rgb;
   var a   = tex.a * in.tint.a;
 
@@ -108,18 +124,29 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
   // straight seam where the quad cuts the geometry — the single biggest tell
   // that a "puff" is a flat card. Fade out as the quad approaches whatever is
   // behind it.
-  let dims  = textureDimensions(scene_depth_tex);
-  let ix    = vec2<i32>(clamp(in.screen_uv, vec2<f32>(0.0), vec2<f32>(0.999)) * vec2<f32>(dims));
-  let sd    = textureLoad(scene_depth_tex, ix, 0);
-  let ndc   = vec2<f32>(in.screen_uv.x * 2.0 - 1.0, 1.0 - in.screen_uv.y * 2.0);
-  let scene_v = view.inv_proj * vec4<f32>(ndc, sd, 1.0);
-  let scene_z = -(scene_v.z / scene_v.w);      // metres in front of the eye
+  //
+  // Read the depth the way water.wgsl does: by the fragment's own pixel, linearised with the
+  // projection's two terms. (Until 2026-11-15 this rebuilt a screen UV from the clip position
+  // and un-projected it through inv_proj; that came out in front of every particle, `soft`
+  // was 0 everywhere and NO particle in the game was visible: no muzzle flash, smoke, blood
+  // or sparks. Nothing reported it, because the pools were full and the draws were issued.)
+  let sd      = textureLoad(scene_depth_tex, vec2<i32>(in.clip_pos.xy), 0);
+  let proj_a  = view.proj[2][2];
+  let proj_b  = view.proj[3][2];
+  let scene_m = proj_b / (sd + proj_a);              // metres in front of the eye
+  let part_m  = proj_b / (in.clip_pos.z + proj_a);
   let fade_d  = max(pp.cfg.z, 0.001);
-  let soft    = clamp((scene_z - in.view_z) / fade_d, 0.0, 1.0);
+  let soft    = clamp((scene_m - part_m) / fade_d, 0.0, 1.0);
   a = a * soft;
 
   // Additive: premultiply by alpha ourselves, since there is no dst alpha to
   // blend against. Intensity > 1 pushes into HDR so bloom picks up the hot
   // cores (sparks, muzzle flash) instead of clipping flat white.
+  // cfg.y < 0 marks a pool compiled into the ALPHA-BLENDED bucket (dust, dark smoke, chips:
+  // things that must be able to darken what is behind them, which adding light cannot do).
+  // The blend there is src-alpha / one-minus-src-alpha, so the colour goes out unmultiplied.
+  if (pp.cfg.y < 0.0) {
+    return vec4<f32>(rgb * (-pp.cfg.y), a);
+  }
   return vec4<f32>(rgb * a * pp.cfg.y, a);
 }

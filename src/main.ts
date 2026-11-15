@@ -114,6 +114,7 @@ import * as FEEL from './feel';
 import * as VFX from './vfx';
 import * as WPN from './weapons';
 import * as MIX from './audio-mix';
+import * as SFX from './sfx';
 import * as SET from './settings';
 import * as SCORE from './score';
 import {
@@ -252,7 +253,8 @@ setSoundVolume(sfxFireBlaster, 0.45);
 if (sfxFireChain !== sfxFireRifle) setSoundVolume(sfxFireChain, 0.38);
 if (sfxFireCannon !== sfxFireRifle) setSoundVolume(sfxFireCannon, 0.60);
 if (sfxExplosion !== sfxFireBlaster) setSoundVolume(sfxExplosion, 0.85);
-// The scattergun and the lance borrow the cannon's and the blaster's report (Phase 5 is open).
+// The fallback table: sfx.ts plays three reports per weapon when its files are there, and
+// this one sample per weapon when they are not (the scattergun and the lance borrow two).
 const sfxFireByWeapon = [sfxFireRifle, sfxFireBlaster, sfxFireChain, sfxFireCannon, sfxFireCannon, sfxFireBlaster];
 // Phase 2 (SH-057): the claw swing, the critical-hit confirm and the player's kit. Optional
 // files with stand-ins, like the three above.
@@ -297,8 +299,11 @@ setSoundVolume(sfxPlayerDie[1], 0.8);
 // classes of the mantis (level1) and marauder (level2), and in Unvanquished an
 // upgrade class shares its base class's voice. So their vocals map onto the base
 // class's files rather than needing two new sets of art.
-// (The boss, kind 7, uses the Colossus's voice until it has one: Phase 5 is open.)
-const SFX_KIND_VOICE = [0, 1, 2, 3, 4, 2, 3, 4];
+// Plan 5.2: the Spitter, the Bombard and the Matriarch have voices of their own (alien5..7);
+// a checkout without those files keeps the old sharing.
+const HAS_VOICE567 = fileExists('assets/sounds/alien5_die1.wav') && fileExists('assets/sounds/alien6_die1.wav')
+  && fileExists('assets/sounds/alien7_die1.wav');
+const SFX_KIND_VOICE = HAS_VOICE567 ? [0, 1, 2, 3, 4, 5, 6, 7] : [0, 1, 2, 3, 4, 2, 3, 4];
 const sfxAlienDie: any[] = new Array(24);     // 8 kinds x 3 variants
 const sfxAlienAttack: any[] = new Array(8);
 const sfxAlienPain: any[] = new Array(8);
@@ -340,6 +345,10 @@ const HAS_STEMS = true;   // kept as a name: the crossfade code reads it
 const musicMenu = loadMusic('assets/music/music_menu.ogg');
 const musicCalm = loadMusic('assets/music/music_calm.ogg');
 const musicCombat = loadMusic('assets/music/music_combat.ogg');
+// Plan 5.5: a bed for the boss, if there is one (assets/music/SUNO-PROMPTS.md has the prompt;
+// without the file the boss fight plays the combat bed at the top of the ladder).
+const HAS_BOSS_MUSIC = fileExists('assets/music/music_boss.ogg');
+const musicBoss = HAS_BOSS_MUSIC ? loadMusic('assets/music/music_boss.ogg') : musicCombat;
 // Decode verification on the boot log — a bed that failed to decode is a
 // handle of 0, and music failing SILENTLY is exactly how a format change
 // would otherwise ship broken (post-init engine stderr is dead on Windows).
@@ -374,8 +383,10 @@ function applyMusicCrossfade(): void {
   const i = MIX.musicIntensity();
   // Equal-power, not linear: two linear fades sum to a ~3 dB dip in the middle,
   // which is audible as the music briefly ducking every time a wave starts.
-  setMusicVolume(musicCalm, Math.cos(i * Math.PI * 0.5) * 0.35);
-  setMusicVolume(musicCombat, Math.sin(i * Math.PI * 0.5) * 0.35);
+  const b = HAS_BOSS_MUSIC ? MIX.bossBlend() : 0;
+  setMusicVolume(musicCalm, Math.cos(i * Math.PI * 0.5) * 0.35 * (1 - b));
+  setMusicVolume(musicCombat, Math.sin(i * Math.PI * 0.5) * 0.35 * (1 - b));
+  if (HAS_BOSS_MUSIC) setMusicVolume(musicBoss, 0.38 * b);
 }
 
 bootStage(BOOT_WORLD);
@@ -1311,11 +1322,19 @@ const dbgAnkle = findJoint(animPlayer, 'ankle.R');
 // SH-033 — VFX. Cosmetic, so a failure here must never take the game down:
 // initVfx() returns false and every emit call becomes a no-op.
 bootStage(BOOT_VFX);
+// Plan 5.6: the unlit, alpha-blended pools (dust, chips, dark smoke) take the arena's brightness.
+VFX.setDaylight(SKY_VARIANT === 4 ? 0 : (SKY_VARIANT === 3 ? 0.45 : (SKY_VARIANT === 2 ? 0.8 : 1)));
 const vfxOk = VFX.initVfx();
 if (!vfxOk) console.log('[vfx] disabled - shaders or textures failed to load');
 
 // Round 2 — audio mix (buses, reverb, footsteps, music intensity).
 MIX.initAudioMix();
+// Plan Phase 5 - variation, materials, ambience, flashes (sfx.ts). Night by the arena's sky:
+// dusk is half way.
+SFX.initSfx();
+SFX.setWorld(physics);
+SFX.setBuilding(BLDG_CX, BLDG_CZ, BLDG_HX, BLDG_HZ);
+SFX.setNight(SKY_VARIANT === 4 ? 1 : (SKY_VARIANT === 3 ? 0.5 : 0));
 // SH-001 — put the leaf-rustle bed on the actual forest. The centroids come from
 // the tree positions in the world file, so moving the forest in the editor moves
 // the sound with it.
@@ -1607,6 +1626,11 @@ function p2Probe(ox: number, oy: number, oz: number, i: number, j: number, side:
 // a few points. Same dormancy contract as the other harnesses: MUST be false in
 // shipped builds.
 const COMBATSHOT = HARNESS === 'combatshot';
+// VFXSHOT (plan Phase 5): the effects that have no fight of their own to be seen in. An
+// explosion at three moments, one impact per material in a row, a spawn, the boss's ring and
+// an acid burst, each captured; then what `SFX.surfaceAt` says of five known places, and the
+// material handles (a 0 is a shader that did not compile and a draw that silently does nothing).
+const VFXSHOT = HARNESS === 'vfxshot';
 
 // ---- UISHOT harness (plan Phase 4) -------------------------------------------
 // Captures every screen of the front end and the HUD in its states, by opening them through
@@ -1924,14 +1948,14 @@ setCombatDeps({
   mdlWeapons, WEAPON_MUZZLE_Z, WEAPON_DRAW_SCALE, WEAPON_HAND_Z, WEAPON_HAND_Y,
   sfxFireRifle, sfxFireBlaster, sfxRicochet, sfxPlayerDie, stingDeath,
   sfxFireByWeapon, sfxFireRifleB, sfxExplosion, sfxPlayerPain,
-  musicMenu, musicCalm, musicCombat,
+  musicMenu, musicCalm, musicCombat, musicBoss, HAS_BOSS_MUSIC,
   mdlCrate, hasCrate, sfxSwing, sfxMeleeHit, sfxNadeThrow, sfxNadeBounce,
 });
 // Phase 6 - the nest model and the two sounds a nest makes (objective.ts).
 OBJ.hasNest = fileExists('assets/models/prop_nest.glb') ? 1 : 0;
 OBJ.mdlNest = OBJ.hasNest === 1 ? loadModel('assets/models/prop_nest.glb') : 0;
-OBJ.sfxHit = sfxImpactFlesh;
-OBJ.sfxBurst = sfxExplosion;
+OBJ.sfxHit = SFX.nestHitSound(sfxImpactFlesh);
+OBJ.sfxBurst = SFX.nestBurstSound(sfxExplosion);
 // A scripted run (any harness) must not bank credits, stars or a best score, and must not be
 // stopped by the tutorial.
 if (HARNESS !== '' || AUDIOTEST) {
@@ -2351,6 +2375,7 @@ function gameFrame(_hostDt: number): void {
   } else {
     updateMusicStream(musicCalm);
     if (HAS_STEMS) updateMusicStream(musicCombat);
+    if (HAS_BOSS_MUSIC) updateMusicStream(musicBoss);
     applyMusicCrossfade();
   }
 
@@ -2680,6 +2705,7 @@ function gameFrame(_hostDt: number): void {
       GS.gameState = 0;
       stopMusic(musicCalm);
       if (HAS_STEMS) stopMusic(musicCombat);
+      if (HAS_BOSS_MUSIC) stopMusic(musicBoss);
       playMusic(musicMenu);
       openMain();
       enableCursor();
@@ -3035,9 +3061,7 @@ function gameFrame(_hostDt: number): void {
       if (cursorLocked) disableCursor();
     }
     else if (playing && !WPN.isReloading()) {
-      const before = WPN.isReloading();
-      WPN.beginReload();
-      if (!before && WPN.isReloading()) MIX.reloadStart();
+      WPN.beginReload();   // the reload's sounds are sfx.ts, by stage
     }
   }
   // Weapon selection. Number keys pick directly; the touch/pad button cycles.
@@ -3087,9 +3111,7 @@ function gameFrame(_hostDt: number): void {
 
   // SH-028 — weapon timers (cooldown, reload, spread recovery, aim/spool).
   {
-    const wasReloading = WPN.isReloading();
     WPN.updateWeapons(dt, playing && input.fireDown, playing && input.aimDown);
-    if (wasReloading && !WPN.isReloading()) MIX.reloadEnd();
     if (playing) WPN.autoReloadIfEmpty();
   }
   SCORE.updateScore(dt);
@@ -3165,6 +3187,11 @@ function gameFrame(_hostDt: number): void {
     // keeps the river and skips the probe, so each test hears one thing.
     if (!(AUDIOTEST && audioTestMode !== 0)) MIX.updateRiverAmbience(pp.x, pp.z);
     MIX.updateCreatureLoops(pp.x, pp.z);
+    {
+      const hardFloor = (BLDG_HX > 0 && Math.abs(pp.x - BLDG_CX) < BLDG_HX && Math.abs(pp.z - BLDG_CZ) < BLDG_HZ)
+        || paintedHardGround(pp.x, pp.z);
+      SFX.updateSfx(dtReal, CAM[2], CAM[3], CAM[4], pp.x, pp.y - 0.9, pp.z, hardFloor, enclosure, playing);
+    }
   }
 
   // Smooth orbit camera follow after the physics step: occlusion-aware
@@ -3287,6 +3314,60 @@ function gameFrame(_hostDt: number): void {
       closeWindow();
       return;
     }
+  }
+  if (VFXSHOT) {
+    if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
+    GS.playerHP = PLAYER_HP_MAX;
+    GS.gameOver = false;
+    DIR.waveBreakTimer = 9999;
+    CAM[0] = 0; CAM[1] = 0.22;
+    const vp = playerPosition();
+    const vz = vp.z - 2.0;   // close: five metres on, the ground is the river bed, under water
+    const vg = terrainHeightAt(vp.x, vz);
+    if (testFrame === 60) { VFX.emitExplosion(vp.x + 3, vg + 0.4, vz, vg + 0.02); SFX.explosion(vp.x + 3, vg + 0.4, vz); }
+    if (testFrame === 63) takeScreenshot('shooter_vfx_boom_a.png');
+    if (testFrame === 72) takeScreenshot('shooter_vfx_boom_b.png');
+    if (testFrame === 90) takeScreenshot('shooter_vfx_boom_c.png');
+    if (testFrame >= 140 && testFrame < 146) {
+      for (let m = 0; m < 5; m++) {
+        const ix = vp.x - 3 + m * 1.5, iz = vp.z - 2.5;
+        VFX.emitImpactMat(m, ix, terrainHeightAt(ix, iz) + 0.05, iz, 0, 1, 0, 0);
+      }
+    }
+    if (testFrame === 146) console.log('VFXSHOT counts fire=' + VFX.debugCount(VFX.SYS_FIREBALL) + ' chip=' + VFX.debugCount(VFX.SYS_CHIP) + ' clod=' + VFX.debugCount(VFX.SYS_CLOD) + ' water=' + VFX.debugCount(VFX.SYS_WATER) + ' at ' + vp.x.toFixed(1) + ',' + vp.y.toFixed(1) + ',' + vp.z.toFixed(1) + ' g=' + vg.toFixed(2));
+    if (testFrame === 150) takeScreenshot('shooter_vfx_impacts.png');
+    if (testFrame === 190) {
+      SFX.spawned(3, vp.x - 3, terrainHeightAt(vp.x - 3, vp.z - 1), vp.z - 1, true);
+      SFX.bossSlam(vp.x + 3, terrainHeightAt(vp.x + 3, vp.z), vp.z, 2.5);
+      SFX.acid(vp.x - 1, terrainHeightAt(vp.x - 1, vp.z - 2.5) + 0.1, vp.z - 2.5);
+    }
+    if (testFrame === 198) takeScreenshot('shooter_vfx_ground.png');
+    if (testFrame === 210) {
+      const gy0 = terrainHeightAt(vp.x, vp.z - 3);
+      let line = 'VFXSHOT surfaces ground=' + SFX.surfaceAt(vp.x, gy0, vp.z - 3, 1);
+      if (W.FOREST_COUNT > 0) {
+        line = line + ' tree=' + SFX.surfaceAt(W.FOREST_X[0] + 0.2, W.FOREST_Y[0] + 1.2, W.FOREST_Z[0], 0);
+      }
+      if (W.WATER_COUNT > 0) {
+        line = line + ' water=' + SFX.surfaceAt(W.WATER_CX[0], W.WATER_CY[0] - 0.1, W.WATER_CZ[0], 1);
+      }
+      if (BLDG_HX > 0) line = line + ' house=' + SFX.surfaceAt(BLDG_CX, terrainHeightAt(BLDG_CX, BLDG_CZ) + 1.5, BLDG_CZ, 0);
+      for (let i = 0; i < W.MESH_COUNT; i++) {
+        const mp = W.UNIQUE_MODELS[W.MESH_MODEL_IDX[i]];
+        if (W.MESH_COLLIDER[i] === 0 || mp.indexOf('prop_barrel') < 0) continue;
+        line = line + ' barrel=' + SFX.surfaceAt(W.MESH_X[i], W.MESH_Y[i] + 0.5, W.MESH_Z[i], 0);
+        break;
+      }
+      for (let i = 0; i < W.MESH_COUNT; i++) {
+        const mp = W.UNIQUE_MODELS[W.MESH_MODEL_IDX[i]];
+        if (W.MESH_COLLIDER[i] === 0 || mp.indexOf('stump') < 0) continue;
+        line = line + ' stump=' + SFX.surfaceAt(W.MESH_X[i], W.MESH_Y[i] + 0.3, W.MESH_Z[i], 0);
+        break;
+      }
+      console.log(line + '  (want ground 0, tree 1, water 4, house 2, barrel 3, stump 1)');
+      console.log('VFXSHOT mats=' + VFX.debugMats());
+    }
+    if (testFrame === 216) { console.log('VFXSHOT done'); closeWindow(); return; }
   }
   if (SCENESHOT) {
     if (testFrame === 20 && GS.gameState === 0) { startRun(); cursorLocked = true; }
@@ -3577,6 +3658,7 @@ function gameFrame(_hostDt: number): void {
         vec3(WL_X[i], WL_Y[i], WL_Z[i]), 0.34, { r: 255, g: 238, b: 205, a: 210 });
     }
   }
+  SFX.addFlashLights();   // plan 5.6: explosions and bolts light what is round them
   for (let i = 0; i < W.LIGHT_COUNT; i++) {
     addPointLight(W.LIGHT_X[i], W.LIGHT_Y[i], W.LIGHT_Z[i],
                   W.LIGHT_RANGE[i],

@@ -56,6 +56,17 @@ game-ready files are committed, never pack folders.
 Fourth pass, 2026-11-14 (plan Phase 2): `swing.wav`, `crit_hit.wav`, `melee_hit.wav`,
 `grenade_throw.wav`, `grenade_bounce.wav`, `heal.wav`, same tool, prompts in it.
 
+Fifth pass, 2026-11-15 (plan Phase 5), 87 files, same tool, prompts in it: three reports per
+weapon (`*_fire2/3`, `scatter_fire1-3`, `lance_fire1-3`), `scatter_tail`, `lance_tail`,
+`mech_{rifle,pump,energy}`, `dry_fire`, `swap1/2`, `reload_mid`, `reload_cell_{out,in}`,
+`shell_{dirt,hard}1/2`; voices for the Spitter, the Bombard and the Matriarch
+(`alien5..7_{attack,pain,die1-3}`), `alien0..7_{idle,alert}`, `spawn1/2`, `elite_growl`,
+`boss_{roar,slam,summon}`, `spit_fire`, `lob_fire`, `acid_hit`, `nest_{hit,burst}`;
+`impact_{dirt,wood,stone,metal,water}1/2`, `impact_flesh2/3`, `explosion2/3`; the loops
+`amb_birds`, `amb_night`, `amb_room`. Account tier at generation: Starter (read from the API).
+Checked by length, peak and spectrum only: three came back empty or under 0.1 s and were
+regenerated. **Nobody has listened to them.**
+
 ## Synthesised by `tools/gen-sfx.ts` — superseded
 
 Every file that tool wrote now comes from `tools/gen/sfx.py` (table above). Do not re-run

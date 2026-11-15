@@ -182,6 +182,28 @@ resolves. Save it for the one moment that deserves it.
 
 ---
 
+### 7. `music_boss.wav` — the Matriarch *(not made yet; plan Phase 5.5)*
+
+The game looks for `assets/music/music_boss.ogg` and, when it is there, fades the calm and
+combat beds out and this one in while the boss is alive (`MIX.bossBlend`, about a second and a
+half). Without the file the boss fight plays the combat bed at the top of the intensity
+ladder, which is what it does today.
+
+It REPLACES the other two beds while it plays, so it does not have to share their key. It does
+have to loop, and it should start hard: the fade-in lands on the boss's entrance.
+
+> Dark cinematic boss battle music for a sci-fi alien horror shooter. Heavy low brass and
+> distorted synth bass, pounding war drums in a relentless 6/8, dissonant string clusters and
+> a shrieking high motif that returns every eight bars. 140 BPM, A-sharp minor, oppressive and
+> enormous, no vocals, no melody that resolves. Loopable, 2 to 3 minutes, no intro, no fade out.
+
+Then: put the render in `assets/music/src/music_boss.wav`, add it to the track tables in
+`tools/music-master.ts` and `tools/encode-music.ts` (loop window read off the waveform, like
+the other beds), run both. The game needs no change.
+
+Longer calm and combat beds (the plan also asks for those) are the same job as prompts 1 and 2
+with "4 to 5 minutes" in place of the length; remember the rule above, all three in one session.
+
 ## Making it loop — done, by `tools/music-master.ts`
 
 You do not need to cut these by hand. Suno writes *songs*: they start, they build,
