@@ -834,7 +834,7 @@ for (let i = 0; i < FOREST_COUNT; i++) {
 // raycast, and the orbit camera's NON_MOVING ray already handles trunks.
 // Per tree model (tools/blender/tree_from_scan.py prints "TRUNK r"): the second is a low tree
 // of several stems standing 1.2 m apart, so its box covers the group, not one stem.
-const TREE_TRUNK_R = [0.29, 0.75, 0.31];
+const TREE_TRUNK_R = [0.31, 0.75, 0.34];
 const TREE_TRUNK_H = [1.6, 1.1, 1.8];    // half-height of the box: the bole below the crown
 for (let i = 0; i < FOREST_COUNT; i++) {
   const tr = TREE_TRUNK_R[FOREST_VAR[i]] * FOREST_SCALE[i];

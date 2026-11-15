@@ -40,6 +40,9 @@ TRUNK_TRIS = opt("--trunk-tris", 9000)
 BRANCH_TRIS = opt("--branch-tris", 16000)
 SEED = opt("--seed", 1)
 WOOD = opt("--wood", 0.85)            # bark brightness (the scanned boles are pale)
+# ... and its hue: the scans are a cool ash grey that reads as bare concrete beside the leaves
+WOOD_SKY = opt("--wood-sky", 0.25)       # how much of the sky the wood sees (see the occlusion map at the end)
+WOOD_TINT = tuple(float(x) for x in opt("--wood-tint", "1.0,0.88,0.74").split(","))
 # A card is drawn LARGER than the piece of tree its picture shows. These trees have leaflets of
 # 1.5 cm; at fight distances a leaf was under three pixels and the reconstruction filter smeared
 # the crown into streaks. Magnified, the same sprays read as leaves. (Every game tree does this.)
@@ -76,6 +79,15 @@ for o in [o for o in scene.objects if o.type == "MESH"]:
     parts[key] = o
     print("PART", key, o.data.materials[0].name, len(o.data.polygons))
 leaves, branches, trunk = parts["leaves"], parts["branches"], parts["trunk"]
+# The bole's colour and normal map at 4K when they have been downloaded next to the 2K ones
+# (tools/gen/fetch_polyhaven.py --trunk-4k): at 2K a trunk beside the player is 200 texels a metre.
+for n in trunk.data.materials[0].node_tree.nodes:
+    if n.type == "TEX_IMAGE" and n.image:
+        p4 = bpy.path.abspath(n.image.filepath).replace("_2k.", "_4k.")
+        if p4 != bpy.path.abspath(n.image.filepath) and os.path.exists(p4):
+            cs = n.image.colorspace_settings.name
+            n.image = bpy.data.images.load(p4); n.image.colorspace_settings.name = cs
+            print("TRUNK 4K", os.path.basename(p4))
 
 # Stand the bole up. These trees lean, and the game's trunk collider is an upright box on the
 # origin: a bole that leaves it half a metre up is cover you can shoot through. Shear the whole
@@ -388,13 +400,13 @@ reduce(trunk, TRUNK_TRIS)
 reduce(branches, BRANCH_TRIS, min_island=0.45)
 
 
-def paint(ob, values):
+def paint(ob, values, tint=(1.0, 1.0, 1.0)):
     """Vertex colour = how open the place is. The engine multiplies it into albedo."""
     me = ob.data
     col = me.color_attributes.new("Col", "BYTE_COLOR", "CORNER")
     lv = np.empty(len(me.loops), np.int32); me.loops.foreach_get("vertex_index", lv)
     c = values[lv]
-    col.data.foreach_set("color", np.stack([c, c, c, np.ones_like(c)], 1).astype(np.float32).ravel())
+    col.data.foreach_set("color", np.stack([c * tint[0], c * tint[1], c * tint[2], np.ones_like(c)], 1).astype(np.float32).ravel())
     me.color_attributes.active_color = col
     me.color_attributes.render_color_index = me.color_attributes.find("Col")
 
@@ -403,8 +415,9 @@ for ob in (trunk, branches):
     co = np.empty(len(ob.data.vertices) * 3, np.float32); ob.data.vertices.foreach_get("co", co); co = co.reshape(-1, 3)
     o_ = sky_open(co)
     shade = (0.50 + 0.50 * o_) * WOOD
-    shade *= 0.72 + 0.28 * np.clip(co[:, 2] / 0.5, 0, 1)             # the foot of the trunk stands in the grass
-    paint(ob, shade.astype(np.float32))
+    # the foot of the trunk stands in the grass and in its own shade: darker over the first 0.4 m
+    shade *= 0.52 + 0.48 * np.clip((co[:, 2] - co[:, 2].min()) / 0.4, 0, 1) ** 0.7
+    paint(ob, shade.astype(np.float32), WOOD_TINT)
 
 # ---------------------------------------------------------------- the leaf cards
 bm = bmesh.new()
@@ -496,10 +509,32 @@ prims = j["meshes"][0]["primitives"]
 prims.sort(key=lambda p: ["trunk", "branches", "leaves"].index(j["materials"][p["material"]]["name"]))
 assert [j["materials"][p["material"]]["name"] for p in prims] == ["trunk", "branches", "leaves"]
 assert all("COLOR_0" in p["attributes"] for p in prims), "vertex colours did not export"
+# Wood under a crown sees little of the sky, but the engine gives every surface the whole sky's
+# mirror reflection unless a glTF occlusion map says otherwise. On bark that reflection was
+# several times brighter than the bark's own colour: every trunk was pale ash grey whatever its
+# texture (tinting the wood pure red gave pink). A flat occlusion map (one grey value, WOOD_SKY)
+# takes it and the sky's diffuse share down together; the sun and the scene's ambient are untouched.
+import zlib
+def flat_png(v):
+    raw = b"".join(b"\x00" + bytes([v, v, v]) * 4 for _ in range(4))
+    chunk = lambda t, c: struct.pack(">I", len(c)) + t + c + struct.pack(">I", zlib.crc32(t + c) & 0xffffffff)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 4, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+bin_len = struct.unpack("<I", d[20 + jl:24 + jl])[0]
+bin_data = d[28 + jl:28 + jl + bin_len]
+png = flat_png(int(round(WOOD_SKY * 255)))
+bin_data += b"\x00" * (-len(bin_data) % 4)
+j["bufferViews"].append({"buffer": 0, "byteOffset": len(bin_data), "byteLength": len(png)})
+bin_data += png + b"\x00" * (-len(png) % 4)
+j["buffers"][0]["byteLength"] = len(bin_data)
+j["images"].append({"bufferView": len(j["bufferViews"]) - 1, "mimeType": "image/png", "name": "wood_sky"})
+j["textures"].append({"source": len(j["images"]) - 1})
+for m in j["materials"]:
+    if m["name"] != "leaves":
+        m["occlusionTexture"] = {"index": len(j["textures"]) - 1}
 js = json.dumps(j, separators=(",", ":")).encode()
 js += b" " * (-len(js) % 4)
-rest = d[20 + jl:]
-open(dst, "wb").write(b"glTF" + struct.pack("<II", 2, 12 + 8 + len(js) + len(rest)) + struct.pack("<I", len(js)) + b"JSON" + js + rest)
+open(dst, "wb").write(b"glTF" + struct.pack("<II", 2, 12 + 8 + len(js) + 8 + len(bin_data)) + struct.pack("<I", len(js)) + b"JSON" + js
+                      + struct.pack("<I", len(bin_data)) + b"BIN\x00" + bin_data)
 
 lc = (c_cell[ids] - np.array(base)) * SCALE
 tr = co[(co[:, 2] - base.z > 0.2 / SCALE) & (co[:, 2] - base.z < 2.2 / SCALE) & (np.hypot(co[:, 0] - base.x, co[:, 1] - base.y) < 1.2 / SCALE)]

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Download a Poly Haven model (CC0) into tools/.cache/polyhaven/<name>/ (git-ignored).
 
-  tools/gen/fetch_polyhaven.py <name> [<name> ...] [--res 2k]
+  tools/gen/fetch_polyhaven.py <name> [<name> ...] [--res 2k] [--trunk-4k]
 
 Fetches the glTF package (the .gltf, its .bin and its textures) and, when the asset has one, the
 separate Alpha map: Poly Haven's glTF packages leave the cut-out map of a plant out, and
@@ -34,6 +34,11 @@ for name in args:
     get(g["url"], os.path.join(out, os.path.basename(g["url"])))
     for rel, v in g.get("include", {}).items():
         get(v["url"], os.path.join(out, rel))
+    if "--trunk-4k" in sys.argv:      # the bole is what a player stands next to: its colour and normal map at 4K
+        for rel, v in d["gltf"]["4k"]["gltf"].get("include", {}).items():
+            b = os.path.basename(rel)
+            if b.startswith(name + "_diff_") or b.startswith(name + "_nor_gl_"):
+                get(v["url"], os.path.join(out, rel))
     if "Alpha" in d:
         f = d["Alpha"][res]
         url = f["png" if "png" in f else next(iter(f))]["url"]

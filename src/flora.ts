@@ -427,7 +427,22 @@ export function initFlora(): void {
   }
   scUpload(SLICE_GRASS);
 
-  // Taller grass in seed: in patches, and along the water.
+  // Taller grass in seed: round the foot of every tree first (a bole that meets bare ground in a
+  // clean line reads as a post stuck in it; no mower reaches there either), then in patches.
+  for (let i = 0; i < W.FOREST_COUNT && DENS > 0; i++) {
+    const wide = W.FOREST_VAR[i] === 1 ? 0.95 : 0.36;      // the many-stemmed tree's foot is wider
+    const n = Math.floor((W.FOREST_VAR[i] === 1 ? 11 : 7) * DENS + 0.5);
+    for (let k = 0; k < n; k++) {
+      const a = (k + rnd() * 0.8) * 6.2832 / n;
+      const r = (wide + rnd() * 0.30) * W.FOREST_SCALE[i];
+      const x = W.FOREST_X[i] + Math.cos(a) * r, z = W.FOREST_Z[i] + Math.sin(a) * r;
+      if (Math.abs(x) > 38.5 || Math.abs(z) > 38.5 || W.keepOutBuilding(x, z, 0.2)) continue;
+      const y = terrainHeightAt(x, z);
+      if (underWater(x, z, y - 0.05)) continue;
+      const g = 0.66 + rnd() * 0.20;                        // in the tree's shade
+      scAdd(x, y - 0.04, z, 0.55 + rnd() * 0.45, g, g, g * 0.90);
+    }
+  }
   for (let t = 0; t < 26000 * DENS && SCN[0] < 2600 * DENS; t++) {
     const x = -38 + rnd() * 76, z = -38 + rnd() * 76;
     if (patchNoise(x * 0.13 + 61, z * 0.13 + 5) < 0.56) continue;

@@ -2323,3 +2323,12 @@ line are still flat cards on plain ground. Shrubs, ferns, weeds, reeds and flowe
 generated pictures. Nothing was looked at in motion (wind on the new cards, the edge fade's
 dither while turning). Phones, web and Android were not run; the plant cards are scaled down or
 off there. The sources are downloaded by the build script, not stored.
+
+**Trunks, same day (Ralph: "now it's mainly the stems").** Every trunk was pale ash grey whatever
+its texture: tinting the wood pure red gave pink. The cause was the same as on the leaves, the
+sky's mirror reflection, several times brighter than the bark's own colour. The wood materials
+now carry a flat glTF occlusion map (`--wood-sky`, 0.25) that takes the sky's share down. Also:
+the bole's colour and normal maps at 4K (`fetch_polyhaven.py --trunk-4k`), 6,000 to 7,000 trunk
+triangles, a warm tint, a darker foot, the many-stemmed tree sunk 0.45 m so its scanned ground
+slab is under the terrain, and a ring of tall grass round every foot. The three models are 42
+to 47 MB each now (were 25 to 29).

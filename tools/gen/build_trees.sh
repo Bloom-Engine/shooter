@@ -15,17 +15,18 @@ cd $ROOT
 P=tools/.cache/polyhaven
 W=tools/.cache/tree_work
 what=${1:-all}
-python3 tools/gen/fetch_polyhaven.py tree_small_02 island_tree_02 grass_medium_01 shrub_03
+python3 tools/gen/fetch_polyhaven.py tree_small_02 island_tree_02 --trunk-4k
+python3 tools/gen/fetch_polyhaven.py grass_medium_01 shrub_03
 tree() { blender -b -P tools/blender/tree_from_scan.py -- "$@" --work $W 2>&1 | grep -E '^(LEAN|TREE|CANOPY|TRUNK|Traceback|  File|[A-Za-z]*Error)' }
 card() { blender -b -P tools/blender/plant_card.py -- "$@" 2>&1 | grep -E '^(CARD|COVERAGE|Traceback|  File|[A-Za-z]*Error)' }
 if [[ $what == all || $what == trees ]]; then
   # An upright broadleaf, a low many-stemmed tree, and the broadleaf again, taller.
   tree $P/tree_small_02/tree_small_02_2k.gltf assets/models/prop_tree.glb --scale 1.9 --tile 0.30 --card 0.48 \
-       --cards 720 --across 0.35 --under 0.35 --trunk-tris 2400 --branch-tris 3600
+       --cards 720 --across 0.35 --under 0.35 --trunk-tris 6000 --branch-tris 3600 --wood 0.62 --sink 0.03
   tree $P/island_tree_02/island_tree_02_2k.gltf assets/models/prop_tree2.glb --scale 1.9 --tile 0.40 --card 0.48 \
-       --cards 720 --across 0.35 --under 0.35 --trunk-tris 3000 --branch-tris 3000 --sink 0.10 --wood 0.48
+       --cards 720 --across 0.35 --under 0.35 --trunk-tris 7000 --branch-tris 3000 --sink 0.24 --wood 0.40 --wood-tint 1.0,0.86,0.70
   tree $P/tree_small_02/tree_small_02_2k.gltf assets/models/prop_tree3.glb --scale 2.25 --tile 0.30 --card 0.48 \
-       --cards 780 --across 0.35 --under 0.35 --seed 7 --trunk-tris 2400 --branch-tris 3600
+       --cards 780 --across 0.35 --under 0.35 --seed 7 --trunk-tris 6000 --branch-tris 3600 --wood 0.62 --sink 0.03
   blender -b -P tools/blender/tree_impostor.py -- assets/models/prop_tree.glb assets/textures/flora_tree.png 2>&1 | grep -E 'TREE|Error'
 fi
 if [[ $what == all || $what == plants ]]; then
