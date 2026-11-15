@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 GAME = ROOT
 # The Perry source checkout that built the compiler AND the device runtimes
 # (tools/release/build_toolchain.sh). Override with PERRY_HOME.
-PERRY_HOME = Path(os.environ.get("PERRY_HOME", "/Users/amlug/projects/perry/worktrees/perry-0.5.1665"))
+PERRY_HOME = Path(os.environ.get("PERRY_HOME", "/Users/amlug/projects/perry/worktrees/perry-main-latest"))
 PERRY = PERRY_HOME / "target/release/perry"
 BLOOM = (ROOT / "../engine").resolve()
 TOML = GAME / "perry.toml"

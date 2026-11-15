@@ -2398,3 +2398,15 @@ to 47 MB each now (were 25 to 29).
   another session at the time.
 - Engine: `local/phone` is pushed (`origin/local/phone`) and differs from engine `main` in five
   files only, all of them the open pull requests #190, #193 and #194.
+- **Release toolchain switched (later the same evening).** `release.py` and `build_toolchain.sh`
+  default to `worktrees/perry-main-latest` (Perry `main` with #14766 and #14768, no local
+  patches). `release.py --only ios --no-upload --no-commit` built, signed and packaged
+  `dist/BloomShooter-ios-0.1.0-6.ipa` with it (not uploaded; `perry.toml` put back, so 6 is
+  still the next build number). The first attempt failed to link because the iOS runtime
+  archives were from 9 November: after any Perry update run `build_toolchain.sh` first. tvOS
+  runtimes build; a tvOS and a macOS package were not made, and nothing built with Perry
+  `main` has run on a device. Fall back with `PERRY_HOME=.../worktrees/perry-0.5.1665`.
+  `docs/RELEASE.md` still describes the old checkout (it had another session's uncommitted
+  edits and was not touched).
+- **Camera:** the canopy check uses the leaf cards' lower edge (3.3 m): all twelve walk steps
+  are clear of foliage now.

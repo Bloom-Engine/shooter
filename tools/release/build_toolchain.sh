@@ -11,7 +11,9 @@
 #   tools/release/build_toolchain.sh tvos       # one target
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PERRY_HOME="${PERRY_HOME:-/Users/amlug/projects/perry/worktrees/perry-0.5.1665}"
+# Perry main since 2026-11-15 (it holds pull requests 14766 and 14768, so no local patches).
+# The last release-based toolchain was worktrees/perry-0.5.1665 with two uncommitted patches.
+PERRY_HOME="${PERRY_HOME:-/Users/amlug/projects/perry/worktrees/perry-main-latest}"
 # perry-codegen's build script needs the LLVM 22 headers.
 export LLVM_SYS_221_PREFIX="${LLVM_SYS_221_PREFIX:-/opt/homebrew/opt/llvm@22}"
 cd "$PERRY_HOME"
