@@ -2362,3 +2362,23 @@ to 47 MB each now (were 25 to 29).
 - **Not found:** the Perry branch `fix/wasm-new-array-sized` that the web build's notes name is
   on no remote and in no local checkout; whether those three fixes are on Perry `main` was not
   checked (the web build was not run).
+
+**Third round (SH-067, same day).**
+- **Ground:** fallen branches photographed from above and laid flat under the trees (`flora_litter`,
+  `plant_card.py --top`); the terrain's normal strength 0.85 to 1.35 and detail 0.22 to 0.30; the
+  "pale ridge" tint 0.45 to 0.10 (it ADDED light to higher ground: a sand wash over every rise);
+  dirt and dry tints darker; grass clumps sunk 9 cm so their cut lower edge is in the ground.
+- **Flowers** are scans too (Poly Haven `flower_ursinia`). Only the reeds are a generated picture
+  now: Poly Haven has no reed or cattail.
+- **No leaves at head height:** `tree_from_scan.py --leaf-floor` (2.9 m to a card's lower edge).
+  A walk capture (`--harness grasswalk`) had the camera inside a crown. Scaling the low tree up
+  instead was tried and undone: stems and leaves came out oversized. At the very edge of the
+  Plaza the walk's last two steps still end among leaves; not chased further.
+- **Sky:** unchanged. It is a photographed HDR panorama already, graded per arena.
+- **Frame rate** (M1 Max, Ralph's settings: native output, render scale 0.75; load average 9 to
+  17, so not a quiet machine). Title screen 24.0 ms; with the trees off 21.7 ms, with the plant
+  cards off 24.0 ms. A fight (first 24 `PERFT` windows without the stalled ones): 27.8 ms; trees
+  off 27.6, plants off 28.2, lamp shadows off 29.0. So in a fight none of the three is
+  measurable against the run-to-run spread.
+- **Seen in motion:** twelve consecutive walk frames only (no flicker or dither pattern visible
+  in them); nobody has watched it run.

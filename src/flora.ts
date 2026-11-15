@@ -36,7 +36,9 @@ const SLICE_TREE = 5;
 const SLICE_GRASS = 6;
 const SLICE_TALLGRASS = 7;
 const SLICE_HERB = 8;
-const KINDS = 9;
+// Fallen branches photographed from above (Poly Haven dry_branches_medium_01), laid flat.
+const SLICE_LITTER = 9;
+const KINDS = 10;
 // The fern, shrub and weed pictures were generated images at first, brighter and more saturated
 // than the scanned plants beside them, and their instance tints were scaled down by this.
 const GEN_R = 0.92, GEN_G = 0.96, GEN_B = 0.86;   // 2026-11-15 later: these three are scans now too; a slight green lift only
@@ -45,8 +47,8 @@ const GEN_R = 0.92, GEN_G = 0.96, GEN_B = 0.86;   // 2026-11-15 later: these thr
 /// index: an array inside an `any` object is not something Perry is trusted with across modules.
 const FL_MAT = [0, 0];                     // near plants, far trees
 const FL_MESH = new Array<any>(KINDS);
-const FL_INST = [0, 0, 0, 0, 0, 0, 0, 0, 0];
-const FL_COUNT = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+const FL_INST = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+const FL_COUNT = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 // ---- mesh building ---------------------------------------------------------------------
 // Scratch for one mesh at a time: 12 floats a vertex (pos.3 normal.3 colour.4 uv.2).
@@ -105,6 +107,18 @@ function buildFan(slice: number, planes: number, width: number, height: number,
     mvVert(-dx * hw + lx, height, -dz * hw + lz, cnx - dx * round, 0.9 + round, cnz - dz * round, 1, slice, 0, 0);
     mvQuad(b, b + 1, b + 2, b + 3);
   }
+  return mvUpload();
+}
+
+/// One card lying on the ground (litter): `w` by `d` metres, centred, a finger above the terrain.
+function buildFlat(slice: number, w: number, d: number): any {
+  mvReset();
+  const hw = w * 0.5, hd = d * 0.5;
+  mvVert(-hw, 0.03, hd, 0, 1, 0, 1, slice, 0, 1);
+  mvVert(hw, 0.03, hd, 0, 1, 0, 1, slice, 1, 1);
+  mvVert(hw, 0.03, -hd, 0, 1, 0, 1, slice, 1, 0);
+  mvVert(-hw, 0.03, -hd, 0, 1, 0, 1, slice, 0, 0);
+  mvQuad(0, 1, 2, 3);
   return mvUpload();
 }
 
@@ -296,6 +310,7 @@ export function initFlora(): void {
     'assets/textures/flora_grass.png',
     'assets/textures/flora_tallgrass.png',
     'assets/textures/flora_herb.png',
+    'assets/textures/flora_litter.png',
   ], TEX_ARRAY_FORMAT_SRGB, 11);
   if (tex <= 0) { console.log('[flora] textures missing: assets/textures/flora_*.png'); return; }
   setMaterialTextureArray(matNear, TEXTURE_ARRAY_ALBEDO, tex);
@@ -313,13 +328,15 @@ export function initFlora(): void {
   FL_MESH[SLICE_FERN] = buildFan(SLICE_FERN, 3, 1.25, 0.55, 0.16, 0);
   FL_MESH[SLICE_SHRUB] = buildShrub();
   FL_MESH[SLICE_REED] = buildFan(SLICE_REED, 3, 1.05, 1.30, 0.10, 0);
-  FL_MESH[SLICE_FLOWER] = buildFan(SLICE_FLOWER, 3, 0.55, 0.55, 0.05, 0);
+  // Scanned flowers (Poly Haven flower_ursinia, a row 0.93 x 0.17 m) since 2026-11-15.
+  FL_MESH[SLICE_FLOWER] = buildFan(SLICE_FLOWER, 3, 1.25, 0.30, 0.06, 0);
+  FL_MESH[SLICE_LITTER] = buildFlat(SLICE_LITTER, 0.95, 1.75);
   FL_MESH[SLICE_WEED] = buildFan(SLICE_WEED, 3, 0.80, 0.70, 0.14, 0);
   FL_MESH[SLICE_TREE] = buildFan(SLICE_TREE, 2, 1.0, 1.0, 0.0, 0.9);
   // Scanned at 0.91 x 0.22 m, 0.62 x 0.33 m and 0.38 x 0.42 m; drawn about twice life size
   // (a meadow, not a lawn), which the per-instance scale then varies.
   // (Narrower than the picture's own 4 : 1: three 1.7 m planes read as an asterisk from above.)
-  FL_MESH[SLICE_GRASS] = buildFan(SLICE_GRASS, 3, 1.15, 0.42, 0.20, 0);
+  FL_MESH[SLICE_GRASS] = buildFan(SLICE_GRASS, 3, 1.15, 0.46, 0.20, 0);
   FL_MESH[SLICE_TALLGRASS] = buildFan(SLICE_TALLGRASS, 3, 1.10, 0.70, 0.14, 0);
   FL_MESH[SLICE_HERB] = buildFan(SLICE_HERB, 2, 0.62, 0.68, 0.04, 0);
 
@@ -427,7 +444,8 @@ export function initFlora(): void {
     const lush = patchNoise(x * 0.09 + 3, z * 0.09 + 11);
     if (lush < 0.22 && rnd() < 0.6) continue;
     const g = 0.80 + rnd() * 0.26;
-    scAdd(x, y - 0.03, z, 0.75 + rnd() * 0.55 + lush * 0.25, g * (1.0 + (0.5 - lush) * 0.16), g, g * 0.92);
+    // sunk a hand: seen from above a clump standing ON the ground shows its cut lower edge
+    scAdd(x, y - 0.09, z, 0.75 + rnd() * 0.55 + lush * 0.25, g * (1.0 + (0.5 - lush) * 0.16), g, g * 0.92);
   }
   scUpload(SLICE_GRASS);
 
@@ -471,6 +489,23 @@ export function initFlora(): void {
   }
   scUpload(SLICE_HERB);
 
+  // Fallen branches: under the trees, out to the edge of each crown.
+  for (let i = 0; i < W.FOREST_COUNT && DENS > 0; i++) {
+    const n = Math.floor((1 + rnd() * 2.6) * DENS);
+    for (let k = 0; k < n; k++) {
+      const a = rnd() * 6.2832, r = (0.7 + rnd() * 3.4) * W.FOREST_SCALE[i];
+      const x = W.FOREST_X[i] + Math.cos(a) * r, z = W.FOREST_Z[i] + Math.sin(a) * r;
+      if (blocked(x, z, 0.3)) continue;
+      const y = terrainHeightAt(x, z);
+      if (underWater(x, z, y - 0.05)) continue;
+      // only where the ground is near level over the card: a flat card on a bank floats
+      if (Math.abs(terrainHeightAt(x + 0.6, z) - y) > 0.10 || Math.abs(terrainHeightAt(x, z + 0.6) - y) > 0.10) continue;
+      const g = 0.62 + rnd() * 0.30;
+      scAdd(x, y, z, 0.6 + rnd() * 0.7, g, g * 0.97, g * 0.92);
+    }
+  }
+  scUpload(SLICE_LITTER);
+
   // The far tree line: the hills outside the arena, wooded in copses that thin toward the
   // horizon. A card is 1 m square at scale 1 with its root at the origin; the scale is the
   // tree's height.
@@ -492,7 +527,7 @@ export function initFlora(): void {
   FL_MAT[1] = matFar;
   console.log('[flora] fern ' + FL_COUNT[0] + ' shrub ' + FL_COUNT[1] + ' reed ' + FL_COUNT[2]
     + ' flower ' + FL_COUNT[3] + ' weed ' + FL_COUNT[4] + ' far trees ' + FL_COUNT[5]
-    + ' grass ' + FL_COUNT[6] + ' tall grass ' + FL_COUNT[7] + ' herb ' + FL_COUNT[8]);
+    + ' grass ' + FL_COUNT[6] + ' tall grass ' + FL_COUNT[7] + ' herb ' + FL_COUNT[8] + ' litter ' + FL_COUNT[9]);
 }
 
 /// One instanced draw per kind, inside the 3D pass.

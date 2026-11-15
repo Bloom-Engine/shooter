@@ -23,6 +23,7 @@ if [[ $what == all || $what == trees ]]; then
   # An upright broadleaf, a low many-stemmed tree, and the broadleaf again, taller.
   tree $P/tree_small_02/tree_small_02_2k.gltf assets/models/prop_tree.glb --scale 1.9 --tile 0.30 --card 0.48 \
        --cards 720 --across 0.35 --under 0.35 --trunk-tris 6000 --branch-tris 3600 --wood 0.62 --sink 0.03
+  # (Tried at 2.6 to lift its crown: stems and leaves came out oversized. --leaf-floor does that job.)
   tree $P/island_tree_02/island_tree_02_2k.gltf assets/models/prop_tree2.glb --scale 1.9 --tile 0.40 --card 0.48 \
        --cards 720 --across 0.35 --under 0.35 --trunk-tris 7000 --branch-tris 3000 --sink 0.24 --wood 0.40 --wood-tint 1.0,0.86,0.70
   tree $P/tree_small_02/tree_small_02_2k.gltf assets/models/prop_tree3.glb --scale 2.25 --tile 0.30 --card 0.48 \
@@ -46,4 +47,12 @@ if [[ $what == all || $what == plants ]]; then
   card $P/fern_02/fern_02_2k.gltf assets/textures/flora_fern.png --pick fern_02_b --alpha $P/fern_02/textures/fern_02_alpha_2k.png
   card $P/shrub_04/shrub_04_2k.gltf assets/textures/flora_shrub.png --pick shrub_04 --alpha $P/shrub_04/textures/shrub_04_alpha_2k.png
   card $P/shrub_02/shrub_02_2k.gltf assets/textures/flora_weed.png --pick shrub_02_b --alpha $P/shrub_02/textures/shrub_02_alpha_2k.png
+fi
+if [[ $what == all || $what == plants ]]; then
+  # Scanned flowers, and fallen branches seen from above (laid flat on the ground).
+  python3 tools/gen/fetch_polyhaven.py flower_ursinia dry_branches_medium_01
+  card $P/flower_ursinia/flower_ursinia_2k.gltf assets/textures/flora_flower.png --pick ursinia_a,ursinia_b,ursinia_c --gap -0.03 \
+       --alpha $P/flower_ursinia/textures/flower_ursinia_alpha_2k.png
+  card $P/dry_branches_medium_01/dry_branches_medium_01_2k.gltf assets/textures/flora_litter.png \
+       --pick medium_01_a,medium_01_b,medium_01_c --gap 0.05 --top
 fi

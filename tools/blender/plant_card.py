@@ -55,7 +55,8 @@ lo = Vector((1e9,) * 3); hi = Vector((-1e9,) * 3)
 for o in chosen:
     l, h = bounds(o)
     lo = Vector(map(min, lo, l)); hi = Vector(map(max, hi, h))
-fw, fh = (hi.x - lo.x) * 1.03, (hi.z - lo.z) * 1.03      # the frame hugs the plants: a card need not be square
+TOP = "--top" in a           # seen from straight above: ground litter, laid flat by src/flora.ts
+fw, fh = (hi.x - lo.x) * 1.03, ((hi.y - lo.y) if TOP else (hi.z - lo.z)) * 1.03      # the frame hugs the plants: a card need not be square
 print("CARD %s: plants %.2f m wide, %.2f m tall; card %.3f m wide x %.3f m tall" % (os.path.basename(dst), hi.x - lo.x, hi.z - lo.z, fw, fh))
 
 for o in chosen:
@@ -97,6 +98,8 @@ for o in chosen:
 cam_d = bpy.data.cameras.new("c"); cam_d.type = "ORTHO"; cam_d.ortho_scale = max(fw, fh)
 cam = bpy.data.objects.new("c", cam_d); scene.collection.objects.link(cam); scene.camera = cam
 cam.location = ((lo.x + hi.x) / 2, -20, fh / 2); cam.rotation_euler = (1.5707963, 0, 0)
+if TOP:
+    cam.location = ((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, 20); cam.rotation_euler = (0, 0, 0)
 w = bpy.data.worlds.new("w"); scene.world = w; w.use_nodes = True
 w.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.0
 scene.render.engine = "CYCLES"; scene.cycles.samples = 64; scene.cycles.use_denoising = False

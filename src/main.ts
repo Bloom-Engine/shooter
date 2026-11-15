@@ -188,7 +188,19 @@ PROFILE.loadProfile();
 // parsed: string equality on argv is safe (world-runtime does it), numeric
 // parsing of FFI strings is not (perry-quirks #5). `--pt off|prog|rt`
 // further below starts in that path-tracing mode without F9 taps.
+// Android starts the game from an Activity: there is no argv. For a harness or an A/B on a phone,
+// put the arguments on one line in the app's data folder and relaunch:
+//   adb shell "run-as com.bloomengine.shooter sh -c 'echo --harness fpsprobe > files/launch-args.txt'"
+// Read once here, at load (perry-quirks #5: never split an FFI string on a per-frame path).
+const ANDROID_ARGS: string[] = (ANDROID && fileExists('launch-args.txt'))
+  ? readFile('launch-args.txt').trim().split(' ')
+  : [];
 function cliArg(name: string): string {
+  if (ANDROID) {
+    const m = ANDROID_ARGS.length;
+    for (let i = 0; i < m - 1; i++) if (ANDROID_ARGS[i] === name) return ANDROID_ARGS[i + 1];
+    return '';
+  }
   if (WEB) return ''; // a browser page has no argv
   const n = process.argv.length;
   for (let i = 0; i < n - 1; i++) {
@@ -1157,12 +1169,14 @@ const TERRAIN_PARAMS = [
   // real albedo the ground read as pale sand between dark tufts. Ground under a lawn is darker
   // than the lawn.
   0.52, 0.66, 0.42,  2.0,    // lush — leafy_grass,           2.0 m (2026-11: a real grass scan)
-  0.60, 0.66, 0.46,  2.0,    // dry  — forrest_ground_01,     2.0 m (was withered_grass: beige straw hills)
-  1.00, 0.97, 0.92,  2.35,   // dirt — mud_forest,            2.35 m (dark wet forest mud)
+  0.50, 0.53, 0.37,  2.0,    // dry  — forrest_ground_01,     2.0 m (was withered_grass: beige straw hills)
+  0.78, 0.74, 0.68,  2.35,   // dirt — mud_forest,            2.35 m (dark wet forest mud)
   0.88, 0.90, 0.96,  1.83,   // rock — cliff_side,            1.83 m (cooled — the
                              //        scan is a warm orange sandstone)
   // macro noise freq, slope threshold (cos), ridge height, pale strength
-  0.18, 0.72, 4.0,   0.45,
+  // 2026-11-15: pale strength 0.45 -> 0.10. It ADDS light to the albedo of higher ground, and on
+  // ground of a real (dark) albedo that was a pale sand wash over every rise.
+  0.18, 0.72, 4.0,   0.10,
   // river: centre z, half-width, bank fade width, waterline y.
   // Matches the arena_02 river volume (z=12, carve half-width 2.6).
   // SH-050 — bank fade 1.8 -> 3.0: the brown mud now has to READ as a bank, and
@@ -1181,7 +1195,9 @@ const TERRAIN_PARAMS = [
   // against a texture that did nothing. Now that it has relief, and the layers
   // under it carry measured normals of their own, the old value double-counts
   // the grit.
-  1.0, 6.0, 0.22,   0.85,
+  // 2026-11-15: normal strength 0.85 -> 1.35 and detail 0.22 -> 0.30. Under the stronger sun and
+  // weaker sky of the photoreal pass the bare ground between plants read as flat paint.
+  1.0, 6.0, 0.30,   1.35,
   // Splat UV: u = p.x * su + ou, v = p.z * sv + ov. Filled in below — it depends
   // on the world's terrain grid, so it cannot be a literal here.
   0.0, 0.0, 0.0, 0.0,
