@@ -340,8 +340,8 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   shadows there since SH-064 (engine EN-068): they are submitted with
   `addPointLightWithShadow`, the four nearest the camera get a shadow cube, and the two
   shaders multiply each light by `local_light_shadow(i, pos, normal)`. Desktop only, with the
-  sun's shadows on, on the high and ultra presets and custom (`menu.ts` `applyLampShadows`);
-  `--lamp-shadows 0|1` forces it for one launch. Flashes and effect lights stay unshadowed.
+  sun's shadows on, and the LAMP SHADOWS settings row on (the low and medium presets switch it
+  off; `menu.ts` `applyLampShadows`); `--lamp-shadows 0|1` forces it for one launch. Flashes and effect lights stay unshadowed.
   Creatures and props (the engine's own shader) are still lit by a lamp through a wall. A long prop is
   a row of obstacle circles; keep them closer than a radius apart or walkers catch between
   them. A spawn below the terrain falls through it for ever. Do not use bit-mixing hashes
@@ -399,7 +399,8 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   after pulling the shooter alone, `activateRagdoll` and friends still link, but the frame
   rates in the plan do not hold. Frame rate is measured with `./main --harness fpsprobe`
   (uncapped; add `--render-scale` / `--output-scale` 0.5, 0.75 or 1, no other values are
-  parsed) and `--harness perftest` (a fight; every third window stalls on a screenshot and
+  parsed; like every command-line override they last one launch and are never saved:
+  `SET.override`) and `--harness perftest` (a fight; every third window stalls on a screenshot and
   the last third runs the blocking profiler, so read the first 24 windows). `--harness
   perfstages` prints `PERFPASS` rows that now add up to the frame's GPU time.
   `BLOOM_SKIP=<pass>` in the environment skips an engine pass for bisecting. Do not benchmark
@@ -416,8 +417,9 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   `vfog_range` describe the medium, `vfog_ambient` scales the world's fog colour for its unlit
   share, `vfog_sun` / `vfog_lights` / `vfog_g` are how strongly the sun and the lamps scatter
   and how much of the sun is thrown forward; `vfog_fog_density` and `vfog_shafts` replace
-  `fog_density` and `shafts` while it is on. `--vfog 0` / `--vfog 1` overrides the arena for an
-  A/B. It fogs transparent things (water, glass, particles) by the opaque surface behind them,
+  `fog_density` and `shafts` while it is on. The LIT FOG settings row switches it for the player, at once
+  (`applyFogMedium` in `main.ts` sets haze, lit fog and shafts together; the low preset has it
+  off). `--vfog 0` / `--vfog 1` overrides arena and row for an A/B. It fogs transparent things (water, glass, particles) by the opaque surface behind them,
   as the flat haze does. Lamps are not shadowed, so their halo is kept tight. Judge it with
   SCENESHOT: the last view of arena_03 and arena_04 looks toward the sun.
 - Slice D (SH-061). There are EIGHT kinds: kind 7 (`K_BOSS`) is the Matriarch, one body, and

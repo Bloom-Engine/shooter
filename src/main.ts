@@ -182,9 +182,9 @@ PROFILE.loadProfile();
 
 // ---- CLI overrides for A/B-testing graphics settings -----------------------
 // `main --render-scale 0.5|0.75|1` and `main --output-scale 0.5|0.75|1`
-// override settings.json for this launch (they land in the live settings
-// array, so the video menu shows them — and saving from the pause menu
-// persists them). Values are matched against the fixed list instead of
+// override settings.json for this launch only (they land in the live settings
+// array, so the video menu shows them, and `SET.override` keeps a save during
+// that launch from writing them into the player's file). Values are matched against the fixed list instead of
 // parsed: string equality on argv is safe (world-runtime does it), numeric
 // parsing of FFI strings is not (perry-quirks #5). `--pt off|prog|rt`
 // further below starts in that path-tracing mode without F9 taps.
@@ -198,10 +198,10 @@ function cliArg(name: string): string {
 }
 function cliScaleOverride(name: string, idx: number): void {
   const v = cliArg(name);
-  if (v === '0.25') SET.set(idx, 0.25);
-  else if (v === '0.5' || v === '0.50') SET.set(idx, 0.5);
-  else if (v === '0.75') SET.set(idx, 0.75);
-  else if (v === '1' || v === '1.0') SET.set(idx, 1.0);
+  if (v === '0.25') SET.override(idx, 0.25);
+  else if (v === '0.5' || v === '0.50') SET.override(idx, 0.5);
+  else if (v === '0.75') SET.override(idx, 0.75);
+  else if (v === '1' || v === '1.0') SET.override(idx, 1.0);
 }
 cliScaleOverride('--render-scale', SET.SET_RENDER_SCALE);
 cliScaleOverride('--output-scale', SET.SET_OUTPUT_SCALE);
@@ -209,9 +209,16 @@ cliScaleOverride('--output-scale', SET.SET_OUTPUT_SCALE);
 // launch. Applied with the rest of the graphics settings below (and
 // inert on devices without ray query, same as the menu row).
 const cliPt = cliArg('--pt');
-if (cliPt === 'off' || cliPt === '0') SET.set(SET.SET_PT, 0);
-else if (cliPt === 'prog' || cliPt === '1') SET.set(SET.SET_PT, 1);
-else if (cliPt === 'rt' || cliPt === '2') SET.set(SET.SET_PT, 2);
+if (cliPt === 'off' || cliPt === '0') SET.override(SET.SET_PT, 0);
+else if (cliPt === 'prog' || cliPt === '1') SET.override(SET.SET_PT, 1);
+else if (cliPt === 'rt' || cliPt === '2') SET.override(SET.SET_PT, 2);
+// `--monitor 0|1|2|3` opens this launch on that display (the DISPLAY row of the video settings
+// is the lasting choice).
+const cliMonitor = cliArg('--monitor');
+if (cliMonitor === '0') SET.override(SET.SET_MONITOR, 0);
+else if (cliMonitor === '1') SET.override(SET.SET_MONITOR, 1);
+else if (cliMonitor === '2') SET.override(SET.SET_MONITOR, 2);
+else if (cliMonitor === '3') SET.override(SET.SET_MONITOR, 3);
 // `--dbg-off shadows|ssgi|ssao|ssr|bloom|taa` disables ONE render pass for
 // this launch. The F5-F8 toggles cover the same passes interactively, but
 // they cannot be driven from a batch run (PostMessage keys never reach the
@@ -506,26 +513,42 @@ setAutoExposureKey(W.lookNum('exposure_key', 0.155));
 // (`vfog=1` and the `vfog_*` keys); desktop only. `--vfog 0` / `--vfog 1` overrides the arena for
 // an A/B. An arena with it on may also name the flat haze density and the screen-space shaft
 // strength that go with it (`vfog_fog_density`, `vfog_shafts`), so nothing is counted twice.
+// The player's LIT FOG row (settings) switches it for every arena that has it, and it can be
+// moved in mid-game: the frame loop compares `vfogWanted()` with `vfogLive` and calls
+// `applyFogMedium`, which sets all three things that belong together.
 const VFOG_ARG = cliArg('--vfog');
-const VFOG_ON = !MOBILE && !WEB && VFOG_ARG !== '0'
-  && (VFOG_ARG === '1' || W.lookNum('vfog', 0) > 0.5);
-const FOG_DENSITY = VFOG_ON ? W.lookNum('vfog_fog_density', W.lookNum('fog_density', 0.016))
-  : W.lookNum('fog_density', 0.016);
-const SHAFTS = VFOG_ON ? W.lookNum('vfog_shafts', W.lookNum('shafts', 0.18)) : W.lookNum('shafts', 0.18);
-setFog(W.ENV_FOG_R, W.ENV_FOG_G, W.ENV_FOG_B, FOG_DENSITY,
-       W.lookNum('fog_height', -0.6), W.lookNum('fog_falloff', 6.0));
-if (VFOG_ON) {
-  const vfogAmb = W.lookNum('vfog_ambient', 1.0);
-  setVolumetricFog(true, W.lookNum('vfog_density', 0.012), W.lookNum('vfog_height', 0.0),
-                   W.lookNum('vfog_falloff', 0.12), W.lookNum('vfog_range', 80));
-  setVolumetricFogLight(W.ENV_FOG_R * vfogAmb, W.ENV_FOG_G * vfogAmb, W.ENV_FOG_B * vfogAmb,
-                        W.lookNum('vfog_sun', 1.0), W.lookNum('vfog_lights', 1.0), W.lookNum('vfog_g', 0.4));
+// `--vfog flip` is a test of the live switch: on at boot, off from frame 15, on again from 100.
+const VFOG_FORCE = VFOG_ARG === '0' ? 0 : (VFOG_ARG === '1' ? 1 : (VFOG_ARG === 'flip' ? 2 : -1));
+let vfogFrame = 0;
+const VFOG_ARENA = W.lookNum('vfog', 0) > 0.5;
+let vfogLive = false;
+function vfogWanted(): boolean {
+  if (MOBILE || WEB || VFOG_FORCE === 0) return false;
+  if (VFOG_FORCE === 1) return true;
+  if (VFOG_FORCE === 2) return vfogFrame < 15 || vfogFrame >= 100;
+  return VFOG_ARENA && SET.get(SET.SET_VFOG) !== 0;
 }
-// Tier 1.7 — warm god-rays through the trees. Round-2 retune (audit F3):
-// at 0.4/0.96 the 32-tap shaft march added up to ~+0.14 HDR of warm veil
-// on every sunward silhouette — a big share of the "pale backlit
-// treeline". 0.18/0.90 keeps the god-ray read without the wash.
-setSunShafts(SHAFTS, 0.90, W.ENV_SUN_R, W.ENV_SUN_G * 0.95, W.ENV_SUN_B * 0.85);
+function applyFogMedium(on: boolean): void {
+  vfogLive = on;
+  const dens0 = W.lookNum('fog_density', 0.016);
+  const shafts0 = W.lookNum('shafts', 0.18);
+  setFog(W.ENV_FOG_R, W.ENV_FOG_G, W.ENV_FOG_B, on ? W.lookNum('vfog_fog_density', dens0) : dens0,
+         W.lookNum('fog_height', -0.6), W.lookNum('fog_falloff', 6.0));
+  if (!MOBILE && !WEB) {
+    const vfogAmb = W.lookNum('vfog_ambient', 1.0);
+    setVolumetricFog(on, W.lookNum('vfog_density', 0.012), W.lookNum('vfog_height', 0.0),
+                     W.lookNum('vfog_falloff', 0.12), W.lookNum('vfog_range', 80));
+    setVolumetricFogLight(W.ENV_FOG_R * vfogAmb, W.ENV_FOG_G * vfogAmb, W.ENV_FOG_B * vfogAmb,
+                          W.lookNum('vfog_sun', 1.0), W.lookNum('vfog_lights', 1.0), W.lookNum('vfog_g', 0.4));
+  }
+  // Tier 1.7 — warm god-rays through the trees. Round-2 retune (audit F3):
+  // at 0.4/0.96 the 32-tap shaft march added up to ~+0.14 HDR of warm veil
+  // on every sunward silhouette — a big share of the "pale backlit
+  // treeline". 0.18/0.90 keeps the god-ray read without the wash.
+  setSunShafts(on ? W.lookNum('vfog_shafts', shafts0) : shafts0, 0.90,
+               W.ENV_SUN_R, W.ENV_SUN_G * 0.95, W.ENV_SUN_B * 0.85);
+}
+applyFogMedium(vfogWanted());
 // EN-013 — global wind UBO. All foliage materials (grass, trees,
 // future ferns/clovers) read these values from PerFrame.wind so
 // one source of truth drives the whole scene's swing.
@@ -2538,6 +2561,9 @@ function gameFrame(_hostDt: number): void {
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
+  // The LIT FOG settings row (see applyFogMedium).
+  vfogFrame = testFrame;
+  if (vfogWanted() !== vfogLive) applyFogMedium(!vfogLive);
 
   // STAIRTEST driver — see the harness block above the loop.
   if (STAIRTEST) {
@@ -2615,6 +2641,8 @@ function gameFrame(_hostDt: number): void {
         + ' ms=' + (1000 * wall / FPSPROBE_MEASURE).toFixed(2)
         + ' grass=' + ENV.GRASS_INSTANCE_COUNT + ' px=' + getPhysicalWidth() + 'x' + getPhysicalHeight());
       fpsProbeDone = true;
+      closeWindow();
+      return;
     }
   }
 

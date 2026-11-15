@@ -29,6 +29,7 @@ import {
   setOutputScale, setRenderScale, setShadowsEnabled, setMotionBlurEnabled, setAutoResolution,
   setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
   setPathTracing, isPathTracingSupported, setPresentMode, setTargetFPS, toggleFullscreen,
+  getMonitorCount, getMonitorWidth, getMonitorHeight, getCurrentMonitor, setMonitor,
 } from 'bloom/core';
 import * as SET from './settings';
 import * as MIX from './audio-mix';
@@ -118,7 +119,7 @@ const R_LABEL = new Array<number>(MAXR);   // string id
 const R_MIN   = new Array<number>(MAXR);
 const R_MAX   = new Array<number>(MAXR);
 const R_STEP  = new Array<number>(MAXR);
-const R_OPT   = new Array<number>(MAXR);   // first option's string id (choices); -1 = languages
+const R_OPT   = new Array<number>(MAXR);   // first option's string id (choices); -1 = languages, -2 = displays
 const R_FLAGS = new Array<number>(MAXR);
 const RN = [0];
 // The rows of the open tab, in order.
@@ -168,11 +169,15 @@ function buildRows(): void {
   // VIDEO
   choice(TAB_VIDEO, SET.SET_PRESET, STR.S_PRESET, STR.S_PRESET_0, 5, F_DESKTOP);
   choice(TAB_VIDEO, SET.SET_WINDOW, STR.S_WINDOW_MODE, STR.S_WINDOW_0, 2, F_DESKTOP);
+  // One option per display; the row is hidden while there is only one (rowHidden).
+  choice(TAB_VIDEO, SET.SET_MONITOR, STR.S_MONITOR, -2, MOBILE || WEB ? 1 : getMonitorCount(), F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_VSYNC, STR.S_VSYNC, F_DESKTOP);
   choice(TAB_VIDEO, SET.SET_FPS_CAP, STR.S_FPS_CAP, STR.S_FPS_0, 5, F_DESKTOP);
   slider(TAB_VIDEO, SET.SET_OUTPUT_SCALE, STR.S_OUT_SCALE, 0.5, 1.0, 0.05, F_DESKTOP);
   slider(TAB_VIDEO, SET.SET_RENDER_SCALE, STR.S_RENDER_SCALE, 0.5, 1.0, 0.05, 0);
   toggle(TAB_VIDEO, SET.SET_SHADOWS, STR.S_SHADOWS, 0);
+  toggle(TAB_VIDEO, SET.SET_LAMP_SHADOWS, STR.S_LAMP_SHADOWS, F_DESKTOP);
+  toggle(TAB_VIDEO, SET.SET_VFOG, STR.S_VFOG, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_SSAO, STR.S_SSAO, 0);
   toggle(TAB_VIDEO, SET.SET_SSR, STR.S_SSR, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_SSGI, STR.S_SSGI, F_DESKTOP);
@@ -211,6 +216,7 @@ function rowHidden(r: number): boolean {
   const f = R_FLAGS[r];
   if ((f & F_DESKTOP) !== 0 && (MOBILE || WEB)) return true;
   if ((f & F_NOTOUCH) !== 0 && MOBILE) return true;
+  if (R_IDX[r] === SET.SET_MONITOR && R_KIND[r] === ROW_CHOICE && R_MAX[r] < 1) return true;
   return false;
 }
 
@@ -326,7 +332,7 @@ function rowCount(): number {
 function isPresetRow(idx: number): boolean {
   return idx === SET.SET_RENDER_SCALE || idx === SET.SET_SHADOWS || idx === SET.SET_SSAO
       || idx === SET.SET_SSR || idx === SET.SET_SSGI || idx === SET.SET_BLOOM
-      || idx === SET.SET_MOTION_BLUR;
+      || idx === SET.SET_MOTION_BLUR || idx === SET.SET_LAMP_SHADOWS || idx === SET.SET_VFOG;
 }
 
 /// Plan 4.3 - quality presets. Reflections stay off in all four: screen-space reflections
@@ -337,6 +343,8 @@ function applyPreset(p: number): void {
   const scale    = [0.5,  0.6,   0.75, 1.0];
   const ssao     = [0,    1,     1,    1];
   const ssgi     = [0,    0,     1,    1];
+  const lamps    = [0,    0,     1,    1];
+  const fog      = [0,    1,     1,    1];
   SET.set(SET.SET_RENDER_SCALE, scale[p]);
   SET.set(SET.SET_SHADOWS, 1);
   SET.set(SET.SET_SSAO, ssao[p]);
@@ -344,6 +352,8 @@ function applyPreset(p: number): void {
   SET.set(SET.SET_SSGI, ssgi[p]);
   SET.set(SET.SET_BLOOM, 1);
   SET.set(SET.SET_MOTION_BLUR, 0);
+  SET.set(SET.SET_LAMP_SHADOWS, lamps[p]);
+  SET.set(SET.SET_VFOG, fog[p]);
   pushGraphics();
 }
 
@@ -374,6 +384,8 @@ function applyLive(idx: number): void {
     applyLampShadows();
   } else if (idx === SET.SET_WINDOW) {
     toggleFullscreen();
+  } else if (idx === SET.SET_MONITOR) {
+    setMonitor(SET.get(SET.SET_MONITOR));
   } else if (idx === SET.SET_VSYNC || idx === SET.SET_FPS_CAP) {
     applyFrameCap();
   } else if (idx === SET.SET_OUTPUT_SCALE) {
@@ -403,12 +415,14 @@ function applyLive(idx: number): void {
 }
 
 /// Lamps that cast shadows on the house and the ground (engine EN-068). The four work lights
-/// nearest the camera get a shadow cube. Desktop only (the engine refuses elsewhere), only with
-/// the sun's shadows on (it reuses their caster lists), and not on the two lowest presets,
-/// which are for machines with no frame time to spare.
+/// nearest the camera get a shadow cube. Desktop only (the engine refuses elsewhere) and only
+/// with the sun's shadows on (it reuses their caster lists). Its own row since SH-066; the two
+/// lowest presets switch it off, being for machines with no frame time to spare.
+/// (The lit fog's row needs nothing here: main.ts watches the setting, because the fog's
+/// numbers are the arena's and live there.)
 export function applyLampShadows(): void {
   if (MOBILE || WEB) return;
-  const on = SET.get(SET.SET_SHADOWS) !== 0 && SET.get(SET.SET_PRESET) >= 2;
+  const on = SET.get(SET.SET_SHADOWS) !== 0 && SET.get(SET.SET_LAMP_SHADOWS) !== 0;
   setLocalLightShadows(on ? 4 : 0, 512);
 }
 
@@ -436,6 +450,9 @@ export function applyGraphicsSettings(): void {
     applyAutoRes();
     applyFrameCap();
     if (isPathTracingSupported()) setPathTracing(SET.get(SET.SET_PT));
+    // A chosen display that is still attached, and is not where the window opened.
+    const mon = SET.get(SET.SET_MONITOR);
+    if (mon >= 0 && mon < getMonitorCount() && mon !== getCurrentMonitor()) setMonitor(mon);
     // The game starts full screen; a saved "windowed" is one toggle away from that.
     if (SET.get(SET.SET_WINDOW) === 1) toggleFullscreen();
   }
@@ -479,6 +496,8 @@ function adjust(dir: number): void {
   }
   const idx = R_IDX[r];
   let v = SET.get(idx);
+  // No display chosen yet: start from the one the window is on.
+  if (idx === SET.SET_MONITOR && v < 0) v = getCurrentMonitor();
   if (kind === ROW_TOGGLE) {
     v = v !== 0 ? 0 : 1;
     MIX.uiToggle();
@@ -1098,6 +1117,11 @@ function rowDead(r: number): boolean {
 }
 
 function choiceText(r: number, v: number): string {
+  if (R_OPT[r] === -2) {
+    // "2  3456 X 2234": the font is Latin capitals, and a display's own name need not be.
+    const m = v >= 0 && v <= R_MAX[r] ? v : getCurrentMonitor();
+    return '' + (m + 1) + '  ' + getMonitorWidth(m) + ' X ' + getMonitorHeight(m);
+  }
   if (R_OPT[r] < 0) return STR.LANG_NAMES[v];
   if (R_IDX[r] === SET.SET_FPS_CAP && SET.get(SET.SET_VSYNC) !== 0) return T(STR.S_FPS_VSYNC);
   if (R_IDX[r] === SET.SET_PT && !isPathTracingSupported()) return T(STR.S_PT_NA);

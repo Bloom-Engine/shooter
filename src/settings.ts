@@ -89,7 +89,12 @@ export const SET_PALETTE    = 38;  // 0 standard, 1 red-green safe, 2 blue-yello
 export const SET_CROUCH_TOGGLE = 39; // 0 = hold, 1 = toggle
 // Plan Phase 6 - the tutorial and the one-time hints (tutor.ts).
 export const SET_HINTS      = 40;  // 0/1
-export const SET_COUNT      = 41;
+// Lit fog (the arenas that have it) and lamps that cast shadows: both are part of the quality
+// presets, both desktop only. The display the game opens on: -1 = wherever the system put it.
+export const SET_VFOG       = 41;  // 0/1
+export const SET_LAMP_SHADOWS = 42; // 0/1
+export const SET_MONITOR    = 43;  // display index, -1 = not chosen
+export const SET_COUNT      = 44;
 
 /// Frames per second for each SET_FPS_CAP option; 0 = no limit.
 export const FPS_CAPS = [30, 60, 120, 144, 0];
@@ -98,6 +103,14 @@ export const FPS_CAPS = [30, 60, 120, 144, 0];
 const FILE_VERSION = 2;
 
 const V = new Array<number>(SET_COUNT);
+// A command-line override (`--render-scale 0.5` and friends) is for ONE launch. It lands in V so
+// the game and the menu show it, and these three remember what the file held, so that a save
+// during that launch (a harness, an arena change) writes the file's own value back. A row the
+// player moved afterwards no longer equals the override and is saved as moved.
+const OV_ON = new Array<number>(SET_COUNT);
+const OV_VAL = new Array<number>(SET_COUNT);
+const OV_KEEP = new Array<number>(SET_COUNT);
+for (let i = 0; i < SET_COUNT; i++) { OV_ON[i] = 0; OV_VAL[i] = 0; OV_KEEP[i] = 0; }
 
 // Best score per arena, and the unlock bitmask, ride in the same file.
 const MAX_ARENAS = 8;
@@ -159,6 +172,9 @@ function defaults(): void {
   V[SET_PALETTE]    = 0;
   V[SET_CROUCH_TOGGLE] = 0;
   V[SET_HINTS]      = 1;
+  V[SET_VFOG]       = 1;
+  V[SET_LAMP_SHADOWS] = 1;
+  V[SET_MONITOR]    = -1;
   platformDefaults();
   resetBinds();
   for (let i = 0; i < MAX_ARENAS; i++) best[i] = 0;
@@ -203,6 +219,16 @@ function systemLanguage(): number {
 
 export function get(i: number): number { return V[i]; }
 export function set(i: number, v: number): void { V[i] = v; }
+/// Set a value for this launch only (see OV_ON above). Call after loadSettings.
+export function override(i: number, v: number): void {
+  if (OV_ON[i] === 0) OV_KEEP[i] = V[i];
+  OV_ON[i] = 1; OV_VAL[i] = v; V[i] = v;
+}
+/// What saveSettings writes for a value: the file's own while a launch override still stands.
+function P(i: number): number {
+  if (OV_ON[i] !== 0 && V[i] === OV_VAL[i]) return OV_KEEP[i];
+  return V[i];
+}
 export function bestScore(arena: number): number {
   if (arena >= 0 && arena < MAX_ARENAS) return best[arena];
   return 0;
@@ -313,6 +339,11 @@ export function loadSettings(): void {
   V[SET_MOTION_BLUR] = num(vd, 'motionBlur', V[SET_MOTION_BLUR]);
   V[SET_AUTO_RES] = num(vd, 'autoRes', V[SET_AUTO_RES]);
   V[SET_PT]      = num(vd, 'pathTracing', V[SET_PT]);
+  V[SET_VFOG]    = num(vd, 'litFog', V[SET_VFOG]);
+  // A file from before the row existed: lamps cast shadows where they did then (high, ultra
+  // and custom).
+  V[SET_LAMP_SHADOWS] = num(vd, 'lampShadows', V[SET_PRESET] >= 2 ? 1 : 0);
+  V[SET_MONITOR] = num(vd, 'monitor', V[SET_MONITOR]);
 
   const ac: any = o['access'];
   V[SET_SHAKE]      = num(ac, 'shake',      V[SET_SHAKE]);
@@ -345,6 +376,8 @@ function clampChoices(): void {
   clampChoice(SET_FPS_CAP, 5);
   clampChoice(SET_CAPTION_SIZE, 3);
   clampChoice(SET_PALETTE, 4);
+  V[SET_MONITOR] = Math.floor(V[SET_MONITOR]);
+  if (!(V[SET_MONITOR] >= 0) || V[SET_MONITOR] > 15) V[SET_MONITOR] = -1;
   if (!(V[SET_HUD_SCALE] >= 0.8)) V[SET_HUD_SCALE] = 0.8;
   if (V[SET_HUD_SCALE] > 1.3) V[SET_HUD_SCALE] = 1.3;
   if (!(V[SET_DEADZONE] >= 0.05)) V[SET_DEADZONE] = 0.05;
@@ -375,22 +408,25 @@ export function saveSettings(): void {
         + ', "compass": ' + V[SET_COMPASS]
         + ', "hints": ' + V[SET_HINTS] + ' },\n';
   s = s + '  "binds": { ' + bindsJson() + ' },\n';
-  s = s + '  "video": { "fov": ' + V[SET_FOV]
-        + ', "renderScale": ' + V[SET_RENDER_SCALE]
-        + ', "outputScale": ' + V[SET_OUTPUT_SCALE]
-        + ', "shadows": ' + V[SET_SHADOWS]
-        + ', "ssao": ' + V[SET_SSAO]
-        + ', "ssr": ' + V[SET_SSR]
-        + ', "ssgi": ' + V[SET_SSGI]
-        + ', "bloom": ' + V[SET_BLOOM]
-        + ', "dof": ' + V[SET_DOF]
-        + ', "motionBlur": ' + V[SET_MOTION_BLUR]
-        + ', "autoRes": ' + V[SET_AUTO_RES]
-        + ', "pathTracing": ' + V[SET_PT]
-        + ', "preset": ' + V[SET_PRESET]
-        + ', "window": ' + V[SET_WINDOW]
-        + ', "vsync": ' + V[SET_VSYNC]
-        + ', "fpsCap": ' + V[SET_FPS_CAP] + ' },\n';
+  s = s + '  "video": { "fov": ' + P(SET_FOV)
+        + ', "renderScale": ' + P(SET_RENDER_SCALE)
+        + ', "outputScale": ' + P(SET_OUTPUT_SCALE)
+        + ', "shadows": ' + P(SET_SHADOWS)
+        + ', "ssao": ' + P(SET_SSAO)
+        + ', "ssr": ' + P(SET_SSR)
+        + ', "ssgi": ' + P(SET_SSGI)
+        + ', "bloom": ' + P(SET_BLOOM)
+        + ', "dof": ' + P(SET_DOF)
+        + ', "motionBlur": ' + P(SET_MOTION_BLUR)
+        + ', "autoRes": ' + P(SET_AUTO_RES)
+        + ', "pathTracing": ' + P(SET_PT)
+        + ', "preset": ' + P(SET_PRESET)
+        + ', "window": ' + P(SET_WINDOW)
+        + ', "vsync": ' + P(SET_VSYNC)
+        + ', "fpsCap": ' + P(SET_FPS_CAP)
+        + ', "litFog": ' + P(SET_VFOG)
+        + ', "lampShadows": ' + P(SET_LAMP_SHADOWS)
+        + ', "monitor": ' + P(SET_MONITOR) + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]
         + ', "captions": ' + V[SET_CAPTIONS]
         + ', "captionSize": ' + V[SET_CAPTION_SIZE]

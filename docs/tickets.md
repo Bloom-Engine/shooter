@@ -2233,3 +2233,22 @@ metre in front of them). No acne and no detached shadows in any capture looked a
 
 **Harness changes.** SCENESHOT prints `SCENEFPS view=N fps=...` before each capture.
 `--spin 1` turns the camera during `perftest`.
+
+## SH-066 — Follow-ups to the engine items: settings rows, harness hygiene ◐ *(2026-11-15; rows seen in captures, the display row tried once from the command line)*
+
+- **Three video rows** (desktop): LAMP SHADOWS and LIT FOG (toggles, part of the quality
+  presets: low switches both off, medium the lamps only) and DISPLAY (one option per attached
+  display, hidden while there is one). `settings.json` keys `litFog`, `lampShadows`, `monitor`
+  (-1 = not chosen). A file from before the rows keeps lamp shadows where it had them (high,
+  ultra, custom). The fog row acts at once: `main.ts` watches the setting and calls
+  `applyFogMedium`, which sets the flat haze, the lit fog and the shaft strength together.
+  `--vfog flip` exercises that switch (on, off at frame 15, on at frame 100) and
+  `--monitor 0..3` opens one launch on a display.
+- **A saved display needs the engine's pull request #230**: without it the move at boot races
+  the fullscreen animation and the window ends up nowhere (every frame skipped as occluded).
+- **Command-line overrides are for one launch** (`SET.override`): `--render-scale`,
+  `--output-scale`, `--pt`, `--monitor`. A save during that launch (menutest, an arena change)
+  used to write them into the player's file.
+- **`--harness fpsprobe` exits** after its one line. `tools/.testout/` exists in a fresh clone
+  (perftest and menutest write there and nothing created it).
+

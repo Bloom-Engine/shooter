@@ -499,7 +499,7 @@ Ralph asked for the engine items this plan called blocked. What it changed for t
 - **UTF-8 file reads (EN-059)** were already correct; the garbled arena name was in the file.
 - **Monitors**: the engine lists displays and moves the game between them (`getMonitorCount`,
   `getMonitorName`, `setMonitor`; tried on this Mac's three displays, windowed and
-  fullscreen). **The game has no settings row for it yet.** There is no list of display
+  fullscreen). The game's DISPLAY row (video settings, SH-066) uses it; a saved display needs engine pull request #230. There is no list of display
   modes: output scale is the resolution control.
 - **Pad family**: `getGamepadKind` says Xbox / PlayStation / Nintendo. The game still draws
   Xbox letters only (the atlas has no other glyph set), and no pad was connected to try it.
