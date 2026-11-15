@@ -62,7 +62,7 @@ import {
   setPlayerPosition, setCarryMul, vaultProgress, isVaulting, VD,
 } from './player';
 import * as W from './world-runtime';
-import { ENV, initEnvironment, initGiProxies } from './environment';
+import { ENV, initEnvironment, initGiProxies, grassSetThinning } from './environment';
 import { initFlora, drawFlora } from './flora';
 import { GS } from './gamestate';
 import * as PROFILE from './profile';
@@ -1736,7 +1736,10 @@ const UISHOT_NAMES = ['main', 'set_game', 'set_controls', 'set_binds', 'set_vide
 // ---- SCENESHOT harness ------------------------------------------------------
 // Stills of the level art (house, grass, trees) from fixed viewpoints, no enemies.
 // Captures shooter_scene_<n>.png from the view table of the arena that is loaded. MUST be false in shipped builds.
-const SCENESHOT = HARNESS === 'sceneshot';
+// GRASSWALK is the same driver over a walk: twelve steps of 1.25 m along one line with the
+// camera held, to see what the grass thinning (engine EN-060) does as the camera moves.
+const GRASSWALK = HARNESS === 'grasswalk';
+const SCENESHOT = HARNESS === 'sceneshot' || GRASSWALK;
 // Rows: player x, z, yaw, pitch, floor y (-1 = stand on the terrain). One table per arena.
 const SCENE_VIEWS_02 = [
   -21, 8, 0.0, 0.10, -1,        // house, south front
@@ -1792,7 +1795,17 @@ const SCENE_VIEWS_06 = [
   22, -22, -2.4, 0.08, -1,      // outside the rim, north-east gap
   -24, 0, 1.57, 0.04, -1,       // the creek side
 ];
-const SCENE_VIEWS = W.WORLD_ID === 'arena_03' ? SCENE_VIEWS_03
+// Start x, z, step x, z, yaw, pitch. Arena 02: the south-west meadow; arena 05: along the south rim.
+const GRASS_WALK = W.WORLD_ID === 'arena_05' ? [-12, 31, 1.25, 0, 0.0, 0.14] : [-37, 37, 0.88, -0.88, 0.9, 0.02];
+const SCENE_VIEWS_WALK = new Array<number>(12 * 5);
+for (let i = 0; i < 12; i++) {
+  SCENE_VIEWS_WALK[i * 5] = GRASS_WALK[0] + GRASS_WALK[2] * i;
+  SCENE_VIEWS_WALK[i * 5 + 1] = GRASS_WALK[1] + GRASS_WALK[3] * i;
+  SCENE_VIEWS_WALK[i * 5 + 2] = GRASS_WALK[4];
+  SCENE_VIEWS_WALK[i * 5 + 3] = GRASS_WALK[5];
+  SCENE_VIEWS_WALK[i * 5 + 4] = -1;
+}
+const SCENE_VIEWS = GRASSWALK ? SCENE_VIEWS_WALK : W.WORLD_ID === 'arena_03' ? SCENE_VIEWS_03
   : (W.WORLD_ID === 'arena_04' ? SCENE_VIEWS_04
   : (W.WORLD_ID === 'arena_05' ? SCENE_VIEWS_05
   : (W.WORLD_ID === 'arena_06' ? SCENE_VIEWS_06 : SCENE_VIEWS_02)));
@@ -1850,6 +1863,16 @@ let stairTestHpMin = 100;
 // output redirected. Same dormancy contract as SELFTEST/PERFTEST: MUST be false
 // in shipped builds.
 const FPSPROBE = HARNESS === 'fpsprobe';
+// GRASSAB: the price of the grass with and without distance thinning (engine EN-060), measured
+// inside ONE run so the machine's load cancels: after the same settle, GRASSAB_WINDOWS windows
+// of GRASSAB_FRAMES frames alternate off / on (the first GRASSAB_SKIP frames of a window are
+// not timed). Prints one GRASSAB line per window and a summary. Title screen, uncapped.
+const GRASSAB = HARNESS === 'grassab';
+const GRASSAB_WINDOWS = 24, GRASSAB_FRAMES = 90, GRASSAB_SKIP = 10;
+let grassAbT0 = 0;
+const grassAbSum = [0, 0];
+const grassAbMin = [9999, 9999];
+const grassAbMax = [0, 0];
 const FPSPROBE_SETTLE = 240;   // frames to let boot + TAA + the GI clipmap settle
 const FPSPROBE_MEASURE = 240;  // frames in the measured window
 let fpsProbeT0 = 0;
@@ -2576,6 +2599,32 @@ function gameFrame(_hostDt: number): void {
         + ' ms=' + (1000 * wall / FPSPROBE_MEASURE).toFixed(2)
         + ' grass=' + ENV.GRASS_INSTANCE_COUNT + ' px=' + getPhysicalWidth() + 'x' + getPhysicalHeight());
       fpsProbeDone = true;
+    }
+  }
+
+  if (GRASSAB) {
+    if (testFrame === 2 || testFrame === 120) { setPresentMode(3); setTargetFPS(400); }
+    const gf = testFrame - FPSPROBE_SETTLE;
+    if (gf >= 0) {
+      const win = Math.floor(gf / GRASSAB_FRAMES), ph = gf % GRASSAB_FRAMES;
+      const which = win % 2;
+      if (win < GRASSAB_WINDOWS && ph === 0) grassSetThinning(which === 1);
+      if (win < GRASSAB_WINDOWS && ph === GRASSAB_SKIP) grassAbT0 = getTime();
+      if (win < GRASSAB_WINDOWS && ph === GRASSAB_FRAMES - 1) {
+        const ms = 1000 * (getTime() - grassAbT0) / (GRASSAB_FRAMES - 1 - GRASSAB_SKIP);
+        grassAbSum[which] = grassAbSum[which] + ms;
+        if (ms < grassAbMin[which]) grassAbMin[which] = ms;
+        if (ms > grassAbMax[which]) grassAbMax[which] = ms;
+        console.log('GRASSAB window ' + win + (which === 1 ? ' thin ' : ' full ') + ms.toFixed(3));
+      }
+      if (win === GRASSAB_WINDOWS) {
+        const n = GRASSAB_WINDOWS / 2;
+        console.log('GRASSAB full ms=' + (grassAbSum[0] / n).toFixed(3) + ' (' + grassAbMin[0].toFixed(2) + '..' + grassAbMax[0].toFixed(2)
+          + ') thin ms=' + (grassAbSum[1] / n).toFixed(3) + ' (' + grassAbMin[1].toFixed(2) + '..' + grassAbMax[1].toFixed(2)
+          + ') gain ms=' + ((grassAbSum[0] - grassAbSum[1]) / n).toFixed(3));
+        closeWindow();
+        return;
+      }
     }
   }
 

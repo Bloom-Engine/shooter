@@ -244,7 +244,11 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
    which would overwrite the photographic ones if re-run, so re-run the converter after it).
    The explosion flipbook and the chip are drawn by `tools/gen/vfx_flipbook.py`.
    **Grass**: one instance is a seven-blade TUFT built in `src/environment.ts` (80k on desktop, 36k
-   on mobile). **House**: the wall boxes of a world get drawn-only dressing (concrete frame, steel
+   on mobile). On desktop the far tufts are thinned (engine EN-060, `GRASS_LOD_*` in
+   `src/environment.ts`: the shader shrinks a tuft away, the engine then stops drawing it; the
+   shader and the instance buffer must get the same numbers). `--dbg-off grasslod` switches it
+   off, `./main --harness grassab` measures it inside one run, `--harness grasswalk` captures a
+   twelve-step walk (arena_02 and arena_05). **House**: the wall boxes of a world get drawn-only dressing (concrete frame, steel
    window linings, sills, awnings) from `tools/gen/house_trim.py <world.json>` as `building_trim`
    entities; re-run it after editing the walls. Brick / concrete / steel are slices 0/1/2 of the
    building texture arrays, chosen per box through vertex colour (see `building.wgsl`).

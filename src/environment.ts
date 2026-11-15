@@ -20,7 +20,7 @@
 //   written once at init — the same array-slot pattern CAM uses.
 import {
   createMesh, createMeshExplicit, genMeshCube,
-  compileMaterialInstanced, createInstanceBuffer,
+  compileMaterialInstanced, createInstanceBuffer, createInstanceBufferLod,
   setMaterialParams, compileMaterialFromFile,
   createPlanarReflection, setMaterialReflectionProbe, setMaterialProbeVisible,
 } from 'bloom';
@@ -42,9 +42,12 @@ import { ANDROID, MOBILE, WEB } from './input';
 
 /// The value of `--dbg-off` (see main.ts): string equality on argv only, never parsed.
 function envDbgOff(): string {
+  return envArg('--dbg-off');
+}
+function envArg(name: string): string {
   if (WEB) return '';
   const n = process.argv.length;
-  for (let i = 0; i < n - 1; i++) if (process.argv[i] === '--dbg-off') return process.argv[i + 1];
+  for (let i = 0; i < n - 1; i++) if (process.argv[i] === name) return process.argv[i + 1];
   return '';
 }
 
@@ -55,11 +58,23 @@ export const ENV: any = {
   matWater: 0, matWaterMesh: 0, waterProbe: 0,
   WATER_W: 0, WATER_D: 0, WATER_CX: 0, WATER_CZ: 0, WATER_Y: 0,
   matGrass: 0, matGrassMesh: 0, matGrassInstances: 0, GRASS_INSTANCE_COUNT: 0,
+  // The GRASSAB harness only: the same tufts in a buffer without distance thinning.
+  matGrassInstancesPlain: 0, matGrassInstancesLod: 0,
   matBuilding: 0, matBuildingMesh: 0,
   matGlass: 0, matGlassMesh: 0,
   matMuzzleFlash: 0, matMuzzleFlashMesh: 0,
   matContact: 0, matContactMesh: 0,
 };
+
+/// The grass material's parameters with distance thinning on and off (see GRASS_LOD_* below).
+const GRASS_PARAMS_ON = new Array<number>(12);
+const GRASS_PARAMS_OFF = new Array<number>(12);
+/// GRASSAB harness: draw the grass with or without distance thinning from the next frame on.
+export function grassSetThinning(on: boolean): void {
+  if (ENV.matGrass <= 0 || ENV.matGrassInstancesPlain <= 0) return;
+  setMaterialParams(ENV.matGrass, on ? GRASS_PARAMS_ON : GRASS_PARAMS_OFF);
+  ENV.matGrassInstances = on ? ENV.matGrassInstancesLod : ENV.matGrassInstancesPlain;
+}
 
 // Round-4 — deterministic value noise over world XZ, used for the
 // large-scale "moisture" patches that vary grass colour/height (and
@@ -276,8 +291,29 @@ export function initEnvironment(): void {
     // Target tip ≈ RGB 0.42 0.50 0.26 (saturation 0.48) — in the ground's family.
     // 2026-11: greener (0.44/0.45/0.38 was olive-grey) to sit on the leafy_grass ground scan.
     0.37, 0.49, 0.25,  0.40,
+    // lod (start m, end m, least fraction, band) and lod_look: filled in below, once it is
+    // known whether this run thins the grass. These values mean "off".
+    100000, 100001, 1, 0.2,
+    0, 0, 0, 0,
   ];
-  if (matGrass > 0) setMaterialParams(matGrass, GRASS_PARAMS);
+  // Distance thinning (engine EN-060). Far away the tufts overlap many times over, so past
+  // GRASS_LOD_START metres a growing share of them shrinks into the ground, down to
+  // GRASS_LOD_MIN of them at GRASS_LOD_END, and the engine stops drawing those. The rest widen
+  // to cover (GRASS_LOD_FILL: 1 = for all of it). GRASS_LOD_BAND is how gradually one tuft
+  // goes. GRASS_LOD_DENSITY (tufts per m2) leaves sparse ground alone: without it the lone
+  // tufts on the Quarry's bare floor could be counted going missing in a side-by-side.
+  // The shader gets the first four through GRASS_PARAMS and the instance buffer all but the
+  // fill; they must be the same numbers. Measured on the M1 Max, title screen, render scale
+  // 0.5: about 0.5 ms of a 16.9 ms frame (`./main --harness grassab`).
+  // Desktop only: not looked at on a phone or in a browser. `--dbg-off grasslod` switches it off.
+  const GRASS_LOD_ON = !MOBILE && !WEB && envDbgOff() !== 'grasslod';
+  const GRASS_LOD_START = 22, GRASS_LOD_END = 55, GRASS_LOD_MIN = 0.4, GRASS_LOD_BAND = 0.2;
+  const GRASS_LOD_FILL = 1.0, GRASS_LOD_DENSITY = 2.5;
+  for (let i = 0; i < 12; i++) { GRASS_PARAMS_OFF[i] = GRASS_PARAMS[i]; GRASS_PARAMS_ON[i] = GRASS_PARAMS[i]; }
+  GRASS_PARAMS_ON[4] = GRASS_LOD_START; GRASS_PARAMS_ON[5] = GRASS_LOD_END;
+  GRASS_PARAMS_ON[6] = GRASS_LOD_MIN;   GRASS_PARAMS_ON[7] = GRASS_LOD_BAND;
+  GRASS_PARAMS_ON[8] = GRASS_LOD_FILL;
+  if (matGrass > 0) setMaterialParams(matGrass, GRASS_LOD_ON ? GRASS_PARAMS_ON : GRASS_PARAMS_OFF);
   // Blades are sub-pixel in the 512² water probe but cost the full 20k-
   // instance vertex + raster pass there — skip grass in reflections.
   if (matGrass > 0) setMaterialProbeVisible(matGrass, false);
@@ -512,9 +548,15 @@ export function initEnvironment(): void {
   }
   // EN-001 — pass instanceCount explicitly (Perry's `.length` reports
   // the literal-init size, not how many were written).
-  const matGrassInstances = matGrass > 0
-    ? createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT)
-    : 0;
+  const matGrassInstances = matGrass <= 0 ? 0
+    : (GRASS_LOD_ON
+      ? createInstanceBufferLod(GRASS_INSTANCES, GRASS_INSTANCE_COUNT,
+          GRASS_LOD_START, GRASS_LOD_END, GRASS_LOD_MIN, GRASS_LOD_BAND, GRASS_LOD_DENSITY)
+      : createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT));
+  if (GRASS_LOD_ON && matGrass > 0 && envArg('--harness') === 'grassab') {
+    ENV.matGrassInstancesLod = matGrassInstances;
+    ENV.matGrassInstancesPlain = createInstanceBuffer(GRASS_INSTANCES, GRASS_INSTANCE_COUNT);
+  }
   // SH-050 — how many blades actually got PLACED, vs asked for. The claim that
   // "past ~40k the scatter saturates against its keep-outs" was never measured;
   // this is the number that settles it. A placed count well under the max means

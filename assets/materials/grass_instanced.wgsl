@@ -23,11 +23,19 @@
 #include "common/shadows.wgsl"
 #include "common/clouds.wgsl"
 #include "common/pbr.wgsl"
+#include "common/instance_lod.wgsl"
 
 struct GrassParams {
   // xyz = canonical base hue (multiplied by per-instance tint),
   // w = transmission strength (sun behind blade boost).
   base: vec4<f32>,
+  // Distance thinning (engine EN-060): start m, end m, least fraction, band. The same four
+  // numbers the instance buffer was made with (GRASS_LOD in environment.ts). A least fraction
+  // of 1 with a far start switches it off, and this shader is then what it was before.
+  lod: vec4<f32>,
+  // x = how much of the thinned-out coverage the remaining tufts make up in width
+  // (0 = none, 1 = all of it).
+  lod_look: vec4<f32>,
 };
 @group(2) @binding(11) var<uniform> grass: GrassParams;
 
@@ -45,6 +53,8 @@ struct InstancedVertexInput {
   @location(8)  instance_rot_y:  f32,
   @location(9)  instance_scale:  f32,
   @location(10) instance_tint:   vec4<f32>,
+  // x = this tuft's thinning rank, 0..1; y = its tile's floor (both 0 in a buffer made without thinning).
+  @location(11) instance_extra:  vec3<f32>,
 };
 
 struct VsOut {
@@ -81,11 +91,19 @@ fn vs_main(in: InstancedVertexInput) -> VsOut {
   // ground every frame.
   let d_cam = length(view.camera_pos.xz - in.instance_pos.xz);
   let fade  = smoothstep(6.0, 42.0, d_cam);
-  let wide  = 1.0 + fade * 3.4;
+
+  // Distance thinning (EN-060). Far away the tufts overlap many times over, so part of them
+  // can go: a tuft shrinks into the ground as the thinning level comes down to its rank, and
+  // the engine stops drawing it once it is gone. What is left widens to cover for it.
+  let lod_level = instance_lod_level(distance(view.camera_pos.xyz, in.instance_pos), grass.lod,
+                                     in.instance_extra.y);
+  let lod_vis   = instance_lod_visible(in.instance_extra.x, lod_level, grass.lod.w);
+  let lod_fill  = mix(1.0, instance_lod_fill(lod_level, grass.lod.w), grass.lod_look.x);
+  let wide  = (1.0 + fade * 3.4) * lod_fill;
 
   // Scale + Y-axis rotate the canonical local position.
   let scaled = vec3<f32>(in.position.x * wide, in.position.y, in.position.z * wide)
-             * in.instance_scale;
+             * (in.instance_scale * lod_vis);
   let cy = cos(in.instance_rot_y);
   let sy = sin(in.instance_rot_y);
   let rotated = vec3<f32>(
