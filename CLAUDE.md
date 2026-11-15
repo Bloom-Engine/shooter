@@ -232,11 +232,17 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
 4. **Weapons and props**: `blender -b -P tools/blender/process_static.py -- in.glb out.glb --kind
    weapon|prop --size <m>` (decimate, unwrap, bake base colour / normal / roughness / metallic at 4K).
    Exact arguments per model: `art/source/README.md`.
-5. **Trees**: `tools/blender/build_tree.py` GROWS them (one trunk tapering to the crown top, limbs,
-   branches, twigs as bark tubes; bark is the Poly Haven `bark_willow_02` scan;
-   two crossed leaf-cluster cards on every twig). Leaf cards are photographed-style branch tips
-   generated on magenta (`art/style/foliage/`) and keyed by `tools/gen/key_foliage.py`; bark is the
-   Poly Haven 2K scan. It prints the CANOPY numbers for `src/camera.ts`.
+5. **Trees and scanned plants** (2026-11-15, SH-067): `tools/gen/build_trees.sh` is the whole recipe.
+   The three forest trees are Poly Haven film trees (CC0, two million polygons, every leaf a mesh)
+   converted by `tools/blender/tree_from_scan.py`: trunk and branches kept and decimated, the crown
+   cut into cells, sixteen cells photographed into a leaf atlas (colour, coverage, normals), and
+   every cell given cards showing one of the sixteen, in three orientations (facing out, across,
+   and down). Vertex colour holds how much sky reaches each place, which darkens the inside of a
+   crown. It prints the CANOPY numbers for `src/camera.ts` and TRUNK r for `TREE_TRUNK_R` in
+   `src/main.ts`. `tools/blender/plant_card.py` photographs a scanned plant onto one card
+   (`flora_grass`, `flora_tallgrass`, `flora_herb`). The sources live in `tools/.cache/polyhaven`
+   (git-ignored; `tools/gen/fetch_polyhaven.py`). The older grown trees
+   (`tools/blender/build_tree.py`) and the generated leaf pictures are no longer used by the game.
 6. **Surfaces**: terrain and building layers are the Poly Haven 2K scans at full resolution
    (`tools/build-terrain-textures.ts`, `build-building-textures.ts`). Smoke, dust, muzzle flash and
    the decals are generated photographs converted by `tools/gen/vfx_from_image.py`
@@ -293,7 +299,14 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   (c_* are that creature's own motion). Trooper (14 clips, `PLAYER_ANIM_*` in `src/main.ts`):
   0 crouch_idle, 1 crouch_walk, 2 death_back, 3 death_front, 4 hit_back, 5 hit_front, 6 idle, 7 roll,
   8 run, 9 sprint, 10 strafe_left, 11 strafe_right, 12 walk, 13 walk_back. Prompts: `art/source/trooper_clips.md`.
-- Trees are two primitives, bark then leaves (`TREE_GLB_PARTS`); leaves are alpha MASK, double sided.
+- Trees are three primitives: trunk, branches, leaves (`TREE_GLB_PARTS`); leaves are alpha MASK,
+  double sided, and carry vertex colour on purpose (sky openness). Three engine settings make
+  leaf cards read as leaves and the game sets all of them next to `setModelFoliageWind`:
+  `setCutoutEnvSpecular(0.2)` (at 1 the sky's reflection is as bright as the leaf colour and every
+  crown is pale mint), `setCutoutEdgeFade(0.14, 0.30)` (a card seen edge on is a streak; it is
+  thinned out, which is why a tree needs cards in three orientations). Grass, ground and plants
+  were re-balanced with it: the blade grass's base colour and the terrain's lush and dry tints
+  are LINEAR albedo and were three to five times too bright; do not raise them back to "match".
 - Mixamo skeleton under a static `Root` bone that the importer adds: 67 joints on the Trooper
   (with `tag_weapon`), 23 on every creature (`tools/gen/strip_joints.py` drops fingers, toe ends
   and the head top after import; `build_cast.sh` runs it; their hands are open claws in every clip). `Root` must stay joint 0: with root motion off the engine pins joint 0's
@@ -434,7 +447,7 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   or the rifle: `HAS_BOSS_MODEL`, `HAS_SCATTER_MDL`, `HAS_LANCE_MDL`.) A weapon with
   pellets or a piercing hitscan round goes through `combat.fireMulti`. Bot aids:
   `--wave N` starts the stand-in at a wave, `--weapon N` gives it a weapon.
-- No vertex colours (the engine multiplies `COLOR_0` into albedo).
+- No vertex colours on characters, weapons and props (the engine multiplies `COLOR_0` into albedo; the trees use exactly that).
 - Weapons: barrel along +Z, rear at z = 0, metres. Props: origin at the base centre, drawn unrotated.
 
 ## World pipeline

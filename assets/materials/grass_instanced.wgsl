@@ -191,8 +191,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // tone as dist_fade rises — near grass keeps the full contrast, the
   // far field reads as a soft carpet.
   let tip_soft = mix(in.tip_weight * in.tip_weight, 0.42, in.dist_fade * 0.85);
-  let root_col = in.blade_tint * vec3<f32>(0.42, 0.50, 0.38);
-  let tip_col  = in.blade_tint * vec3<f32>(1.12, 1.08, 0.72);
+  // 2026-11 photoreal pass: the tip is lighter, not yellower (the old 1.12 / 1.08 / 0.72 tip on
+  // a base three times too bright made every blade a pale straw-mint ribbon).
+  let root_col = in.blade_tint * vec3<f32>(0.40, 0.46, 0.36);
+  let tip_col  = in.blade_tint * vec3<f32>(1.22, 1.16, 0.86);
   var albedo   = mix(root_col, tip_col, tip_soft);
   let meadow   = grass.base.rgb * vec3<f32>(0.78, 0.90, 0.55);
   albedo       = mix(albedo, meadow, in.dist_fade * 0.55);
@@ -204,7 +206,10 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // Sky-fill: HDR irradiance sampled straight up — thin blades respond to
   // the sky dome, and a fixed direction avoids per-blade ambient flicker
   // from the ±normal card sides. Small flat floor on top.
-  let fill = sample_env_diffuse(vec3<f32>(0.0, 1.0, 0.0)) + view.ambient.rgb * 0.20;
+  // The sky reaches a tip, not the foot of a tuft standing among its neighbours: without
+  // this every blade was evenly lit from root to tip and the meadow had no depth.
+  let sky_open = mix(0.30, 1.0, mix(in.tip_weight, 0.6, in.dist_fade * 0.85));
+  let fill = (sample_env_diffuse(vec3<f32>(0.0, 1.0, 0.0)) + view.ambient.rgb * 0.20) * sky_open;
   let lit = albedo * (fill + direct)
           + trans  * trans_color * cloud;
 

@@ -1,6 +1,7 @@
 // Phase 3.1 / 3.2 - the small plants on the arena floor and the tree line on the hills beyond it.
 //
-// Six kinds of foliage card (fern, shrub, reed, flower, weed, far tree), each ONE mesh drawn
+// Nine kinds of foliage card (fern, shrub, reed, flower, weed, far tree, grass clump, tall
+// grass, herb), each ONE mesh drawn
 // instanced through assets/materials/card_instanced.wgsl. The textures are slices of one array
 // (ORDER IS THE ABI: the SLICE_* constants below, the path list in initFlora, and the slice a
 // mesh writes into its vertex colour). Where a plant stands is decided here at load from the
@@ -29,14 +30,24 @@ const SLICE_REED = 2;
 const SLICE_FLOWER = 3;
 const SLICE_WEED = 4;
 const SLICE_TREE = 5;
-const KINDS = 6;
+// 2026-11-15: three kinds photographed from scanned plants (Poly Haven grass_medium_01 and
+// shrub_03, CC0) by tools/blender/plant_card.py: a clump of lawn grass, taller grass in seed,
+// and a flowering herb. Their pictures are oblong; the card sizes below are what that tool prints.
+const SLICE_GRASS = 6;
+const SLICE_TALLGRASS = 7;
+const SLICE_HERB = 8;
+const KINDS = 9;
+// The fern, shrub and weed pictures are generated images, brighter and more saturated than the
+// scanned plants now standing beside them (mean leaf 85 / 109 / 23 against 77 / 84 / 35):
+// their instance tints are scaled by this.
+const GEN_R = 0.80, GEN_G = 0.70, GEN_B = 0.86;
 
 /// What the frame loop draws. Written once in initFlora(). Plain module-level arrays, written by
 /// index: an array inside an `any` object is not something Perry is trusted with across modules.
 const FL_MAT = [0, 0];                     // near plants, far trees
 const FL_MESH = new Array<any>(KINDS);
-const FL_INST = [0, 0, 0, 0, 0, 0];
-const FL_COUNT = [0, 0, 0, 0, 0, 0];
+const FL_INST = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+const FL_COUNT = [0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 // ---- mesh building ---------------------------------------------------------------------
 // Scratch for one mesh at a time: 12 floats a vertex (pos.3 normal.3 colour.4 uv.2).
@@ -245,7 +256,7 @@ function underWater(x: number, z: number, y: number): boolean {
 }
 
 // One kind's instances while they are being scattered: 9 floats each.
-const SC_MAX = 2600;
+const SC_MAX = 12000;
 const SC = new Array<number>(SC_MAX * 9);
 const SCN = [0];
 
@@ -281,6 +292,9 @@ export function initFlora(): void {
     'assets/textures/flora_flower.png',
     'assets/textures/flora_weed.png',
     'assets/textures/flora_tree.png',
+    'assets/textures/flora_grass.png',
+    'assets/textures/flora_tallgrass.png',
+    'assets/textures/flora_herb.png',
   ], TEX_ARRAY_FORMAT_SRGB, 11);
   if (tex <= 0) { console.log('[flora] textures missing: assets/textures/flora_*.png'); return; }
   setMaterialTextureArray(matNear, TEXTURE_ARRAY_ALBEDO, tex);
@@ -298,6 +312,12 @@ export function initFlora(): void {
   FL_MESH[SLICE_FLOWER] = buildFan(SLICE_FLOWER, 3, 0.55, 0.55, 0.05, 0);
   FL_MESH[SLICE_WEED] = buildFan(SLICE_WEED, 3, 0.80, 0.70, 0.14, 0);
   FL_MESH[SLICE_TREE] = buildFan(SLICE_TREE, 2, 1.0, 1.0, 0.0, 0.9);
+  // Scanned at 0.91 x 0.22 m, 0.62 x 0.33 m and 0.38 x 0.42 m; drawn about twice life size
+  // (a meadow, not a lawn), which the per-instance scale then varies.
+  // (Narrower than the picture's own 4 : 1: three 1.7 m planes read as an asterisk from above.)
+  FL_MESH[SLICE_GRASS] = buildFan(SLICE_GRASS, 3, 1.15, 0.42, 0.20, 0);
+  FL_MESH[SLICE_TALLGRASS] = buildFan(SLICE_TALLGRASS, 3, 1.10, 0.70, 0.14, 0);
+  FL_MESH[SLICE_HERB] = buildFan(SLICE_HERB, 2, 0.62, 0.68, 0.04, 0);
 
   const DENS = ANDROID ? 0 : (MOBILE ? 0.4 : 1.0);
 
@@ -312,7 +332,7 @@ export function initFlora(): void {
       const y = terrainHeightAt(x, z);
       if (underWater(x, z, y) || bareAt(x, z) > 0.45) continue;
       const g = 0.82 + rnd() * 0.30;
-      scAdd(x, y - 0.02, z, 0.75 + rnd() * 0.7, g, g + 0.04, g - 0.06);
+      scAdd(x, y - 0.02, z, 0.75 + rnd() * 0.7, g * GEN_R, (g + 0.04) * GEN_G, (g - 0.06) * GEN_B);
     }
   }
   scUpload(SLICE_FERN);
@@ -329,7 +349,7 @@ export function initFlora(): void {
     const d = nearestTree(x, z);
     if (d < 1.4) continue;
     const g = 0.78 + rnd() * 0.30;
-    scAdd(x, y - 0.03, z, 0.9 + rnd() * 0.9, g, g + 0.03, g - 0.08);
+    scAdd(x, y - 0.03, z, 0.9 + rnd() * 0.9, g * GEN_R, (g + 0.03) * GEN_G, (g - 0.08) * GEN_B);
   }
   scUpload(SLICE_SHRUB);
 
@@ -375,7 +395,7 @@ export function initFlora(): void {
       const y = terrainHeightAt(x, z);
       if (underWater(x, z, y)) continue;
       const g = 0.80 + rnd() * 0.25;
-      scAdd(x, y - 0.03, z, 0.7 + rnd() * 0.7, g, g + 0.03, g - 0.05);
+      scAdd(x, y - 0.03, z, 0.7 + rnd() * 0.7, g * GEN_R, (g + 0.03) * GEN_G, (g - 0.05) * GEN_B);
     }
   }
   for (let t = 0; t < 4000 * DENS && SCN[0] < 520 * DENS; t++) {
@@ -386,9 +406,51 @@ export function initFlora(): void {
     const y = terrainHeightAt(x, z);
     if (underWater(x, z, y)) continue;
     const g = 0.80 + rnd() * 0.25;
-    scAdd(x, y - 0.03, z, 0.6 + rnd() * 0.7, g, g + 0.03, g - 0.05);
+    scAdd(x, y - 0.03, z, 0.6 + rnd() * 0.7, g * GEN_R, (g + 0.03) * GEN_G, (g - 0.05) * GEN_B);
   }
   scUpload(SLICE_WEED);
+
+  // Grass clumps: the meadow itself. Everywhere a plant may stand, thinner on painted mud and
+  // rock and in the deepest shade right at a trunk.
+  const grassMax = ANDROID ? 0 : (MOBILE ? 2500 : 11500);
+  for (let t = 0; t < grassMax * 3 && SCN[0] < grassMax; t++) {
+    const x = -38 + rnd() * 76, z = -38 + rnd() * 76;
+    if (blocked(x, z, 0.1)) continue;
+    const bare = bareAt(x, z);
+    if (rnd() * 0.9 + 0.05 < bare) continue;
+    const y = terrainHeightAt(x, z);
+    if (underWater(x, z, y - 0.05)) continue;
+    const lush = patchNoise(x * 0.09 + 3, z * 0.09 + 11);
+    if (lush < 0.22 && rnd() < 0.6) continue;
+    const g = 0.80 + rnd() * 0.26;
+    scAdd(x, y - 0.03, z, 0.75 + rnd() * 0.55 + lush * 0.25, g * (1.0 + (0.5 - lush) * 0.16), g, g * 0.92);
+  }
+  scUpload(SLICE_GRASS);
+
+  // Taller grass in seed: in patches, and along the water.
+  for (let t = 0; t < 26000 * DENS && SCN[0] < 2600 * DENS; t++) {
+    const x = -38 + rnd() * 76, z = -38 + rnd() * 76;
+    if (patchNoise(x * 0.13 + 61, z * 0.13 + 5) < 0.56) continue;
+    if (blocked(x, z, 0.25) || bareAt(x, z) > 0.3) continue;
+    const y = terrainHeightAt(x, z);
+    if (underWater(x, z, y - 0.05)) continue;
+    const g = 0.82 + rnd() * 0.24;
+    scAdd(x, y - 0.03, z, 0.8 + rnd() * 0.7, g * 1.03, g, g * 0.88);
+  }
+  scUpload(SLICE_TALLGRASS);
+
+  // Flowering herbs: loose drifts in the open.
+  for (let t = 0; t < 9000 * DENS && SCN[0] < 420 * DENS; t++) {
+    const x = -38 + rnd() * 76, z = -38 + rnd() * 76;
+    if (patchNoise(x * 0.18 + 23, z * 0.18 + 47) < 0.64) continue;
+    if (blocked(x, z, 0.2) || bareAt(x, z) > 0.25) continue;
+    const y = terrainHeightAt(x, z);
+    if (underWater(x, z, y - 0.1)) continue;
+    if (nearestTree(x, z) < 2.0) continue;
+    const g = 0.84 + rnd() * 0.2;
+    scAdd(x, y - 0.02, z, 0.8 + rnd() * 0.6, g, g, g * 0.92);
+  }
+  scUpload(SLICE_HERB);
 
   // The far tree line: the hills outside the arena, wooded in copses that thin toward the
   // horizon. A card is 1 m square at scale 1 with its root at the origin; the scale is the
@@ -410,10 +472,11 @@ export function initFlora(): void {
   FL_MAT[0] = matNear;
   FL_MAT[1] = matFar;
   console.log('[flora] fern ' + FL_COUNT[0] + ' shrub ' + FL_COUNT[1] + ' reed ' + FL_COUNT[2]
-    + ' flower ' + FL_COUNT[3] + ' weed ' + FL_COUNT[4] + ' far trees ' + FL_COUNT[5]);
+    + ' flower ' + FL_COUNT[3] + ' weed ' + FL_COUNT[4] + ' far trees ' + FL_COUNT[5]
+    + ' grass ' + FL_COUNT[6] + ' tall grass ' + FL_COUNT[7] + ' herb ' + FL_COUNT[8]);
 }
 
-/// Six instanced draws, inside the 3D pass.
+/// One instanced draw per kind, inside the 3D pass.
 export function drawFlora(): void {
   if (FL_MAT[0] <= 0) return;
   for (let k = 0; k < KINDS; k++) {

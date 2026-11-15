@@ -521,6 +521,15 @@ Ralph asked for the engine items this plan called blocked. What it changed for t
   `setCrashReportPath`, which only the local engine has. Until they are pushed or merged,
   a build against the engine's `origin/main` fails.
 
+## Photoreal environment pass (2026-11-15, SH-067)
+
+The trees, the grass and the Plaza's light were redone after Ralph called them cartoonish:
+converted Poly Haven trees and grass in place of grown and generated ones, leaf cards without
+the sky's mirror sheen, real albedo for grass and ground, dark shade and bright sun. Judged
+from stills in all five arenas. **Open:** a clean frame-rate number, the outer hills and far
+tree line, the remaining generated plant pictures, the ground between plants (no litter, no
+relief), and everything in motion. `docs/tickets.md` SH-067 has the record.
+
 ## Engine work this plan depends on
 
 | Need | Engine ticket | Blocks |

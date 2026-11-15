@@ -12,7 +12,7 @@ import {
   endMode2D,
   loadModel, instantiateAnimation, setProceduralSky, setSunDirection, drawModel, drawModelRotated, drawSphere, getModelBounds, loadModelAnimation, updateModelAnimation,
   stageModels, stageModelsSync, commitModel,
-  setModelFoliageWind, setFoliageShadowMotion,
+  setModelFoliageWind, setFoliageShadowMotion, setCutoutEdgeFade, setCutoutEnvSpecular,
   drawMeshWithMaterial, drawMeshWithMaterialInstanced,
   initAudio, loadSound, playSound, setSoundVolume, playSound3D, setListenerPosition,
   loadMusic, playMusic, stopMusic, updateMusicStream, setMusicVolume,
@@ -777,13 +777,20 @@ const treeVariants = [
 // 0.5 since the grown trees (2026-11): they are about half again as tall and wide as the old
 // ones, and the bend grows with height squared.
 for (let i = 0; i < treeVariants.length; i++) setModelFoliageWind(treeVariants[i], 0.5);
+// A leaf card seen edge on is a streak; the engine thins it out as it turns (engine EN-071). The
+// trees carry cards in three orientations (tools/blender/tree_from_scan.py), so from any side
+// two of them are left to see.
+setCutoutEdgeFade(0.14, 0.30);
+// ... and a leaf card keeps a fifth of the sky's mirror reflection: at full strength it was as
+// bright as the leaves' own colour and every crown rendered pale mint.
+setCutoutEnvSpecular(0.2);
 // Swaying SHADOWS are a separate, paid-for decision: a caster that moves cannot
 // reuse the cached static shadow depth, so all 88 trees would re-render into
 // every cascade every frame. Measured before switching on - see docs/tickets.md
 // SH-013.
 setFoliageShadowMotion(FOLIAGE_SHADOW_MOTION);
 // All tree GLBs are 2 primitives: bark (trunk and every branch), then the leaf cards.
-const TREE_GLB_PARTS = 2;   // bark, leaves (tools/blender/build_tree.py)
+const TREE_GLB_PARTS = 3;   // trunk, branches, leaves (tools/blender/tree_from_scan.py)
 // Front-to-back draw order for the forest (see the draw loop). Flat arrays,
 // Perry convention — allocated once, rewritten each frame.
 const FOREST_D = new Array<number>(W.FOREST_COUNT);
@@ -825,9 +832,13 @@ for (let i = 0; i < FOREST_COUNT; i++) {
 // them. One slim static box per trunk; the canopy stays shoot-through on
 // purpose. Bullets now ricochet off trunks via the existing ALL_LAYERS
 // raycast, and the orbit camera's NON_MOVING ray already handles trunks.
+// Per tree model (tools/blender/tree_from_scan.py prints "TRUNK r"): the second is a low tree
+// of several stems standing 1.2 m apart, so its box covers the group, not one stem.
+const TREE_TRUNK_R = [0.29, 0.75, 0.31];
+const TREE_TRUNK_H = [1.6, 1.1, 1.8];    // half-height of the box: the bole below the crown
 for (let i = 0; i < FOREST_COUNT; i++) {
-  const tr = 0.26 * FOREST_SCALE[i];   // half-extent ≈ bark radius at the base
-  const th = 1.6 * FOREST_SCALE[i];    // half-height — trunk only, not canopy
+  const tr = TREE_TRUNK_R[FOREST_VAR[i]] * FOREST_SCALE[i];
+  const th = TREE_TRUNK_H[FOREST_VAR[i]] * FOREST_SCALE[i];
   const trunkShape = boxShape(vec3(tr, th, tr));
   createBody(physics, trunkShape, {
     motionType: MotionType.STATIC,
@@ -916,7 +927,7 @@ const OBST_R = new Array<number>(OBST_MAX);
 for (let i = 0; i < FOREST_COUNT; i++) {
   OBST_X[GS.OBST_COUNT] = FOREST_X[i];
   OBST_Z[GS.OBST_COUNT] = FOREST_Z[i];
-  OBST_R[GS.OBST_COUNT] = 0.30 * FOREST_SCALE[i];
+  OBST_R[GS.OBST_COUNT] = (TREE_TRUNK_R[FOREST_VAR[i]] + 0.04) * FOREST_SCALE[i];
   GS.OBST_COUNT = GS.OBST_COUNT + 1;
 }
 for (let i = 0; i < W.MESH_COUNT; i++) {
@@ -1142,8 +1153,11 @@ const TERRAIN_PARAMS = [
   // the field was unused; a 0 now would divide by zero (the shader clamps, and
   // you would get one texel smeared over the arena). If you swap a layer's
   // texture, put its real size here.
-  0.80, 0.98, 0.70,  2.0,    // lush — leafy_grass,           2.0 m (2026-11: a real grass scan)
-  0.86, 0.96, 0.74,  2.0,    // dry  — forrest_ground_01,     2.0 m (was withered_grass: beige straw hills)
+  // 2026-11 photoreal pass: lush and dry were near white tints on bright scans; under grass of a
+  // real albedo the ground read as pale sand between dark tufts. Ground under a lawn is darker
+  // than the lawn.
+  0.52, 0.66, 0.42,  2.0,    // lush — leafy_grass,           2.0 m (2026-11: a real grass scan)
+  0.60, 0.66, 0.46,  2.0,    // dry  — forrest_ground_01,     2.0 m (was withered_grass: beige straw hills)
   1.00, 0.97, 0.92,  2.35,   // dirt — mud_forest,            2.35 m (dark wet forest mud)
   0.88, 0.90, 0.96,  1.83,   // rock — cliff_side,            1.83 m (cooled — the
                              //        scan is a warm orange sandstone)

@@ -25,7 +25,7 @@
       0.7,
       0.85
     ],
-    "ambientIntensity": 0.45,
+    "ambientIntensity": 0.17,
     "sunDirection": [
       0.6,
       0.4,
@@ -36,7 +36,7 @@
       0.82,
       0.6
     ],
-    "sunIntensity": 1.6,
+    "sunIntensity": 2.9,
     "fogStart": 45,
     "fogEnd": 140,
     "fogColor": [
@@ -89606,10 +89606,13 @@
         "kind": "look",
         "sky": "0",
         "tonemap": "1",
-        "saturation": "1.0",
-        "shafts": "0.30",
-        "fog_density": "0.020",
-        "sky_variant": "1"
+        "saturation": "0.95",
+        "shafts": "0.14",
+        "fog_density": "0.005",
+        "sky_variant": "1",
+        "env_intensity": "0.58",
+        "exposure_key": "0.14",
+        "cloud_shadow": "0.25"
       }
     },
     {

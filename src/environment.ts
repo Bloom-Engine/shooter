@@ -290,7 +290,10 @@ export function initEnvironment(): void {
     // greener than soil; it no longer reads as a different art style.
     // Target tip ≈ RGB 0.42 0.50 0.26 (saturation 0.48) — in the ground's family.
     // 2026-11: greener (0.44/0.45/0.38 was olive-grey) to sit on the leafy_grass ground scan.
-    0.37, 0.49, 0.25,  0.40,
+    // 2026-11 photoreal pass: 0.37 / 0.49 / 0.25 is a LINEAR albedo, five times brighter than
+    // the tree leaves' photographed texture (0.05 / 0.09 / 0.01) and brighter than any real
+    // lawn (0.08 to 0.14 in green). Brought into the range of living grass.
+    0.098, 0.128, 0.038,  0.40,
     // lod (start m, end m, least fraction, band) and lod_look: filled in below, once it is
     // known whether this run thins the grass. These values mean "off".
     100000, 100001, 1, 0.2,
@@ -539,7 +542,7 @@ export function initEnvironment(): void {
       GRASS_INSTANCES[wi++] = pz;
       GRASS_INSTANCES[wi++] = r3 * 6.2832;                          // rot_y radians
       GRASS_INSTANCES[wi++] = (0.85 + r4 * 0.40) * (1.05 - dry * 0.30);  // scale
-      GRASS_INSTANCES[wi++] = 0.88 + dry * 0.42 + jit;              // tint r
+      GRASS_INSTANCES[wi++] = 0.92 + dry * 0.34 + jit;              // tint r
       GRASS_INSTANCES[wi++] = 1.03 + dry * 0.02 + jit * 0.5;        // tint g
       GRASS_INSTANCES[wi++] = 0.95 - dry * 0.30 + jit * 0.3;        // tint b
       GRASS_INSTANCES[wi++] = 1.0;

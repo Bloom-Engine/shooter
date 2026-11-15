@@ -2294,3 +2294,32 @@ anything in motion.
   max_*_buffer_binding_size"). The pool of 31 stays under it. Both have to be dealt with in
   the engine before `KIND_POOL` / `MAX_CONCURRENT` go up.
 
+## SH-067 — Photoreal environment pass: real trees, real grass, re-balanced light ◐ *(2026-11-15; judged from stills in all five arenas, not in motion; frame rate not re-measured cleanly)*
+
+Ralph: "the trees and colors all look a bit cartoonish". What was wrong, found one capture at a
+time, and what changed. Needs engine EN-071 (pull request #234).
+
+- **Crowns were pale mint whatever their texture.** The engine gave leaf cards the full sky
+  reflection. `setCutoutEnvSpecular(0.2)`.
+- **The trees were balls of 470 big cards.** Replaced by three converted Poly Haven trees
+  (`tools/blender/tree_from_scan.py`, `tools/gen/build_trees.sh`): real boles and branching,
+  about 1,250 cards of photographed leaf sprays each, 8,000 to 8,700 triangles (the old ones
+  had 11,000 to 13,000). Trunk colliders and the camera's canopy sizes follow the new models.
+- **Cards seen edge on were streaks.** `setCutoutEdgeFade(0.14, 0.30)`, and three card
+  orientations so something always faces the camera.
+- **Grass was five times brighter than leaves and lit evenly root to tip**; the ground under it
+  was near white. Blade base colour 0.37 / 0.49 / 0.25 to 0.098 / 0.128 / 0.038, roots get 30%
+  of the sky, the terrain's lush and dry tints darkened.
+- **The meadow was ribbons on bare ground.** Three new card kinds photographed from scanned
+  plants (`tools/blender/plant_card.py`): 11,500 grass clumps, 2,600 tall grass, 420 herbs
+  (`src/flora.ts`). The generated fern, shrub and weed pictures are tinted down to sit with them.
+- **Plaza light**: ambient 0.45 to 0.17, sun 1.6 to 2.9, environment 1.0 to 0.58, haze 0.020 to
+  0.005, so shade is dark and sun patches are bright. The other four arenas keep their values.
+
+**Not done / not known.** Frame rate: interleaved Plaza captures read about 45 fps with the old
+trees and 38 to 40 with the new ones before the cards were trimmed, on a machine with a load
+average above 30; no clean number exists for the final state. The outer hills and the far tree
+line are still flat cards on plain ground. Shrubs, ferns, weeds, reeds and flowers are still
+generated pictures. Nothing was looked at in motion (wind on the new cards, the edge fade's
+dither while turning). Phones, web and Android were not run; the plant cards are scaled down or
+off there. The sources are downloaded by the build script, not stored.

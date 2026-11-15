@@ -13,6 +13,9 @@ Third-party material listed below keeps the terms of its source.
   Other sounds: synthesised by `tools/gen-sfx.ts`, or from the Sonniss GDC 2024 bundle. See `sounds/SOURCES.md`.
 - **Music**: generated with Suno, mastered by `tools/music-master.ts` (`music/SUNO-PROMPTS.md`).
 - **Terrain, building and tree textures**: CC0 scans (Poly Haven, ambientCG), see `textures/external/SOURCES.md`.
+- **Trees, grass clumps, tall grass and the flowering herb**: converted from Poly Haven models
+  (CC0): `tree_small_02`, `island_tree_02`, `grass_medium_01`, `shrub_03`. The sources are not in
+  the repository; `tools/gen/build_trees.sh` downloads and converts them.
 - **Sky**: `env/outdoor.hdr`, from the Bloom engine's Bistro example assets.
 
 Which provider terms the generated assets depend on, and what has to be confirmed before the game
