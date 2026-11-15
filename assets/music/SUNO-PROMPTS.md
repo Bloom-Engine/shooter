@@ -4,6 +4,40 @@ Six pieces. Everything the game needs, and nothing it doesn't.
 
 ---
 
+## Second set (2026-11-15): all seven, in the game
+
+Ralph regenerated every track from the prompts below, boss theme included. The raw renders
+are in `assets/music/src/` (untracked; the originals are his Suno downloads):
+
+| File | Suno title | Render | In the game |
+|---|---|---|---|
+| `music_calm` | Reloading in the Open | 197 s | 141.5 s loop (72 bars) |
+| `music_combat` | Relent Forward | 145 s | 111.1 s loop (56 bars) |
+| `music_menu` | The Void Menu | 85 s | 47.1 s loop (24 bars) |
+| `music_boss` | Xenomorph Overlord | 104 s | 68.5 s loop (40 bars) |
+| `sting_wave_clear` | A Breath Out | 43 s | 7.0 s, from 35.5 s (its ending) |
+| `sting_death` | The Final Fall | 42 s | 5.5 s, from 2.2 s (the hit) |
+| `sting_victory` | Hard-Won Dawn | 13 s | 11.5 s, nearly whole |
+
+What the numbers say, and what they cannot:
+
+- **Tempo:** calm 122.1, combat 121.0, boss 140.2 BPM. As asked.
+- **Key: NOT confirmed.** Over the whole track the estimate is A# minor for calm and A major
+  for combat. Taken in 20-second pieces both wander through the same set (A# minor, A major,
+  C# minor), so they may well share a tonal centre, but the tool cannot say so. **Listen to a
+  wave starting and ending**: if the two-second crossfade sounds like two songs colliding,
+  this is why, and the cure is the one in the note below.
+- **Level:** these average about 3 dB below the July set at the same peak (more dynamic
+  range). The bed volumes in `src/main.ts` were raised to match (`MUSIC_BED`, `MUSIC_BOSS`).
+- **The three stingers came back as pieces again** (43 s, 42 s, 13 s). The windows in
+  `tools/music-master.ts` were chosen from their level curves, not by ear: the wave-clear
+  sting is the piece's ending, faded in; the death sting starts at the hit and its tail is
+  a fade of ours, because the piece never decays.
+- Nobody has listened to the cut loops or stingers. `bun tools/music-loopcheck.ts` plays each
+  loop twice with the join in the middle.
+
+The July notes follow; they describe the first set, which this one replaced.
+
 ## ✅ What actually came back (2026-07-13) — read this before regenerating
 
 The six tracks are in. **They are mastered and in the game.** Raw Suno renders live
@@ -182,7 +216,7 @@ resolves. Save it for the one moment that deserves it.
 
 ---
 
-### 7. `music_boss.wav` — the Matriarch *(not made yet; plan Phase 5.5)*
+### 7. `music_boss.wav` — the Matriarch *(made 2026-11-15: "Xenomorph Overlord")*
 
 The game looks for `assets/music/music_boss.ogg` and, when it is there, fades the calm and
 combat beds out and this one in while the boss is alive (`MIX.bossBlend`, about a second and a
@@ -197,9 +231,8 @@ have to loop, and it should start hard: the fade-in lands on the boss's entrance
 > a shrieking high motif that returns every eight bars. 140 BPM, A-sharp minor, oppressive and
 > enormous, no vocals, no melody that resolves. Loopable, 2 to 3 minutes, no intro, no fade out.
 
-Then: put the render in `assets/music/src/music_boss.wav`, add it to the track tables in
-`tools/music-master.ts` and `tools/encode-music.ts` (loop window read off the waveform, like
-the other beds), run both. The game needs no change.
+It is in the bed table of `tools/music-master.ts`; `tools/encode-music.ts` encodes whatever
+that writes.
 
 Longer calm and combat beds (the plan also asks for those) are the same job as prompts 1 and 2
 with "4 to 5 minutes" in place of the length; remember the rule above, all three in one session.

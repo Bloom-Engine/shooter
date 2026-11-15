@@ -64,7 +64,8 @@ see SH-052) — runnable with
   order. Phases 0 (bugs and hygiene), 1 (the player on screen), 2 (combat), 3 (world art
   and lighting), 4 (UI and front end) and 6 (encounters, progression, objectives, onboarding,
   volume) landed 2026-11-14; each phase's header says what it left open. Phase 5 (audio and VFX
-  depth) landed 2026-11-15 after them, without new music and without anyone listening to it. Phase 7 (performance and production) is partly done: measured at
+  depth) landed 2026-11-15 after them, without anyone listening to it; its music (a new set of
+  all seven tracks, boss theme included) went in the same day. Phase 7 (performance and production) is partly done: measured at
   40-51 fps on the M1 Max, 60 not reached, see its table.
 
 ## Read before changing things
@@ -372,8 +373,9 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   (it can darken), unlit, and scaled by `VFX.setDaylight`; everything else is additive. The
   fireball is a 4 x 4 flipbook played by particle age (`cfg.w`). A point light lasts one
   frame: timed flashes live in `sfx.ts` and are re-added by `addFlashLights`. The music is two
-  beds mixed by a four-rung ladder (`MIX.updateMusicIntensity`); `music_boss.ogg` is optional
-  and does not exist yet (`assets/music/SUNO-PROMPTS.md` section 7).
+  beds mixed by a four-rung ladder (`MIX.updateMusicIntensity`), and `music_boss.ogg` replaces
+  both while the Matriarch lives. All seven tracks are the 2026-11-15 Suno set; whether calm
+  and combat share a key is not confirmed (`assets/music/SUNO-PROMPTS.md`, top).
 - Slice D (SH-061). There are EIGHT kinds: kind 7 (`K_BOSS`) is the Matriarch, one body, and
   every per-kind table anywhere must have eight entries (a seven-entry one crashes with a
   TypeError the moment she is alive). Her weak point is the brood-sac cluster on her back (a

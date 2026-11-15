@@ -290,7 +290,7 @@ coverage. Engine EN-059 (UTF-8 read as Latin-1) must close first.
 
 ---
 
-## Phase 5 - Audio and VFX depth - LANDED 2026-11-15 except the music (ticket SH-063)
+## Phase 5 - Audio and VFX depth - LANDED 2026-11-15 (ticket SH-063)
 
 **State.** Done after Phases 6 and 7, not before them. `docs/tickets.md` SH-063 has the record.
 **Nobody has listened to any of it.** The sounds were checked by length, level and spectrum,
@@ -312,7 +312,7 @@ because it hid the Trooper's head.
 | 5.2 Creatures | Voices of their own for the Spitter, the Bombard and the Matriarch. An idle murmur from creatures that have not noticed the player, an alert call from the one that has (one at a time). A sound and thrown earth when one comes up. A growl for an elite. The Matriarch's roar, slam and summon. Spit, lob and acid-landing sounds. Every vocal is low-passed when a wall stands between it and the camera (one ray per vocal). |
 | 5.3 Impacts | `SFX.impact` asks what a round hit (earth, wood, masonry, metal, water: from the terrain, the water volumes, the trees, the building footprint and each prop's model) and plays that material's two sounds and its particles. Three flesh sounds. |
 | 5.4 Ambience | The wind bed is back on (its spectrum is not white noise any more; kept low). Birds by day, insects at night, room tone indoors, mixed by the arena's sky and the enclosure. |
-| 5.5 Music | **Code only.** A four-rung intensity ladder on the two existing beds (calm, tense, combat, peak), fast up and slow down, a breath out of the music as a wave starts, and a slot for a boss bed. **No new music exists**: the beds are still under three minutes and there is no boss theme. The Suno prompt and the steps are in `assets/music/SUNO-PROMPTS.md` (section 7). |
+| 5.5 Music | **Code only.** A four-rung intensity ladder on the two existing beds (calm, tense, combat, peak), fast up and slow down, a breath out of the music as a wave starts, and a slot for a boss bed. **Music added the same day**: Ralph regenerated all seven tracks in Suno (calm loop 141 s, combat 111 s, menu 47 s, a 68 s boss theme, three stingers). Cut and levelled by the numbers, not by ear; whether calm and combat share a key is not confirmed (`assets/music/SUNO-PROMPTS.md`, top). |
 | 5.6 VFX | A sixteen-frame fireball flipbook (drawn by `tools/gen/vfx_flipbook.py`, played by particle age with frame blending). A light on every explosion and acid burst. Dark smoke that stays, embers, thrown earth and chips. An alpha-blended particle mode (dust, chips, clods, casings and dark smoke can now be darker than what is behind them), dimmed at night. Trails behind the player's and the creatures' projectiles. Spawn and slam effects. A real water splash in place of the ichor pool. |
 
 **Carried forward:**

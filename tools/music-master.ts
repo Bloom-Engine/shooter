@@ -55,9 +55,14 @@ interface BedSpec {
 }
 
 const BEDS: BedSpec[] = [
-  { name: 'music_calm',   bars: [32, 24, 16], skipHead: 8,  skipTail: 8 },
-  { name: 'music_combat', bars: [24, 16],     skipHead: 4,  skipTail: 6 },
+  // Longer candidates since 2026-11-15: the renders are 197 s and 145 s, and a
+  // 48-second combat loop comes round eight times in one arena.
+  { name: 'music_calm',   bars: [72, 64, 48, 32, 24, 16], skipHead: 8,  skipTail: 8 },
+  { name: 'music_combat', bars: [56, 48, 40, 32, 24, 16], skipHead: 4,  skipTail: 6 },
   { name: 'music_menu',   bars: [32, 24, 16], skipHead: 10, skipTail: 10 },
+  // The Matriarch's bed (2026-11-15). It replaces the other two while she lives, so its
+  // key is its own; asked for with no intro, so little is skipped at the head.
+  { name: 'music_boss',   bars: [40, 32, 24, 16], skipHead: 4, skipTail: 8 },
 ];
 
 interface StingSpec {
@@ -68,15 +73,26 @@ interface StingSpec {
   /// Fade the tail to silence over this long — a stinger that stops dead clicks,
   /// and one that stops *abruptly* sounds like a bug in the game.
   fadeOut: number;
+  /// Seconds to fade in over. Default 15 ms (only kills the edge click); longer
+  /// when the window starts inside sustained music and has to arrive as a swell.
+  fadeIn?: number;
 }
 
 const STINGS: StingSpec[] = [
-  // Already a stinger: hits at 0, swells, decays to silence by ~7 s. Just shorten it.
-  { name: 'sting_wave_clear', start: 0.05, len: 5.0, fadeOut: 1.6 },
-  // The collapse is right at the front; it decays through ~8 s.
-  { name: 'sting_death',      start: 0.45, len: 4.0, fadeOut: 1.4 },
-  // The swell does not LAND until ~0:29. Taking the first 4 s would ship an intro.
-  { name: 'sting_victory',    start: 28.0, len: 5.0, fadeOut: 1.8 },
+  // Windows for the 2026-11-15 renders ("A Breath Out", "The Final Fall", "Hard-Won
+  // Dawn"), read off their level curves. Suno again returned pieces, not stings:
+  // 43 s, 42 s and 13 s.
+  //
+  // 43 s at one level, and the only release in it is the ending: the last chord holds
+  // to ~39 s and rings out to silence by 42.5. Taken from 35.5 s and faded in, so it
+  // arrives as a swell and leaves by its own decay.
+  { name: 'sting_wave_clear', start: 35.5, len: 7.0, fadeOut: 2.0, fadeIn: 0.6 },
+  // Two seconds of near silence, then the hit at ~2.3 s. The piece never decays (it
+  // is cut off at 42 s still playing), so the tail is ours.
+  { name: 'sting_death',      start: 2.2,  len: 5.5, fadeOut: 2.6 },
+  // Rises over the first 3.5 s, holds, and decays by itself from 10.5 s. Kept nearly
+  // whole: it plays once, over the results screen, and the long tail is the point.
+  { name: 'sting_victory',    start: 1.5,  len: 11.5, fadeOut: 1.5, fadeIn: 0.25 },
 ];
 
 // ---- helpers ----------------------------------------------------------------
@@ -265,7 +281,7 @@ function masterSting(spec: StingSpec): void {
 
   const out = slice(w, start, frames);
 
-  const fadeIn = Math.round(0.015 * sr);            // 15 ms — kills the edge click, nothing more
+  const fadeIn = Math.round((spec.fadeIn ?? 0.015) * sr);   // 15 ms kills the edge click, nothing more
   const fadeOut = Math.round(spec.fadeOut * sr);
   for (let i = 0; i < frames; i++) {
     let g = 1;

@@ -347,6 +347,8 @@ const musicCalm = loadMusic('assets/music/music_calm.ogg');
 const musicCombat = loadMusic('assets/music/music_combat.ogg');
 // Plan 5.5: a bed for the boss, if there is one (assets/music/SUNO-PROMPTS.md has the prompt;
 // without the file the boss fight plays the combat bed at the top of the ladder).
+const MUSIC_BED = 0.5;
+const MUSIC_BOSS = 0.54;
 const HAS_BOSS_MUSIC = fileExists('assets/music/music_boss.ogg');
 const musicBoss = HAS_BOSS_MUSIC ? loadMusic('assets/music/music_boss.ogg') : musicCombat;
 // Decode verification on the boot log — a bed that failed to decode is a
@@ -356,8 +358,10 @@ console.log('[music] menu=' + (musicMenu as any).handle
           + ' calm=' + (musicCalm as any).handle
           + ' combat=' + (musicCombat as any).handle);
 
-setMusicVolume(musicMenu, 0.4);
-setMusicVolume(musicCalm, 0.35);
+// Levels for the 2026-11-15 renders, which average about 3 dB under the July ones at the
+// same peak (menu 2 dB): 0.35 became MUSIC_BED, 0.4 became 0.5.
+setMusicVolume(musicMenu, 0.5);
+setMusicVolume(musicCalm, MUSIC_BED);
 setMusicVolume(musicCombat, 0.0);
 playMusic(musicMenu);
 
@@ -384,9 +388,9 @@ function applyMusicCrossfade(): void {
   // Equal-power, not linear: two linear fades sum to a ~3 dB dip in the middle,
   // which is audible as the music briefly ducking every time a wave starts.
   const b = HAS_BOSS_MUSIC ? MIX.bossBlend() : 0;
-  setMusicVolume(musicCalm, Math.cos(i * Math.PI * 0.5) * 0.35 * (1 - b));
-  setMusicVolume(musicCombat, Math.sin(i * Math.PI * 0.5) * 0.35 * (1 - b));
-  if (HAS_BOSS_MUSIC) setMusicVolume(musicBoss, 0.38 * b);
+  setMusicVolume(musicCalm, Math.cos(i * Math.PI * 0.5) * MUSIC_BED * (1 - b));
+  setMusicVolume(musicCombat, Math.sin(i * Math.PI * 0.5) * MUSIC_BED * (1 - b));
+  if (HAS_BOSS_MUSIC) setMusicVolume(musicBoss, MUSIC_BOSS * b);
 }
 
 bootStage(BOOT_WORLD);
