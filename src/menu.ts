@@ -21,7 +21,7 @@
 import {
   isKeyPressed, Key, loadTexture, fileExists, drawRect,
   isMouseButtonPressed, isMouseButtonDown, getMouseX, getMouseY, getMouseWheel,
-  isGamepadAvailable, isGamepadButtonPressed, getGamepadAxis,
+  isGamepadAvailable, isGamepadButtonPressed, getGamepadAxis, isTV,
 } from 'bloom';
 import { drawTextureProRaw } from 'bloom/textures';
 import { setLocalLightShadows } from 'bloom/scene';
@@ -234,10 +234,13 @@ function rebuildVis(): void {
 // ---- row lists of the plain menus -----------------------------------------------------------
 const PAUSE_LABELS = [STR.S_RESUME, STR.S_SETTINGS, STR.S_LEVEL_SELECT, STR.S_RESTART_RUN,
                       STR.S_MAIN_MENU, STR.S_QUIT];
-const PAUSE_COUNT = 6;
+// iOS, tvOS and Android apps do not quit themselves (the system closes them; Apple's review
+// guidelines say so outright), so QUIT, the last row of both lists, is left off there.
+const HAS_QUIT = !MOBILE && !isTV();
+const PAUSE_COUNT = HAS_QUIT ? 6 : 5;
 const MAIN_LABELS = [STR.S_PLAY, STR.S_LEVEL_SELECT, STR.S_SETTINGS, STR.S_ARMORY, STR.S_RECORD,
                      STR.S_CREDITS, STR.S_QUIT];
-const MAIN_COUNT = 7;
+const MAIN_COUNT = HAS_QUIT ? 7 : 6;
 // Results rows are built per run (NEXT ARENA only after a win with an arena left that the
 // player's stars have opened).
 const RES_ROWS = [0, 0, 0, 0, 0];  // what each row does: 1 again, 2 next arena, 3 arenas, 4 title, 5 armoury
