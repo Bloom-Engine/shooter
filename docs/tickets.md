@@ -2187,7 +2187,7 @@ before), no runtime error in either log. Fight frame rate 36.0 fps (36.3 before)
 - The ambience mix indoors, and the boss bed slot, have no test.
 
 
-## SH-064 — Lamps that cast shadows on the house and the ground ✅ *(2026-11-15, branch feat/local-light-shadows; needs engine EN-066; judged from stills, not played)*
+## SH-064 — Lamps that cast shadows on the house and the ground ✅ *(2026-11-15, branch feat/local-light-shadows; needs engine EN-068; judged from stills, not played)*
 
 The work lights and the house's lamps (the world file's `lights`) lit walls, floors and the
 terrain with no shadow: nothing in front of a lamp threw one, and a lamp lit the next room
@@ -2195,7 +2195,7 @@ through the wall. Both came from the same place: the house and the terrain are d
 game's own shaders, which loop over the engine's point lights and had nothing to sample.
 
 **What changed.** The world's lamps are submitted with `addPointLightWithShadow` (engine
-EN-066) and `building.wgsl` and `terrain.wgsl` multiply each light by
+EN-068) and `building.wgsl` and `terrain.wgsl` multiply each light by
 `local_light_shadow(i, position, normal)` from the new include `common/local_shadows.wgsl`.
 The engine keeps a shadow cube (six depth maps, 512 texels a side) for up to four lamps,
 those nearest the camera and in view. Everything that casts a sun shadow casts a lamp shadow:

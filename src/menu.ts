@@ -402,7 +402,7 @@ function applyLive(idx: number): void {
   if (isPresetRow(idx)) applyLampShadows();
 }
 
-/// Lamps that cast shadows on the house and the ground (engine EN-066). The four work lights
+/// Lamps that cast shadows on the house and the ground (engine EN-068). The four work lights
 /// nearest the camera get a shadow cube. Desktop only (the engine refuses elsewhere), only with
 /// the sun's shadows on (it reuses their caster lists), and not on the two lowest presets,
 /// which are for machines with no frame time to spare.

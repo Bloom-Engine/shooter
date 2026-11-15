@@ -337,7 +337,7 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   2.5 m a side, and "in the river" is asked of the terrain height. Custom material shaders
   light themselves, so a point light only reaches the house and the ground because
   `building.wgsl` and `terrain.wgsl` loop over `view.point_lights`. The world's lamps cast
-  shadows there since SH-064 (engine EN-066): they are submitted with
+  shadows there since SH-064 (engine EN-068): they are submitted with
   `addPointLightWithShadow`, the four nearest the camera get a shadow cube, and the two
   shaders multiply each light by `local_light_shadow(i, pos, normal)`. Desktop only, with the
   sun's shadows on, on the high and ultra presets and custom (`menu.ts` `applyLampShadows`);
