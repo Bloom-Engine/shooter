@@ -2251,4 +2251,21 @@ metre in front of them). No acne and no detached shadows in any capture looked a
   used to write them into the player's file.
 - **`--harness fpsprobe` exits** after its one line. `tools/.testout/` exists in a fresh clone
   (perftest and menutest write there and nothing created it).
+- **Pickups are drawn near the camera only** (`PICKUP_WEAPON_FAR2`, `PICKUP_CRATE_FAR2` in
+  `combat.ts`: the weapon inside 45 m, the crate inside 80 m, the glow card always). A pickup
+  is a 24,000-triangle crate under a turning 30,000 to 40,000-triangle weapon, redrawn into
+  every shadow map each frame. Not timed: the saving is below what two runs can tell apart.
+- **Plaza house lamps** raised a little after lamp shadows (`light_house_g1` 2.4 to 2.6,
+  `g2` 2.2 to 2.4, `f1` 2.0 to 2.8 and warmer). With shadows the ground floor measured 5%
+  darker and the first floor 14% darker and greyer, because the ground-floor lamps used to light
+  the first floor's ceiling through the slab. The raise moved the captures by about 2%: the
+  exposure adapts, so what is left is the tone of the first floor, and that is the correct one.
+- **Creature pools NOT raised**, on two measurements. `--harness crowdshot` (84 extra
+  creatures in view) runs at 8 to 10 fps against 57 without them, so a creature in view costs
+  about a millisecond, and four more alive at once would take a fight from 57 to about 45 fps.
+  And `--harness crowdshot --crowd 42` crashes the engine with global illumination on its
+  hardware-ray path: the buffer of traced vertices passes 128 MB and
+  `renderer/pt_dynamic_skin.rs` binds it whole (`pt_skin_bg`, "exceeds
+  max_*_buffer_binding_size"). The pool of 31 stays under it. Both have to be dealt with in
+  the engine before `KIND_POOL` / `MAX_CONCURRENT` go up.
 

@@ -83,6 +83,10 @@ const BLASTER_PROJ_LIFE = 2.5;
 const BLASTER_PROJ_GRAVITY = 9.0;   // m/s^2 — lighter than world gravity for a softer arc
 
 const MUZZLE_FLASH_DUR = 0.08;
+// Squared distances (camera to pickup, on the ground plane) inside which a pickup's weapon
+// and its crate are drawn: 45 m and 80 m. See the pickup loop in the draw function.
+const PICKUP_WEAPON_FAR2 = 45 * 45;
+const PICKUP_CRATE_FAR2 = 80 * 80;
 // SH-027 — the weapon's world transform for this frame. Computed once and used
 // by the draw, the muzzle flash, the tracer AND the shot ray, so what you see
 // is what you hit.
@@ -949,7 +953,12 @@ export function drawCombatWorld(): void {
     const isRifleKind = pickupKind[i] === PICKUP_RIFLE;
     const wM = isRifleKind ? WPN.W_RIFLE : WPN.W_BLASTER;
     const bob = pickupY[i] + 0.12 + Math.sin(tNow * 2.0 + i) * 0.06;
-    if (DEPS.o.hasCrate === 1) {
+    // The crate is 24,000 triangles and the weapon 30,000 to 40,000, and a turning model is
+    // redrawn into every shadow map each frame. Across the arena the glow card is all that can
+    // be seen of a pickup, so the models are only drawn near the camera (SH-066).
+    const pdx = pickupX[i] - DEPS.o.CAM[2], pdz = pickupZ[i] - DEPS.o.CAM[4];
+    const pd2 = pdx * pdx + pdz * pdz;
+    if (DEPS.o.hasCrate === 1 && pd2 < PICKUP_CRATE_FAR2) {
       drawModelRotated(DEPS.o.mdlCrate, vec3(pickupX[i], pickupY[i] - 0.85, pickupZ[i]),
                        0.55, (i * 37) % 360, WHITE);
     }
@@ -968,7 +977,7 @@ export function drawCombatWorld(): void {
       fwx * sc, fwy * sc, fwz * sc, 0,
       pickupX[i] - fwx * half, bob - fwy * half, pickupZ[i] - fwz * half, 1,
     ];
-    drawModelTransform(DEPS.o.mdlWeapons[wM], m16, WHITE);
+    if (pd2 < PICKUP_WEAPON_FAR2) drawModelTransform(DEPS.o.mdlWeapons[wM], m16, WHITE);
     // A soft glow so it reads across the arena - the ADDITIVE card, which composites after
     // the path tracer and never touches the G-buffer (an alpha sphere there drew as a black
     // ball in the PT modes).
@@ -983,7 +992,8 @@ export function drawCombatWorld(): void {
   for (let i = 0; i < MAX_HEALS; i++) {
     if (hpLife[i] <= 0) continue;
     if (hpLife[i] < 5 && Math.floor(hpLife[i] * 5) % 2 === 0) continue;
-    if (DEPS.o.hasCrate === 1) {
+    const hdx = hpX[i] - DEPS.o.CAM[2], hdz = hpZ[i] - DEPS.o.CAM[4];
+    if (DEPS.o.hasCrate === 1 && hdx * hdx + hdz * hdz < PICKUP_CRATE_FAR2) {
       drawModelRotated(DEPS.o.mdlCrate, vec3(hpX[i], hpY[i], hpZ[i]), 0.34, (i * 53) % 360,
                        { r: 120, g: 255, b: 150, a: 255 });
     }
