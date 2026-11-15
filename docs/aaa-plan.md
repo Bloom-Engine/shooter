@@ -463,7 +463,7 @@ find are all loaded by constructed names.
 
 ---
 
-## The engine pass of 2026-11-15 (engine ticket EN-065, engine branch `local/phone`, commits `5ec4a3f` and `0e793d5`, not pushed)
+## The engine pass of 2026-11-15 (engine ticket EN-065; on the engine's `main` since pull request #223, merge `96d4d87`)
 
 Ralph asked for the engine items this plan called blocked. What it changed for the game:
 

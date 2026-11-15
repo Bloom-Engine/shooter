@@ -378,7 +378,7 @@ What the code expects of a model (all measured tables live in `src/enemies.ts`, 
   both while the Matriarch lives. All seven tracks are the 2026-11-15 Suno set; whether calm
   and combat share a key is not confirmed (`assets/music/SUNO-PROMPTS.md`, top).
 - Engine pass rules (2026-11-15, engine EN-065; the engine checkout is `../engine` on
-  `local/phone`, and its commits there are not pushed). The game binary needs that engine:
+  `local/phone`; the same work is on the engine's `main` since its pull request #223). The game binary needs that engine:
   after pulling the shooter alone, `activateRagdoll` and friends still link, but the frame
   rates in the plan do not hold. Frame rate is measured with `./main --harness fpsprobe`
   (uncapped; add `--render-scale` / `--output-scale` 0.5, 0.75 or 1, no other values are
