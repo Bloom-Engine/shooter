@@ -81,9 +81,9 @@ export function resetShoulder(): void {
 // these numbers ("CANOPY y0 / y1 / r") for each model.
 // 2026-11-15: the converted Poly Haven trees of tools/blender/tree_from_scan.py (an upright
 // broadleaf, a low many-stemmed one, the broadleaf again taller); it prints the same line.
-const CANOPY_Y0 = [3.70, 3.47, 3.61];   // leaves start
+const CANOPY_Y0 = [3.99, 3.97, 4.38];   // leaves start
 const CANOPY_Y1 = [8.90, 6.35, 10.56];  // ...and end
-const CANOPY_R  = [4.77, 4.25, 5.91];   // leaf horizontal extent (97th percentile of the cards)
+const CANOPY_R  = [4.77, 4.21, 5.91];   // leaf horizontal extent (97th percentile of the cards)
 // How much of that measured radius actually counts as "in the way".
 //
 // This started at 0.70, on the theory that the bounds reach the outermost leaf

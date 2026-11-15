@@ -190,7 +190,7 @@ FAM = {"side": basis(rh + UPZ * -0.18), "under": basis(-UPZ + rh * 0.30),
 N_SIDE = 11                                       # of the 16 pictures; the rest are from underneath
 # No leaves at head height: a spray hanging lower than LEAF_FLOOR (game metres above the trunk's
 # foot) puts the orbit camera, and a walking player's view, inside foliage.
-LEAF_FLOOR = opt("--leaf-floor", 2.9)
+LEAF_FLOOR = opt("--leaf-floor", 3.4)
 # (measured to the card's lower edge, from where the model's origin will be)
 keep &= (c_cell[:, 2] - z0 - 0.02 - opt("--sink", 0.0) - CARD * 0.62) * SCALE > LEAF_FLOOR
 print("CELLS size %.3f m  cells %d  kept %d" % (size, nc, keep.sum()))
