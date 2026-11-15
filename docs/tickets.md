@@ -2332,3 +2332,15 @@ the bole's colour and normal maps at 4K (`fetch_polyhaven.py --trunk-4k`), 6,000
 triangles, a warm tint, a darker foot, the many-stemmed tree sunk 0.45 m so its scanned ground
 slab is under the terrain, and a ring of tall grass round every foot. The three models are 42
 to 47 MB each now (were 25 to 29).
+
+**Second round, same day.** What still gave the picture away, and what changed:
+- **The Trooper, creatures, weapons, props and rocks were pale clay figures outdoors** for the
+  same reason as the bark. `tools/gen/sky_occlusion.py` writes a flat occlusion map into a GLB
+  (0.40 on characters and weapons, 0.50 on props and rocks). Re-run it on any new model.
+- **Fern, bush and twiggy weed are scans now** (Poly Haven `fern_02`, `shrub_04`, `shrub_02`);
+  only the reed, the daisy and the big-leaf weed mesh are still generated pictures.
+- **Beyond the arena** the ground was a bright flat lawn with dark cut-out trees: it is dark
+  wooded ground from the arena's edge now, and the far tree card is a side view of the real
+  source tree in its own colours.
+- **River foam** 0.50 / 0.55 to 0.20 / 0.18: a white band of paint round every bank.
+- The engine checkout was merged up to the engine's `main` the same day.

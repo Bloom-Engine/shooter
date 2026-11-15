@@ -241,7 +241,9 @@ Unvanquished-derived GLBs and their converters were removed from the tree on 202
    crown. It prints the CANOPY numbers for `src/camera.ts` and TRUNK r for `TREE_TRUNK_R` in
    `src/main.ts`. `tools/blender/plant_card.py` photographs a scanned plant onto one card
    (`flora_grass`, `flora_tallgrass`, `flora_herb`). The sources live in `tools/.cache/polyhaven`
-   (git-ignored; `tools/gen/fetch_polyhaven.py`). The older grown trees
+   (git-ignored; `tools/gen/fetch_polyhaven.py`). **Every model the engine's own shader draws needs
+   `tools/gen/sky_occlusion.py <value> <model.glb>`** (0.40 characters and weapons, 0.50 props and rocks): without that flat
+   occlusion map the sky's reflection turns a dark material pale grey outdoors. The older grown trees
    (`tools/blender/build_tree.py`) and the generated leaf pictures are no longer used by the game.
 6. **Surfaces**: terrain and building layers are the Poly Haven 2K scans at full resolution
    (`tools/build-terrain-textures.ts`, `build-building-textures.ts`). Smoke, dust, muzzle flash and

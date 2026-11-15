@@ -21,6 +21,7 @@ src, dst = os.path.abspath(a[0]), os.path.abspath(a[1])
 opt = lambda k, d: type(d)(a[a.index(k) + 1]) if k in a else d
 picks = opt("--pick", "").split(",")
 SIZE, GAIN, GAP = opt("--size", 1024), opt("--gain", 1.0), opt("--gap", 0.02)
+AO_DIST, AO_MIN = opt("--ao", 0.04), opt("--ao-min", 0.45)   # a whole tree wants metres and a deeper floor
 ALPHA = opt("--alpha", "")     # Poly Haven's glTF packages leave the cut-out map out; it is a separate download
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -75,8 +76,8 @@ for o in chosen:
         nt = m.node_tree; nt.nodes.clear()
         out = nt.nodes.new("ShaderNodeOutputMaterial")
         t = nt.nodes.new("ShaderNodeTexImage"); t.image = img
-        ao = nt.nodes.new("ShaderNodeAmbientOcclusion"); ao.inputs["Distance"].default_value = 0.04; ao.samples = 8
-        rng = nt.nodes.new("ShaderNodeMapRange"); rng.inputs["To Min"].default_value = 0.45
+        ao = nt.nodes.new("ShaderNodeAmbientOcclusion"); ao.inputs["Distance"].default_value = AO_DIST; ao.samples = 8
+        rng = nt.nodes.new("ShaderNodeMapRange"); rng.inputs["To Min"].default_value = AO_MIN
         nt.links.new(ao.outputs["AO"], rng.inputs["Value"])
         mul = nt.nodes.new("ShaderNodeVectorMath"); mul.operation = "SCALE"
         nt.links.new(t.outputs["Color"], mul.inputs[0]); nt.links.new(rng.outputs[0], mul.inputs["Scale"])

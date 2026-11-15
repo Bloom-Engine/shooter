@@ -171,7 +171,9 @@ export function initEnvironment(): void {
     // in the shallows and the surface still darkens toward mid-channel.
     1.30, 0.55, 0.42,   0.0,    // absorption per metre
     0.035, 0.085, 0.080, 0.0,   // deep_tint
-    0.50, 0.55,         0.6,   0.26,    // crest foam / shore foam / sky_lod / micro_strength
+    // 2026-11-15: foam 0.50 / 0.55 -> 0.20 / 0.18. Under the stronger sun the shore foam was a
+    // broad white band of paint round every bank and stone on a slow lowland river.
+    0.20, 0.18,         0.6,   0.26,    // crest foam / shore foam / sky_lod / micro_strength
   ];
   if (matWater > 0) setMaterialParams(matWater, WATER_PARAMS);
   

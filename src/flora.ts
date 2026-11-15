@@ -37,10 +37,9 @@ const SLICE_GRASS = 6;
 const SLICE_TALLGRASS = 7;
 const SLICE_HERB = 8;
 const KINDS = 9;
-// The fern, shrub and weed pictures are generated images, brighter and more saturated than the
-// scanned plants now standing beside them (mean leaf 85 / 109 / 23 against 77 / 84 / 35):
-// their instance tints are scaled by this.
-const GEN_R = 0.80, GEN_G = 0.70, GEN_B = 0.86;
+// The fern, shrub and weed pictures were generated images at first, brighter and more saturated
+// than the scanned plants beside them, and their instance tints were scaled down by this.
+const GEN_R = 0.92, GEN_G = 0.96, GEN_B = 0.86;   // 2026-11-15 later: these three are scans now too; a slight green lift only
 
 /// What the frame loop draws. Written once in initFlora(). Plain module-level arrays, written by
 /// index: an array inside an `any` object is not something Perry is trusted with across modules.
@@ -142,7 +141,7 @@ function buildFern(): any {
 /// A shrub: branch cards growing up and out of a knot of stems.
 function buildShrub(): any {
   mvReset();
-  const CARDS = 18;
+  const CARDS = 24;
   let ts = 0x51ab3 | 0;
   for (let c = 0; c < CARDS; c++) {
     ts = (ts * 16807) % 2147483647; const q1 = ts / 0x7fffffff;
@@ -152,8 +151,10 @@ function buildShrub(): any {
     const el = 0.55 + q2 * 0.85;                       // radians above the horizontal
     const dx = Math.cos(az) * Math.cos(el), dy = Math.sin(el), dz = Math.sin(az) * Math.cos(el);
     const wx = -Math.sin(az), wz = Math.cos(az);       // card width axis, horizontal
-    const size = 0.42 + q3 * 0.22;      // a card is one branch tip: leaves come out about 6 cm
-    const hw = size * 0.5;
+    // A card is a row of four scanned sprigs (Poly Haven shrub_04, 0.60 x 0.23 m), drawn about
+    // twice life size: 2.66 times as wide as it is tall.
+    const size = 0.40 + q3 * 0.20;
+    const hw = size * 1.33;
     const rx = Math.cos(az) * 0.30 * q3, ry = 0.05 + q1 * 0.55, rz = Math.sin(az) * 0.30 * q3;
     const b = MS[0];
     const nx = Math.cos(az) * 0.5, nz = Math.sin(az) * 0.5;
@@ -301,12 +302,15 @@ export function initFlora(): void {
   setMaterialTextureArray(matFar, TEXTURE_ARRAY_ALBEDO, tex);
   // tint rgb, transmission; alpha cutoff, wind scale, (unused), self-shadow depth
   setMaterialParams(matNear, [0.86, 0.90, 0.80, 0.30,   0.42, 1.0, 0.0, 0.45]);
-  setMaterialParams(matFar,  [0.60, 0.68, 0.54, 0.06,   0.40, 0.0, 0.0, 0.72]);
+  // (The far card is a side view of the real tree's source model since 2026-11-15: its own
+  // colours, so the tint is near neutral.)
+  setMaterialParams(matFar,  [0.80, 0.84, 0.74, 0.06,   0.40, 0.0, 0.0, 0.55]);
   // The small plants are sub-pixel in the 512 px water probe; the far tree line is what the
   // river should mirror, so that one stays in.
   setMaterialProbeVisible(matNear, false);
 
-  FL_MESH[SLICE_FERN] = buildFern();
+  // A scanned fern seen from the side (Poly Haven fern_02, 1.02 x 0.44 m), three planes.
+  FL_MESH[SLICE_FERN] = buildFan(SLICE_FERN, 3, 1.25, 0.55, 0.16, 0);
   FL_MESH[SLICE_SHRUB] = buildShrub();
   FL_MESH[SLICE_REED] = buildFan(SLICE_REED, 3, 1.05, 1.30, 0.10, 0);
   FL_MESH[SLICE_FLOWER] = buildFan(SLICE_FLOWER, 3, 0.55, 0.55, 0.05, 0);
@@ -349,7 +353,7 @@ export function initFlora(): void {
     const d = nearestTree(x, z);
     if (d < 1.4) continue;
     const g = 0.78 + rnd() * 0.30;
-    scAdd(x, y - 0.03, z, 0.9 + rnd() * 0.9, g * GEN_R, (g + 0.03) * GEN_G, (g - 0.08) * GEN_B);
+    scAdd(x, y - 0.03, z, 1.0 + rnd() * 0.9, g * 0.66, (g + 0.03) * 0.86, (g - 0.08) * 0.56);   // the scan is a pale sage
   }
   scUpload(SLICE_SHRUB);
 
@@ -474,9 +478,9 @@ export function initFlora(): void {
   for (let t = 0; t < farMax * 12 && SCN[0] < farMax; t++) {
     const x = -134 + rnd() * 268, z = -134 + rnd() * 268;
     const edge = Math.max(Math.abs(x), Math.abs(z));
-    if (edge < 50) continue;        // closer than this a card is seen for what it is
+    if (edge < 44) continue;        // closer than this a card is seen for what it is
     const copse = patchNoise(x * 0.035 + 9.1, z * 0.035 + 3.3) * 0.7 + patchNoise(x * 0.11, z * 0.11) * 0.3;
-    const near = 1 - Math.min(1, (edge - 50) / 60);                 // denser close in
+    const near = 1 - Math.min(1, (edge - 44) / 60);                 // denser close in
     if (copse < 0.60 - near * 0.22) continue;
     const h = 7.5 + rnd() * 6.5;
     const g = 0.62 + rnd() * 0.30;

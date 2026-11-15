@@ -251,15 +251,21 @@ fn fs_main(in: VsOut) -> OpaqueOut {
   // Far field: beyond the scattered grass the bare scan has to stand in for a meadow, so the
   // two grass layers lean toward the blades' own green with distance.
   let meadow_far = smoothstep(18.0, 60.0, distance(view.camera_pos.xyz, p)) * (w_lush + w_dry);
-  albedo = mix(albedo, albedo * vec3<f32>(0.80, 1.00, 0.56) + vec3<f32>(0.0, 0.02, 0.0), meadow_far);
+  // (2026-11-15: was 0.80 / 1.00 / 0.56 plus a green lift, a bright lawn once the near grass
+  // had a real albedo.)
+  albedo = mix(albedo, albedo * vec3<f32>(0.70, 0.84, 0.50), meadow_far);
 
   // The skirt beyond the arena (plan 3.2) was the arena's lawn continued to the horizon. Out
   // there the ground is wooded hillside: darker, less yellow, patchy at the scale of copses, so
   // the tree line that stands on it (the far-forest cards) has something to grow out of.
   let out_d  = max(abs(p.x), abs(p.z));
-  let wooded = smoothstep(44.0, 62.0, out_d);
+  // 2026-11-15: starts at the arena's edge (the 40 to 60 m strip was the brightest thing in
+  // every view) and goes much darker: it is ground under trees, seen from a distance.
+  let wooded = smoothstep(38.0, 50.0, out_d);
   let copse  = fbm2(p.xz * 0.035 + vec2<f32>(9.1, 3.3));
-  albedo = mix(albedo, albedo * mix(vec3<f32>(0.42, 0.58, 0.40), vec3<f32>(0.70, 0.80, 0.52), copse), wooded);
+  let patchy = fbm2(p.xz * 0.21 + vec2<f32>(2.7, 8.4));
+  albedo = mix(albedo, albedo * mix(vec3<f32>(0.24, 0.33, 0.22), vec3<f32>(0.46, 0.54, 0.32), copse)
+                              * (0.72 + 0.56 * patchy), wooded);
 
   // Wet ground is darker and more saturated (water fills the pores that scatter light).
   albedo = albedo * mix(1.0, 0.52, wet);
@@ -272,7 +278,7 @@ fn fs_main(in: VsOut) -> OpaqueOut {
 
   // Height tint — pale, sun-bleached ridges.
   let ridge_t = smoothstep(0.0, max(tp.knobs.z, 0.001), p.y);
-  albedo = albedo + vec3<f32>(0.10, 0.09, 0.06) * ridge_t * tp.knobs.w;
+  albedo = albedo + vec3<f32>(0.10, 0.09, 0.06) * ridge_t * tp.knobs.w * (1.0 - wooded);
 
   // ---- normal -------------------------------------------------------------
   // Blend the dominant layer's normal (blending four normal maps by weight
