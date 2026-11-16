@@ -188,9 +188,26 @@ the view moves, and the phone has no headroom to absorb the stall.
 - `npm` may not be on the PowerShell PATH — run the tools directly
   with `bun` (e.g. `bun tools/build-terrain.ts`) and compile with
   `perry` as below.
-- Set `$env:PERRY_LLVM_INPROCESS = "0"` first (perry-quirks #6), then
+- Perry (2026-11-16): `main`, built from a worktree at `..\..\perry-main-latest` with
+  `cargo build --release -p perry -p perry-runtime-static -p perry-stdlib-static`; the
+  `~/.cargo/bin/perry.cmd` shim points at its `target\release\perry.exe`. That build needs
+  `LLVM_SYS_221_PREFIX=C:\llvm-md` (LLVM 22, /MD) and, for the vendored OpenSSL, a Perl
+  with `Locale::Maketext::Simple`: Git Bash's is not one, so set
+  `OPENSSL_SRC_PERL=C:\Users\Ralph\tools\strawberry\perl\bin\perl.exe`. Then
+  `scripts/gc_call_effects/sidecars.sh target/release` (with `C:\llvm-md\bin` on PATH):
+  a perry run from its workspace refuses to compile without that sidecar. Two local
+  patches are needed on Windows until PerryTS/perry#14796 lands (branch
+  `fix/windows-build-and-coff-gc-effects` in that worktree):
+  `perry-runtime/src/snap_image.rs` (a Unix-only `OsStrExt`), and `perry-gc-effects`
+  naming COFF sections by index (without it the sidecar step ran for hours and past
+  14 GB; with it, 11 s).
+- Set `$env:PERRY_LLVM_INPROCESS = "0"` (perry-quirks #6) and
+  `$env:PERRY_RUNTIME_DIR = "C:\Users\Ralph\projects\perry-main-latest\target\release"`
+  (the link step only searches target-triple folders), then
   compile with `perry compile src/main.ts -o main --debug-symbols` so
   `main.pdb` lands next to the exe — crash reports then symbolize.
+- `tools/check.sh` runs under Git Bash; it calls `python3`, which on this box is the
+  Microsoft Store stub, so put a `python3` that runs `python` first on PATH.
 - Engine rebuild:
   `cargo build --release --manifest-path ..\engine\native\windows\Cargo.toml`
   with `INTERPROCEDURAL_OPTIMIZATION=OFF` in the environment. After an

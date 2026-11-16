@@ -346,7 +346,7 @@ def main():
     out.append('  if (k < 0) return s;')
     out.append('  return s.substring(0, k) + a + s.substring(k + 3);')
     out.append('}')
-    open(os.path.join(root, 'src', 'strings.ts'), 'w').write('\n'.join(out) + '\n')
+    open(os.path.join(root, 'src', 'strings.ts'), 'w', encoding='utf-8').write('\n'.join(out) + '\n')
     print('strings: %d ids x %d languages' % (len(TABLE), len(LANGS)))
 
 

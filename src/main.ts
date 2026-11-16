@@ -31,7 +31,7 @@ import {
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setVolumetricFog, setVolumetricFogLight,
   setCloudShadows, setTonemap, setColorSaturation, setDepthOfField, setMotionBlurEnabled,
-  setAutoResolution, getPhysicalWidth, getPhysicalHeight,
+  setAutoResolution, getPhysicalWidth, getPhysicalHeight, setOutputScale,
   setTaaEnabled, setRenderScale, setCasStrength,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
@@ -258,6 +258,15 @@ const cliPerfSpin = cliArg('--spin') === '1';
 // `const X = false` and a source edit; tools/check.sh drives them now. A harness run never
 // banks a score or a profile (see `DIR.bank` below).
 const HARNESS = cliArg('--harness');
+// First-run output calibration (desktop). The 75% default above is chosen from the panel's size
+// alone; on an integrated GPU driving a 4K panel (a Radeon 760M) that is still 25 fps on the
+// title screen, against 36 at 50%. So a first run times the title screen once it has settled and,
+// if it is well under 60, steps the output scale down and saves it. Never under a harness, never
+// over a command-line scale, and only on the title screen: leaving it cancels the measurement.
+// The settings row still says what was chosen and puts it back.
+const CAL_FROM = 240, CAL_TO = 480;
+let calT0 = 0;
+let calDone = !FIRST_RUN || MOBILE || WEB || HARNESS !== '' || cliArg('--output-scale') !== '';
 const cliAudioTest = cliArg('--audiotest');
 const AUDIOTEST = cliAudioTest === 'orbit' || cliAudioTest === 'flyby' || cliAudioTest === 'river';
 const audioTestMode = cliAudioTest === 'orbit' ? 1 : (cliAudioTest === 'flyby' ? 2 : 0);
@@ -2592,6 +2601,25 @@ function gameFrame(_hostDt: number): void {
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
+  if (!calDone) {
+    if (GS.gameState !== 0) calDone = true;
+    else if (testFrame === CAL_FROM) calT0 = getTime();
+    else if (testFrame === CAL_TO) {
+      calDone = true;
+      const fps = (CAL_TO - CAL_FROM) / (getTime() - calT0);
+      const cur = SET.get(SET.SET_OUTPUT_SCALE);
+      let next = cur;
+      if (fps < 30) next = 0.5;
+      else if (fps < 48) next = cur - 0.15 < 0.5 ? 0.5 : cur - 0.15;
+      if (next < cur) {
+        SET.set(SET.SET_OUTPUT_SCALE, next);
+        setOutputScale(next);
+        SET.saveSettings();
+      }
+      console.log('[calibrate] title ' + fps.toFixed(1) + ' fps at output ' + cur.toFixed(2)
+        + ' -> ' + next.toFixed(2));
+    }
+  }
   // The LIT FOG settings row (see applyFogMedium).
   vfogFrame = testFrame;
   if (vfogWanted() !== vfogLive) applyFogMedium(!vfogLive);
