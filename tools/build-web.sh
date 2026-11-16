@@ -78,7 +78,9 @@ JOLT_CACHE="$SHOOTER_DIR/tools/web/jolt-physics.mjs"
 if [ ! -f "$JOLT_CACHE" ]; then
   mkdir -p "$SHOOTER_DIR/tools/web"
   echo "  fetching JoltPhysics.js (one-time)..."
-  curl -fsSL "https://cdn.jsdelivr.net/npm/jolt-physics@1.0.0/+esm" -o "$JOLT_CACHE" \
+  # Retried: the CDN builds this bundle on demand and answers 503 while it does.
+  curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors \
+    "https://cdn.jsdelivr.net/npm/jolt-physics@1.0.0/+esm" -o "$JOLT_CACHE" \
     || echo "  (download failed — the page will fall back to the CDN at runtime)"
 fi
 [ -f "$JOLT_CACHE" ] && cp "$JOLT_CACHE" "$OUT/jolt-physics.mjs"
