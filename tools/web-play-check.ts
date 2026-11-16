@@ -4,9 +4,12 @@
 import puppeteer from 'puppeteer-core';
 const { existsSync, mkdirSync } = await import('node:fs');
 const exe = [
+  process.env.BLOOM_BROWSER ?? '',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/usr/bin/google-chrome',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-].find((p) => existsSync(p))!;
+].find((p) => p !== '' && existsSync(p))!;
 mkdirSync('tools/.testout', { recursive: true });
 const killer = setTimeout(() => { console.error('TIMEOUT'); process.exit(3); }, 300000);
 const browser = await puppeteer.launch({
@@ -21,7 +24,9 @@ page.on('console', (m) => {
   const t = m.text();
   if (t.startsWith('[jolt]') || (m.type() === 'error' && !t.includes('favicon'))) console.log('[console]', t.slice(0, 900));
 });
-await page.goto('http://localhost:8080/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+const urlAt = process.argv.indexOf('--url');
+const URL = urlAt >= 0 ? process.argv[urlAt + 1] : 'http://localhost:8080/';
+await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
 await page.waitForSelector('#loading', { hidden: true, timeout: 240000 });
 console.log('booted; menu up');
 await new Promise((r) => setTimeout(r, 2000));

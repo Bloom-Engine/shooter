@@ -22,12 +22,17 @@ const URL = flag('--url', 'http://localhost:8080/');
 const TIMEOUT_S = parseInt(flag('--timeout', '180'), 10);
 
 const EDGE_PATHS = [
+  process.env.BLOOM_BROWSER ?? '',
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
 ];
 const { existsSync, mkdirSync } = await import('node:fs');
-const exe = EDGE_PATHS.find((p) => existsSync(p));
+const exe = EDGE_PATHS.find((p) => p !== '' && existsSync(p));
 if (!exe) { console.error('no Edge/Chrome found'); process.exit(2); }
 
 mkdirSync('tools/.testout', { recursive: true });

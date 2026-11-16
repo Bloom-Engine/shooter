@@ -1,0 +1,124 @@
+name: Web
+
+# Builds the browser version (WASM + WebGPU, tools/build-web.sh) and publishes it to
+# https://bloomengine.dev/shooter/ (the same server and secrets as jump's web build).
+#
+# The build needs the Bloom engine checked out NEXT TO this repository (package.json has
+# "bloom": "file:../engine/"), so both are checked out as siblings under the workspace.
+# It does not run the game: a hosted Linux runner has no WebGPU presentation path. Before a
+# change to the web path, run `bun tools/web-check.ts` and `bun tools/web-play-check.ts`
+# against a local build (CLAUDE.md, "Web").
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'assets/**'
+      - 'tools/build-web.sh'
+      - 'tools/release/assets_bundle.py'
+      - 'package.json'
+      - '.github/workflows/web.yml'
+  workflow_dispatch:
+    inputs:
+      engine_ref:
+        description: Engine branch, tag or commit to build against
+        default: main
+      deploy:
+        description: Publish to bloomengine.dev/shooter
+        type: boolean
+        default: true
+
+concurrency:
+  group: web-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # A released compiler, pinned: the game is sensitive to Perry versions (docs/perry-quirks.md).
+  # 0.5.1665 is the first release checked with the browser build.
+  PERRY_VERSION: v0.5.1665
+
+jobs:
+  build-web:
+    name: Web (bloomengine.dev/shooter)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: shooter
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Bloom-Engine/engine
+          ref: ${{ inputs.engine_ref || 'main' }}
+          path: engine
+
+      - name: Install perry
+        run: |
+          mkdir -p "$HOME/perry"
+          gh release download "$PERRY_VERSION" --repo PerryTS/perry \
+            --pattern 'perry-linux-x86_64.tar.gz' --dir "$RUNNER_TEMP"
+          tar xzf "$RUNNER_TEMP/perry-linux-x86_64.tar.gz" -C "$HOME/perry"
+          echo "$HOME/perry" >> "$GITHUB_PATH"
+          "$HOME/perry/perry" --version
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install Rust toolchain (wasm32)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          # Pinned: the action's "latest" has resolved to v0.9.1, whose wasm-opt rejects
+          # the engine's bytecode (jump's release workflow has the same pin).
+          version: 'v0.14.0'
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            engine/native/web/target
+          key: ${{ runner.os }}-shooter-web-${{ hashFiles('engine/native/web/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-shooter-web-
+
+      - name: Build web bundle
+        working-directory: shooter
+        run: bash tools/build-web.sh
+
+      - name: Check the bundle
+        working-directory: shooter
+        run: |
+          test -s dist/web/index.html
+          test -s dist/web/pkg/bloom_web_bg.wasm
+          test -s dist/web/jolt-physics.mjs
+          test -s dist/web/assets_manifest.json
+          du -sh dist/web
+
+      - name: Deploy to bloomengine.dev
+        if: github.event_name == 'push' || inputs.deploy
+        working-directory: shooter
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
+            echo "::error::DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS are not set on this repository (jump has them). The bundle built; nothing was published."
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          rsync -az --delete --stats \
+            -e "ssh -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts" \
+            dist/web/ root@webserver.skelpo.net:/var/www/bloomengine.dev/shooter/
+          echo "Deployed to https://bloomengine.dev/shooter/"

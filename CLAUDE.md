@@ -135,8 +135,20 @@ fallback for the 3D path. The main loop is `runGame(gameFrame)` — identical
 blocking loop on native, rAF on web — so never reintroduce a bare
 `while (!windowShouldClose())`. Web-specific guards hang off `WEB` in
 `src/input.ts`. Writes via `writeFile` land in localStorage under
-`bloom_fs:`. Three Perry wasm-codegen fixes this port depends on live on
-perry branch `fix/wasm-new-array-sized`; the engine side is EN-063.
+`bloom_fs:`. The engine side is EN-063. The released Perry 0.5.1665 compiles a
+bundle that boots and plays (checked 2026-11-16), so no Perry branch is needed.
+
+**Published by CI**: `.github/workflows/web.yml` builds on every push to `main` that touches
+`src/`, `assets/` or the build script and rsyncs `dist/web` to
+`https://bloomengine.dev/shooter/` (the server and the `DEPLOY_SSH_KEY` /
+`DEPLOY_KNOWN_HOSTS` secrets are jump's). It checks out the engine's `main` next to this
+repository and pins the Perry release (`PERRY_VERSION`). It cannot run the game (no WebGPU on
+the runner), so nothing but the two local checks guards the web path: both take
+`--url` (the page works from a subpath; serve a folder holding `dist/web` as `shooter/` to
+test that) and find Chrome on macOS, or the browser in `BLOOM_BROWSER`. `puppeteer-core`
+is a devDependency that is not installed here (`node_modules` is empty on purpose: Perry
+resolves `bloom` from `../engine`); install it elsewhere and point `NODE_PATH` at it.
+The page downloads the whole asset tree before it starts: about 545 MB.
 
 ### TestFlight (iOS, tvOS, macOS)
 
