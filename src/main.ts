@@ -655,7 +655,9 @@ setRenderScale(0.75);
 // returns on its own, and the image read soft. 0.45 is between the engine's "subtle" and
 // "punchy"; it is one cheap full-screen pass. Desktop only: the phone profile has no headroom
 // to spare and its smaller screen hides the softness.
-if (!MOBILE) setCasStrength(0.45);
+// Not on the Apple TV either: the pass is one more read of the whole 1080p surface on an A12
+// (2.4 ms of its frame, PERFPASS cas_pass 2026-11-16); at strength 0 the engine skips it.
+if (!MOBILE && !TV) setCasStrength(0.45);
 // 2026-07-06 fullscreen-lag investigation: the Lumen SW-GI camera-follow
 // bakes (SDF clipmap + WSRC) used to re-run as single full-volume
 // dispatches whenever the view moved — a 1-2.4 s GPU stall every ~5 s of

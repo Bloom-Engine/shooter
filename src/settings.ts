@@ -199,7 +199,6 @@ function platformDefaults(): void {
   V[SET_PRESET] = 4;
   // The mid tier too (tier.ts: an older Apple GPU; 7 of 68 ms on the A12Z's title screen).
   if (plat === 6 || midTier()) V[SET_SSAO] = 0;   // Apple TV: 3 of 46 ms a frame on its A12 (drawsweep, 2026-11-16)
-  if (plat === 6) V[SET_RENDER_SCALE] = 0.75;   // of a 720p surface (menu.ts): 960 x 540 inside
   if (plat === 5 && lowTier()) {  // Android on a low-tier GPU (input.ts TIER)
     // The surface is 0.6 of the screen there (BloomActivity.kt) and the display hardware scales it
     // up; 0.75 of that is about the 0.5-of-the-panel internal image this used to be.

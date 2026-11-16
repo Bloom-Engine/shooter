@@ -449,16 +449,12 @@ function pushGraphics(): void {
 /// the browser used to ignore the file; their profile is now the file's default).
 export function applyGraphicsSettings(): void {
   pushGraphics();
-  // The Apple TV draws for a 720p screen whatever the television is, and the television scales
-  // it up. On a 4K set the surface is 3840 x 2160: every output-resolution target at that size
-  // was part of what took the game past tvOS's 2.1 GB limit while loading (2026-11-15), and an
-  // A12 cannot fill it. 1080p was tried first; 720p with the same 960 x 540 internal picture
-  // (render scale 0.75, settings.ts) was 6 ms a frame cheaper (--harness drawsweep, 2026-11-16).
-  if (isTV()) {
-    const tvH = getPhysicalHeight();
-    if (tvH > 1500) setOutputScale(0.3333);
-    else if (tvH > 800) setOutputScale(0.6667);
-  }
+  // The Apple TV draws for a 1080p screen whatever the television is. On a 4K set the surface
+  // is 3840 x 2160: every output-resolution target at that size was part of what took the game
+  // past tvOS's 2.1 GB limit while loading (2026-11-15), and an A12 cannot fill it. 720p was
+  // 6 ms a frame cheaper (--harness drawsweep, 2026-11-16) and shipped for a few hours: the
+  // menus and the HUD are drawn at this size, and at 720p on a 4K set they were blurred.
+  if (isTV() && getPhysicalHeight() > 1200) setOutputScale(0.5);
   if (!SMALL_GPU && !WEB) {
     setOutputScale(SET.get(SET.SET_OUTPUT_SCALE));
     applyAutoRes();
