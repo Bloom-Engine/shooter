@@ -22,6 +22,7 @@ import {
   isKeyPressed, Key, loadTexture, fileExists, drawRect,
   isMouseButtonPressed, isMouseButtonDown, getMouseX, getMouseY, getMouseWheel,
   isGamepadAvailable, isGamepadButtonPressed, getGamepadAxis, isTV,
+  setMaterialReflectionProbe,
 } from 'bloom';
 import { drawTextureProRaw } from 'bloom/textures';
 import { setLocalLightShadows } from 'bloom/scene';
@@ -42,6 +43,7 @@ import * as B from './binds';
 import * as STR from './strings';
 import { T, fmt } from './strings';
 import { MOBILE, WEB } from './input';
+import { ENV } from './environment';
 import { KIND_NAME } from './enemies';
 import { ARENAS, ARENA_COUNT, ARENA_INDEX, selectArena } from './world-runtime';
 import {
@@ -178,6 +180,7 @@ function buildRows(): void {
   toggle(TAB_VIDEO, SET.SET_SHADOWS, STR.S_SHADOWS, 0);
   toggle(TAB_VIDEO, SET.SET_LAMP_SHADOWS, STR.S_LAMP_SHADOWS, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_VFOG, STR.S_VFOG, F_DESKTOP);
+  toggle(TAB_VIDEO, SET.SET_WATER_REFL, STR.S_WATER_REFL, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_SSAO, STR.S_SSAO, 0);
   toggle(TAB_VIDEO, SET.SET_SSR, STR.S_SSR, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_SSGI, STR.S_SSGI, F_DESKTOP);
@@ -335,7 +338,8 @@ function rowCount(): number {
 function isPresetRow(idx: number): boolean {
   return idx === SET.SET_RENDER_SCALE || idx === SET.SET_SHADOWS || idx === SET.SET_SSAO
       || idx === SET.SET_SSR || idx === SET.SET_SSGI || idx === SET.SET_BLOOM
-      || idx === SET.SET_MOTION_BLUR || idx === SET.SET_LAMP_SHADOWS || idx === SET.SET_VFOG;
+      || idx === SET.SET_MOTION_BLUR || idx === SET.SET_LAMP_SHADOWS || idx === SET.SET_VFOG
+      || idx === SET.SET_WATER_REFL;
 }
 
 /// Plan 4.3 - quality presets. Reflections stay off in all four: screen-space reflections
@@ -348,6 +352,7 @@ function applyPreset(p: number): void {
   const ssgi     = [0,    0,     1,    1];
   const lamps    = [0,    0,     1,    1];
   const fog      = [0,    1,     1,    1];
+  const water    = [0,    1,     1,    1];
   SET.set(SET.SET_RENDER_SCALE, scale[p]);
   SET.set(SET.SET_SHADOWS, 1);
   SET.set(SET.SET_SSAO, ssao[p]);
@@ -357,6 +362,17 @@ function applyPreset(p: number): void {
   SET.set(SET.SET_MOTION_BLUR, 0);
   SET.set(SET.SET_LAMP_SHADOWS, lamps[p]);
   SET.set(SET.SET_VFOG, fog[p]);
+  SET.set(SET.SET_WATER_REFL, water[p]);
+  pushGraphics();
+}
+
+/// A slow GPU's first run (the calibration in main.ts): the LOW preset with the sun's shadows
+/// off as well, which is CUSTOM. On a Radeon 760M at 50% output a fight runs 29 fps on HIGH,
+/// 36 on LOW and 50 with the shadows off too (57 with the water reflection off; LOW has it off).
+export function applySlowGpuProfile(): void {
+  applyPreset(0);
+  SET.set(SET.SET_SHADOWS, 0);
+  SET.set(SET.SET_PRESET, 4);
   pushGraphics();
 }
 
@@ -385,6 +401,8 @@ function applyLive(idx: number): void {
   } else if (idx === SET.SET_PRESET) {
     applyPreset(SET.get(SET.SET_PRESET));
     applyLampShadows();
+  } else if (idx === SET.SET_WATER_REFL) {
+    applyWaterReflections();
   } else if (idx === SET.SET_WINDOW) {
     toggleFullscreen();
   } else if (idx === SET.SET_MONITOR) {
@@ -441,6 +459,16 @@ function pushGraphics(): void {
   setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
   if (!small) setMotionBlurEnabled(SET.get(SET.SET_MOTION_BLUR) !== 0);
   applyLampShadows();
+  applyWaterReflections();
+}
+
+/// The water's planar reflection. Unlinking the probe from the water material is enough: the
+/// engine renders a probe only on frames where something that samples it is on screen, so an
+/// unlinked probe costs nothing and the water falls back to its sky reflection.
+export function applyWaterReflections(): void {
+  if (ENV.matWater > 0 && ENV.waterProbe > 0) {
+    setMaterialReflectionProbe(ENV.matWater, SET.get(SET.SET_WATER_REFL) !== 0 ? ENV.waterProbe : 0);
+  }
 }
 
 /// Push every setting that lives outside the frame loop into the engine and the game's own

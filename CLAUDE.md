@@ -206,6 +206,12 @@ the view moves, and the phone has no headroom to absorb the stall.
   (the link step only searches target-triple folders), then
   compile with `perry compile src/main.ts -o main --debug-symbols` so
   `main.pdb` lands next to the exe — crash reports then symbolize.
+- An integrated GPU on a 4K panel (Radeon 760M, 2026-11-16): a fight at 50% output runs
+  29 fps on HIGH, 36 on LOW, 50 on LOW with the sun's shadows off, 58 with the WATER
+  REFLECTIONS row off as well. A first run under 30 fps on the title screen picks that last
+  profile itself (`applySlowGpuProfile` in `menu.ts`). The water row only unlinks the probe
+  from the water material: the engine renders a probe nothing on screen samples for free.
+  Measure with nothing compiling in the background; a cargo build cost ~3 fps.
 - `tools/check.sh` runs under Git Bash; it calls `python3`, which on this box is the
   Microsoft Store stub, so put a `python3` that runs `python` first on PATH.
 - Engine rebuild:

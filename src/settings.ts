@@ -94,7 +94,10 @@ export const SET_HINTS      = 40;  // 0/1
 export const SET_VFOG       = 41;  // 0/1
 export const SET_LAMP_SHADOWS = 42; // 0/1
 export const SET_MONITOR    = 43;  // display index, -1 = not chosen
-export const SET_COUNT      = 44;
+// The river's mirrored reflection (a planar probe that redraws the scene: about 5 ms of a fight
+// frame on an integrated GPU). Off, the water reflects the sky only. Part of the presets.
+export const SET_WATER_REFL = 44;  // 0/1
+export const SET_COUNT      = 45;
 
 /// Frames per second for each SET_FPS_CAP option; 0 = no limit.
 export const FPS_CAPS = [30, 60, 120, 144, 0];
@@ -174,6 +177,7 @@ function defaults(): void {
   V[SET_HINTS]      = 1;
   V[SET_VFOG]       = 1;
   V[SET_LAMP_SHADOWS] = 1;
+  V[SET_WATER_REFL] = 1;
   V[SET_MONITOR]    = -1;
   platformDefaults();
   resetBinds();
@@ -343,6 +347,7 @@ export function loadSettings(): void {
   // A file from before the row existed: lamps cast shadows where they did then (high, ultra
   // and custom).
   V[SET_LAMP_SHADOWS] = num(vd, 'lampShadows', V[SET_PRESET] >= 2 ? 1 : 0);
+  V[SET_WATER_REFL] = num(vd, 'waterReflections', V[SET_PRESET] === 0 ? 0 : 1);
   V[SET_MONITOR] = num(vd, 'monitor', V[SET_MONITOR]);
 
   const ac: any = o['access'];
@@ -426,6 +431,7 @@ export function saveSettings(): void {
         + ', "fpsCap": ' + P(SET_FPS_CAP)
         + ', "litFog": ' + P(SET_VFOG)
         + ', "lampShadows": ' + P(SET_LAMP_SHADOWS)
+        + ', "waterReflections": ' + P(SET_WATER_REFL)
         + ', "monitor": ' + P(SET_MONITOR) + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]
         + ', "captions": ' + V[SET_CAPTIONS]

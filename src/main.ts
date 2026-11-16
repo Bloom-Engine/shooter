@@ -120,7 +120,7 @@ import * as SET from './settings';
 import * as SCORE from './score';
 import {
   initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, currentMenu, MENU_NONE,
-  applyGraphicsSettings, openResults, setResultsTime, openSettingsTab, openLevels, openCredits,
+  applyGraphicsSettings, applyWaterReflections, applySlowGpuProfile, openResults, setResultsTime, openSettingsTab, openLevels, openCredits,
   openArmory, openRecord, armoryWeapon,
   selectRow, MENU_RESULTS, menuRow, menuTab,
 } from './menu';
@@ -1480,6 +1480,8 @@ WPN.initWeapons();
 
 
 initEnvironment();
+// The water probe exists only now; applyGraphicsSettings ran before it (WATER REFLECTIONS).
+applyWaterReflections();
 initFlora();
 
 // SH-051 — build the vertical-navigation tables (walkable building boxes + the
@@ -2611,13 +2613,16 @@ function gameFrame(_hostDt: number): void {
       let next = cur;
       if (fps < 30) next = 0.5;
       else if (fps < 48) next = cur - 0.15 < 0.5 ? 0.5 : cur - 0.15;
+      // Under 30 even the output scale cannot make it fluid: the frame is the scene itself.
+      const slow = fps < 30;
+      if (slow) applySlowGpuProfile();
       if (next < cur) {
         SET.set(SET.SET_OUTPUT_SCALE, next);
         setOutputScale(next);
-        SET.saveSettings();
       }
+      if (slow || next < cur) SET.saveSettings();
       console.log('[calibrate] title ' + fps.toFixed(1) + ' fps at output ' + cur.toFixed(2)
-        + ' -> ' + next.toFixed(2));
+        + ' -> ' + next.toFixed(2) + (slow ? ', LOW preset, sun shadows off' : ''));
     }
   }
   // The LIT FOG settings row (see applyFogMedium).
