@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "BloomShooter"
 include(":app")
+include(":gamedata")

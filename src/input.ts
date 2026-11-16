@@ -2,14 +2,15 @@ import {
   isKeyDown, isKeyPressed,
   isMouseButtonDown, isMouseButtonPressed,
   getMouseDeltaX, getMouseDeltaY,
-  isMobile, getPlatform,
+  isMobile, isTV, getPlatform,
   getTouchX, getTouchY, isTouchActive, getMaxTouchPoints,
-  getScreenWidth, getScreenHeight,
+  getScreenWidth, getScreenHeight, getDisplayScale,
   drawCircle, drawCircleLines,
   isGamepadAvailable, getGamepadAxis,
   isGamepadButtonDown, isGamepadButtonPressed,
   Key,
 } from 'bloom';
+import { getGamepadKind, GAMEPAD_KIND_REMOTE } from 'bloom/core';
 import { drawText, measureText } from './ui-text';
 import {
   get, SET_SENS, SET_PAD_SENS, SET_INVERT_Y,
@@ -83,9 +84,15 @@ function stick(ax: number, ay: number, out: number[]): void {
   out[1] = (ay / m) * curved;
 }
 
-// Radians of yaw per full-screen-width drag, and of pitch per full-height drag.
-// Normalised against the screen instead of raw pixels, so the feel is identical
-// on a 3x iPhone and a 2x iPad rather than scaling with pixel density.
+// Radians of look per POINT the finger travels (pixels / display scale). A point is close to
+// the same distance on the glass on every iPhone and iPad (about 0.17-0.19 mm), so a swipe of
+// the same length turns the camera as far on a 12.9" iPad as on a phone. These were 3.4 rad per
+// screen width and 2.4 per screen height, measured on the iPhone 16 Pro (874 x 402 points);
+// per screen, a 12.9" iPad (1366 x 1024) needed a swipe twice as long to turn round.
+// Android keeps the per-screen numbers: its BloomActivity reports no display metrics, so
+// getDisplayScale() there is not the density and points would not be dp.
+const TOUCH_YAW_PER_POINT = 3.4 / 874;
+const TOUCH_PITCH_PER_POINT = 2.4 / 402;
 const TOUCH_YAW_PER_SCREEN = 3.4;
 const TOUCH_PITCH_PER_SCREEN = 2.4;
 
@@ -94,6 +101,15 @@ const TOUCH_PITCH_PER_SCREEN = 2.4;
 const JOY_DEADZONE = 0.14;
 
 export const MOBILE = isMobile();
+
+// tvOS. NOT part of MOBILE, which also means touch controls and the phone HUD: an Apple TV is a
+// gamepad and a television, and keeps the desktop HUD and menus.
+export const TV = isTV();
+// A phone-class GPU and memory budget: phones, and the Apple TV (an A12 with 3 GB in the 2021
+// model; tvOS ends an app at 2.1 GB). Everything that sizes the picture asks this, not MOBILE.
+// Until 2026-11-15 the Apple TV ran the whole desktop profile (global illumination, lit fog,
+// lamp shadows, 80k grass, render scale 1) and was killed for memory while loading.
+export const SMALL_GPU = MOBILE || TV;
 
 // SH-055 — Android (Perry --target android, engine on Vulkan). MOBILE is true
 // here too, but the shared mobile profile was measured on an iPhone 16 Pro
@@ -189,55 +205,70 @@ function layoutControls(sw: number, sh: number): void {
   CTRL[C_SCALE] = s;
   CTRL[C_JOY_R] = s * 0.20;
 
-  CTRL[C_FIRE_R] = s * 0.13;
-  CTRL[C_FIRE_X] = sw - s * 0.19;
-  CTRL[C_FIRE_Y] = sh - s * 0.19;
+  // 2026-11-16: the right thumb's buttons are one cluster round FIRE, in the order a thumb
+  // reaches them (JUMP, DASH, AIM, R on an arc), and the rarer verbs (GUN, NADE, HIT, DUCK)
+  // are a small row above it. The open space left of the cluster is all camera.
+  const fx = sw - s * 0.20;
+  const fy = sh - s * 0.22;
+  CTRL[C_FIRE_R] = s * 0.14;
+  CTRL[C_FIRE_X] = fx;
+  CTRL[C_FIRE_Y] = fy;
+  // The arc: radius 0.31 s round FIRE, angles from the left (0) up to straight above (90).
+  const ring = s * 0.31;
+  const br = s * 0.075;
+  CTRL[C_JUMP_R] = br;
+  CTRL[C_JUMP_X] = fx - ring * 0.966;       // 195 degrees: left, a little low
+  CTRL[C_JUMP_Y] = fy + ring * 0.259;
+  CTRL[C_DODGE_R] = br;
+  CTRL[C_DODGE_X] = fx - ring * 0.906;      // 155 degrees
+  CTRL[C_DODGE_Y] = fy - ring * 0.423;
+  CTRL[C_AIM_R] = br;
+  CTRL[C_AIM_X] = fx - ring * 0.574;        // 125 degrees
+  CTRL[C_AIM_Y] = fy - ring * 0.819;
+  CTRL[C_RELOAD_R] = br;
+  CTRL[C_RELOAD_X] = fx + ring * 0.035;     // 88 degrees: straight above FIRE
+  CTRL[C_RELOAD_Y] = fy - ring * 0.999;
 
-  CTRL[C_JUMP_R] = s * 0.085;
-  CTRL[C_JUMP_X] = sw - s * 0.44;
-  CTRL[C_JUMP_Y] = sh - s * 0.13;
-
-  CTRL[C_RELOAD_R] = s * 0.078;
-  CTRL[C_RELOAD_X] = sw - s * 0.17;
-  CTRL[C_RELOAD_Y] = sh - s * 0.47;
-
-  CTRL[C_SWAP_R] = s * 0.078;
-  CTRL[C_SWAP_X] = sw - s * 0.42;
-  CTRL[C_SWAP_Y] = sh - s * 0.40;
-
-  // Second ring (2026-11): every action the keyboard has is reachable on glass.
-  CTRL[C_AIM_R] = s * 0.078;
-  CTRL[C_AIM_X] = sw - s * 0.17;
-  CTRL[C_AIM_Y] = sh - s * 0.66;
-
-  CTRL[C_DODGE_R] = s * 0.078;
-  CTRL[C_DODGE_X] = sw - s * 0.64;
-  CTRL[C_DODGE_Y] = sh - s * 0.13;
-
-  CTRL[C_CROUCH_R] = s * 0.07;
-  CTRL[C_CROUCH_X] = sw - s * 0.63;
-  CTRL[C_CROUCH_Y] = sh - s * 0.33;
+  // The small row, above the arc.
+  const sr = s * 0.058;
+  const ry = sh - s * 0.76;
+  CTRL[C_SWAP_R] = sr;
+  CTRL[C_SWAP_X] = sw - s * 0.10;
+  CTRL[C_SWAP_Y] = ry;
+  CTRL[C_NADE_R] = sr;
+  CTRL[C_NADE_X] = sw - s * 0.25;
+  CTRL[C_NADE_Y] = ry;
+  CTRL[C_MELEE_R] = sr;
+  CTRL[C_MELEE_X] = sw - s * 0.40;
+  CTRL[C_MELEE_Y] = ry;
+  CTRL[C_CROUCH_R] = sr;
+  CTRL[C_CROUCH_X] = sw - s * 0.55;
+  CTRL[C_CROUCH_Y] = ry;
 
   CTRL[C_PAUSE_R] = s * 0.055;
   CTRL[C_PAUSE_X] = sw - s * 0.09;
   CTRL[C_PAUSE_Y] = s * 0.09;
-  // Shoulder swap, beside pause.
+  // Shoulder swap, beside pause, out of the thumb's way.
   CTRL[C_SIDE_R] = s * 0.055;
   CTRL[C_SIDE_X] = sw - s * 0.23;
   CTRL[C_SIDE_Y] = s * 0.09;
-  // Third ring (plan 2.7): melee beside the fire button, grenade above the gun swap.
-  CTRL[C_MELEE_R] = s * 0.07;
-  CTRL[C_MELEE_X] = sw - s * 0.40;
-  CTRL[C_MELEE_Y] = sh - s * 0.60;
-  CTRL[C_NADE_R] = s * 0.07;
-  CTRL[C_NADE_X] = sw - s * 0.62;
-  CTRL[C_NADE_Y] = sh - s * 0.53;
 }
+
+// The buttons exist only in a run: on a menu, the results or the title they would cover the
+// screen and catch taps meant for it. main.ts says which each frame.
+let touchButtonsOn = false;
+export function setTouchControlsActive(on: boolean): void { touchButtonsOn = on; }
 
 function hits(x: number, y: number, cx: number, cy: number, r: number): boolean {
   const dx = x - cx;
   const dy = y - cy;
   return dx * dx + dy * dy <= r * r;
+}
+
+/// A button press: only while the buttons are shown (setTouchControlsActive).
+function btn(x: number, y: number, cx: number, cy: number, r: number): boolean {
+  if (!touchButtonsOn) return false;
+  return hits(x, y, cx, cy, r);
 }
 
 export function initInput(): void {
@@ -289,6 +320,12 @@ export function resetInputToggles(): void {
 function readTouch(): InputState {
   const sw = getScreenWidth();
   const sh = getScreenHeight();
+  // Radians per pixel of drag: per point on Apple systems (pixels / display scale), per screen
+  // on Android (see TOUCH_YAW_PER_POINT).
+  const ds = getDisplayScale();
+  const ptScale = ds >= 1 ? ds : 1;
+  const yawPerPx = ANDROID ? TOUCH_YAW_PER_SCREEN / sw : TOUCH_YAW_PER_POINT / ptScale;
+  const pitchPerPx = ANDROID ? TOUCH_PITCH_PER_SCREEN / sh : TOUCH_PITCH_PER_POINT / ptScale;
   layoutControls(sw, sh);
 
   let jumpDown = false;
@@ -329,57 +366,57 @@ function readTouch(): InputState {
     if (i === lookSlot || i === fireSlot) {
       // The trigger finger steers too, so you can hold fire and keep aiming
       // with the same thumb instead of having to choose.
-      lookX = lookX + ((tx - lookLastX) / sw) * TOUCH_YAW_PER_SCREEN;
-      lookY = lookY + ((ty - lookLastY) / sh) * TOUCH_PITCH_PER_SCREEN;
+      lookX = lookX + (tx - lookLastX) * yawPerPx;
+      lookY = lookY + (ty - lookLastY) * pitchPerPx;
       lookLastX = tx;
       lookLastY = ty;
       continue;
     }
 
     // A new finger. Buttons win, since they sit inside the look zone.
-    if (hits(tx, ty, CTRL[C_FIRE_X], CTRL[C_FIRE_Y], CTRL[C_FIRE_R])) {
+    if (btn(tx, ty, CTRL[C_FIRE_X], CTRL[C_FIRE_Y], CTRL[C_FIRE_R])) {
       fireSlot = i;
       lookLastX = tx;
       lookLastY = ty;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_JUMP_X], CTRL[C_JUMP_Y], CTRL[C_JUMP_R])) {
+    if (btn(tx, ty, CTRL[C_JUMP_X], CTRL[C_JUMP_Y], CTRL[C_JUMP_R])) {
       jumpDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_RELOAD_X], CTRL[C_RELOAD_Y], CTRL[C_RELOAD_R])) {
+    if (btn(tx, ty, CTRL[C_RELOAD_X], CTRL[C_RELOAD_Y], CTRL[C_RELOAD_R])) {
       reloadDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_SWAP_X], CTRL[C_SWAP_Y], CTRL[C_SWAP_R])) {
+    if (btn(tx, ty, CTRL[C_SWAP_X], CTRL[C_SWAP_Y], CTRL[C_SWAP_R])) {
       swapDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_AIM_X], CTRL[C_AIM_Y], CTRL[C_AIM_R])) {
+    if (btn(tx, ty, CTRL[C_AIM_X], CTRL[C_AIM_Y], CTRL[C_AIM_R])) {
       aimBtnDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_DODGE_X], CTRL[C_DODGE_Y], CTRL[C_DODGE_R])) {
+    if (btn(tx, ty, CTRL[C_DODGE_X], CTRL[C_DODGE_Y], CTRL[C_DODGE_R])) {
       dodgeDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_CROUCH_X], CTRL[C_CROUCH_Y], CTRL[C_CROUCH_R])) {
+    if (btn(tx, ty, CTRL[C_CROUCH_X], CTRL[C_CROUCH_Y], CTRL[C_CROUCH_R])) {
       crouchBtnDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R])) {
+    if (btn(tx, ty, CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R])) {
       pauseDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R])) {
+    if (btn(tx, ty, CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R])) {
       sideDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_MELEE_X], CTRL[C_MELEE_Y], CTRL[C_MELEE_R])) {
+    if (btn(tx, ty, CTRL[C_MELEE_X], CTRL[C_MELEE_Y], CTRL[C_MELEE_R])) {
       meleeDown = true;
       continue;
     }
-    if (hits(tx, ty, CTRL[C_NADE_X], CTRL[C_NADE_Y], CTRL[C_NADE_R])) {
+    if (btn(tx, ty, CTRL[C_NADE_X], CTRL[C_NADE_Y], CTRL[C_NADE_R])) {
       nadeDown = true;
       continue;
     }
@@ -471,8 +508,56 @@ function readTouch(): InputState {
   };
 }
 
+// ---- The Apple TV remote on its own --------------------------------------------------------
+// One touch surface, its click, and play/pause: not a gamepad, so it gets a scheme of its own
+// (the engine reports GAMEPAD_KIND_REMOTE while no real pad is connected; a real pad takes the
+// ordinary pad path below). The thumb's place on the surface steers: up and down walk, left and
+// right TURN, since there is no second stick to look with. The ring's four clicks arrive as the
+// arrow keys and mean the same. The centre click fires; an empty weapon reloads on the trigger.
+// Play/pause and Menu pause. There is no pitch: the view stays level and the pad aim assist
+// does the rest. Until 2026-11-16 the surface moved AND every touch on it was the left mouse
+// button, so reaching for the pad fired.
+const REMOTE_TURN_DEAD = 0.25;   // sideways play in which the thumb only walks
+const REMOTE_TURN_RATE = 2.0;    // radians/sec at the rim
+function readRemote(dt: number): InputState {
+  const ls = [0, 0];
+  stick(getGamepadAxis(GP_LX), getGamepadAxis(GP_LY), ls);
+  let turn = ls[0];
+  let moveZ = ls[1];
+  if (isKeyDown(Key.UP)) moveZ = -1;
+  if (isKeyDown(Key.DOWN)) moveZ = 1;
+  if (isKeyDown(Key.LEFT)) turn = -1;
+  if (isKeyDown(Key.RIGHT)) turn = 1;
+  const at = Math.abs(turn);
+  if (at < REMOTE_TURN_DEAD) turn = 0;
+  else turn = (turn < 0 ? -1 : 1) * (at - REMOTE_TURN_DEAD) / (1 - REMOTE_TURN_DEAD);
+  padWasActive = true;
+  return {
+    moveX: 0,
+    moveZ: moveZ,
+    lookX: turn * REMOTE_TURN_RATE * get(SET_PAD_SENS) * dt,
+    lookY: 0,
+    jump: false,
+    firePressed: isGamepadButtonPressed(GP_A),
+    fireDown: isGamepadButtonDown(GP_A),
+    reloadPressed: false,
+    swapWeapon: false,
+    aimDown: false,
+    sprintDown: false,
+    crouchDown: false,
+    dodgePressed: false,
+    pausePressed: isGamepadButtonPressed(GP_START) || isKeyPressed(Key.ESCAPE),
+    shoulderPressed: false,
+    meleePressed: false,
+    grenadePressed: false,
+    weaponSlot: 0,
+    padActive: true,
+  };
+}
+
 export function readInput(dt: number): InputState {
   if (MOBILE) return readTouch();
+  if (TV && isGamepadAvailable() && getGamepadKind() === GAMEPAD_KIND_REMOTE) return readRemote(dt);
 
   let moveX = 0;
   let moveZ = 0;
@@ -620,6 +705,7 @@ export function aimAssistScale(cosToNearestEnemy: number): number {
 // or you get controls that don't press where they look.
 export function drawTouchControls(): void {
   if (!MOBILE) return;
+  if (!touchButtonsOn) return;
 
   const idle = { r: 255, g: 255, b: 255, a: 40 };
   const live = { r: 255, g: 255, b: 255, a: 95 };
@@ -666,6 +752,7 @@ export function drawTouchControls(): void {
 
   drawCircle(CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R], idle);
   labelAt('II', CTRL[C_PAUSE_X], CTRL[C_PAUSE_Y], CTRL[C_PAUSE_R] * 0.80, ink);
+
 
   drawCircle(CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R], idle);
   labelAt('<>', CTRL[C_SIDE_X], CTRL[C_SIDE_Y], CTRL[C_SIDE_R] * 0.70, ink);

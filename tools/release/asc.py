@@ -7,6 +7,8 @@
                    every build automatically
   asc.py status    latest builds per platform and their processing state
   asc.py next-build  print the next free build number (max uploaded + 1)
+  asc.py tv-dev    create/download a tvOS DEVELOPMENT profile for the registered Apple TVs
+                   (tools/deploy-tvos.sh installs a build on one with it)
 
 Credentials come from the environment (or the repo's git-ignored .env):
   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH (.p8), APPLE_TEAM_ID
@@ -168,10 +170,35 @@ def cmd_next_build():
     print(max(nums, default=0) + 1)
 
 
+TV_DEV_PROFILE = PROFILE_DIR / "com_bloomengine_shooter_tvos_dev.mobileprovision"
+
+
+def cmd_tv_dev():
+    name = "Bloom Shooter tvos Development"
+    for p in get_all(f"/v1/profiles?filter[name]={urllib.parse.quote(name)}&limit=200"):
+        if p["attributes"]["name"] == name:   # replace: the device list may have changed
+            api("DELETE", f"/v1/profiles/{p['id']}")
+    certs = [c for c in get_all("/v1/certificates?limit=200")
+             if c["attributes"]["certificateType"] in ("DEVELOPMENT", "IOS_DEVELOPMENT")]
+    tvs = [d for d in get_all("/v1/devices?limit=200")
+           if d["attributes"].get("deviceClass") == "APPLE_TV" and d["attributes"]["status"] == "ENABLED"]
+    if not certs or not tvs:
+        sys.exit("needs a development certificate and a registered Apple TV in the team")
+    prof = api("POST", "/v1/profiles", {"data": {"type": "profiles",
+        "attributes": {"name": name, "profileType": "TVOS_APP_DEVELOPMENT"},
+        "relationships": {
+            "bundleId": {"data": {"type": "bundleIds", "id": bundle_id_resource()["id"]}},
+            "certificates": {"data": [{"type": "certificates", "id": c["id"]} for c in certs]},
+            "devices": {"data": [{"type": "devices", "id": d["id"]} for d in tvs]}}}})["data"]
+    TV_DEV_PROFILE.write_bytes(base64.b64decode(prof["attributes"]["profileContent"]))
+    print(f"  {len(tvs)} Apple TV(s), expires {prof['attributes']['expirationDate'][:10]} -> {TV_DEV_PROFILE}")
+
+
 if __name__ == "__main__":
     import urllib.parse
     load_env()
-    cmds = {"setup": cmd_setup, "testers": cmd_testers, "status": cmd_status, "next-build": cmd_next_build}
+    cmds = {"setup": cmd_setup, "testers": cmd_testers, "status": cmd_status, "next-build": cmd_next_build,
+            "tv-dev": cmd_tv_dev}
     if len(sys.argv) != 2 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     cmds[sys.argv[1]]()

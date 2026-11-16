@@ -5,25 +5,50 @@ plugins {
 
 android {
     namespace = "com.bloomengine.shooter"
-    compileSdk = 35
+    // Google Play: new apps and updates must target API 36 (Android 16) since 2026-08-31.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.bloomengine.shooter"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 36
+        // Play needs a higher versionCode for every upload: build-android.sh passes
+        // -PversionCode / -PversionName (see docs/RELEASE.md, Google Play).
+        versionCode = (project.findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("versionName") as String?) ?: "1.0.0"
 
         ndk {
             abiFilters += "arm64-v8a"
         }
     }
 
+    // The Play upload key lives outside the repository (keystore file and passwords come from
+    // the environment; tools/build-android.sh --bundle reads them from the login keychain).
+    // Google re-signs for users (Play App Signing), so this key only proves an upload is ours.
+    signingConfigs {
+        create("upload") {
+            val ks = System.getenv("BLOOM_UPLOAD_KEYSTORE")
+            if (ks != null) {
+                storeFile = file(ks)
+                storePassword = System.getenv("BLOOM_UPLOAD_STORE_PASSWORD")
+                keyAlias = System.getenv("BLOOM_UPLOAD_KEY_ALIAS") ?: "upload"
+                keyPassword = System.getenv("BLOOM_UPLOAD_KEY_PASSWORD")
+                    ?: System.getenv("BLOOM_UPLOAD_STORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (System.getenv("BLOOM_UPLOAD_KEYSTORE") != null) {
+                signingConfig = signingConfigs.getByName("upload")
+            }
         }
     }
+
+    // The assets ship as the install-time asset pack `gamedata` in the Play bundle.
+    assetPacks += listOf(":gamedata")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -47,7 +72,14 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
-            assets.srcDirs("src/main/assets")
+            // build-android.sh stages the assets in the asset pack's folder. A debug APK (no
+            // asset packs outside a bundle) takes them from there itself; the Play bundle
+            // (-PplayBundle) leaves them to the pack, or every file would ship twice.
+            if (project.hasProperty("playBundle")) {
+                assets.setSrcDirs(listOf("src/main/assets"))
+            } else {
+                assets.setSrcDirs(listOf("src/main/assets", "../gamedata/src/main/assets"))
+            }
         }
     }
 }

@@ -21,7 +21,7 @@ import { raycast, Layer } from 'bloom/physics';
 import { playSoundEx } from 'bloom/audio';
 import { jointWorld } from 'bloom/models';
 import * as W from './world-runtime';
-import { resetInputToggles, padIsActive } from './input';
+import { resetInputToggles, padIsActive, MOBILE } from './input';
 import { GS } from './gamestate';
 import {
   DIR, damageEnemy, despawnAllEnemies, WAVE_BREAK_DELAY,
@@ -587,6 +587,9 @@ function fireMulti(wpn: number, ox: number, oy: number, oz: number,
   if (anyHit) SCORE.noteHit();
 }
 
+// A touch tap on FIRE waiting for the weapon (seconds left), see updateCombat.
+const TAP_BUF = [0];
+
 export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean,
                              fireDown: boolean, firePressed: boolean,
                              forceFire: boolean): void {
@@ -609,9 +612,17 @@ export function updateCombat(dt: number, playing: boolean, cursorLocked: boolean
   CAM[1] = Math.max(DEPS.o.TP_PITCH_MIN, Math.min(DEPS.o.TP_PITCH_MAX, CAM[1] + REC[0]));
   CAM[0] = CAM[0] - REC[1];
 
-  const autoOk = WPN.W_AUTO[wpn] !== 0 ? fireDown : firePressed;
+  // On touch a tap on FIRE is often one frame long, and at a phone's frame rate a tap during
+  // the weapon's cooldown was simply lost (8 quick taps fired 3 rifle rounds on a Pixel 4a).
+  // There a tap is held for 0.25 s and fires as soon as the weapon can, automatic weapons
+  // included (desktop is unchanged).
+  if (MOBILE && combatActive && firePressed) TAP_BUF[0] = 0.25;
+  else if (TAP_BUF[0] > 0) TAP_BUF[0] = TAP_BUF[0] - dt;
+  const tapPending = MOBILE && TAP_BUF[0] > 0;
+  const autoOk = (WPN.W_AUTO[wpn] !== 0 ? fireDown : firePressed) || tapPending;
   // Nothing fires through a rifle-butt strike.
-  const wantFire = combatActive && autoOk && WPN.canFire(fireDown) && GS.meleeT < 0;
+  const wantFire = combatActive && autoOk && WPN.canFire(fireDown || tapPending) && GS.meleeT < 0;
+  if (wantFire) TAP_BUF[0] = 0;
   // forceFire (the COMBATSHOT harness) still goes through canFire, so the shot
   // respects the real cooldown, spread and reload — otherwise the capture would
   // be of a weapon that doesn't exist.

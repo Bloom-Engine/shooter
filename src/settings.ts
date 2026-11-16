@@ -11,6 +11,7 @@
 // serialise by hand.
 
 import { readFile, writeFile, fileExists, isMobile, getPlatform, getPreferredLanguages } from 'bloom/core';
+import { lowTier, midTier } from './tier';
 import { resetBinds, bindsJson, bindsFromObject } from './binds';
 
 const PATH = 'settings.json';
@@ -188,7 +189,7 @@ function defaults(): void {
 function platformDefaults(): void {
   const plat = getPlatform();
   const web = plat === 7;
-  if (!isMobile() && !web) return;
+  if (!isMobile() && !web && plat !== 6) return;   // 6: tvOS, a phone-class GPU (input.ts SMALL_GPU)
   V[SET_AUTO_RES] = 0;           // desktop only: the row is hidden here and the scale is fixed
   V[SET_SSGI] = 0;
   V[SET_SSR] = 0;
@@ -196,7 +197,13 @@ function platformDefaults(): void {
   V[SET_DOF] = 0;
   V[SET_RENDER_SCALE] = web ? 0.65 : 0.5;
   V[SET_PRESET] = 4;
-  if (plat === 5) {              // Android: the low tier
+  // The mid tier too (tier.ts: an older Apple GPU; 7 of 68 ms on the A12Z's title screen).
+  if (plat === 6 || midTier()) V[SET_SSAO] = 0;   // Apple TV: 3 of 46 ms a frame on its A12 (drawsweep, 2026-11-16)
+  if (plat === 6) V[SET_RENDER_SCALE] = 0.75;   // of a 720p surface (menu.ts): 960 x 540 inside
+  if (plat === 5 && lowTier()) {  // Android on a low-tier GPU (input.ts TIER)
+    // The surface is 0.6 of the screen there (BloomActivity.kt) and the display hardware scales it
+    // up; 0.75 of that is about the 0.5-of-the-panel internal image this used to be.
+    V[SET_RENDER_SCALE] = 0.75;
     V[SET_SHADOWS] = 0;
     V[SET_SSAO] = 0;
     V[SET_BLOOM] = 0;

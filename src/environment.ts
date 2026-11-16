@@ -38,7 +38,8 @@ import * as W from './world-runtime';
 import * as T from './world-runtime';
 import { terrainHeightAt } from './terrain';
 import { bootStage, BOOT_WATER, BOOT_GRASS, BOOT_PROPS } from './boot';
-import { ANDROID, MOBILE, WEB } from './input';
+import { SMALL_GPU, TV, WEB } from './input';
+import { lowTier } from './tier';
 
 /// The value of `--dbg-off` (see main.ts): string equality on argv only, never parsed.
 function envDbgOff(): string {
@@ -253,7 +254,9 @@ export function initEnvironment(): void {
   // every frame (a full second geometry+material pass). On the Adreno 618 that
   // is unaffordable; skip it on Android and let the water fall back to the
   // analytic sky reflection. (Prime perf suspect now that materials render.)
-  const waterProbe = (matWater > 0 && !ANDROID && envDbgOff() !== 'planar') ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
+  // Apple TV: no mirror pass either. It draws the scene a second time and was 8 ms of the
+  // A12's frame (PERFPASS planar_probe_*, 2026-11-16); the water then reflects the sky alone.
+  const waterProbe = (matWater > 0 && !lowTier() && !TV && envDbgOff() !== 'planar') ? createPlanarReflection(WATER_Y, 0, 1, 0, 512) : 0;
   if (waterProbe > 0) setMaterialReflectionProbe(matWater, waterProbe);
   
   // ---- SH-021 instanced grass — canonical blade × N instances -------------
@@ -311,7 +314,7 @@ export function initEnvironment(): void {
   // fill; they must be the same numbers. Measured on the M1 Max, title screen, render scale
   // 0.5: about 0.5 ms of a 16.9 ms frame (`./main --harness grassab`).
   // Desktop only: not looked at on a phone or in a browser. `--dbg-off grasslod` switches it off.
-  const GRASS_LOD_ON = !MOBILE && !WEB && envDbgOff() !== 'grasslod';
+  const GRASS_LOD_ON = !SMALL_GPU && !WEB && envDbgOff() !== 'grasslod';
   const GRASS_LOD_START = 22, GRASS_LOD_END = 55, GRASS_LOD_MIN = 0.4, GRASS_LOD_BAND = 0.2;
   const GRASS_LOD_FILL = 1.0, GRASS_LOD_DENSITY = 2.5;
   for (let i = 0; i < 12; i++) { GRASS_PARAMS_OFF[i] = GRASS_PARAMS[i]; GRASS_PARAMS_ON[i] = GRASS_PARAMS[i]; }
@@ -453,7 +456,7 @@ export function initEnvironment(): void {
   // 2026-11: instances are 7-blade tufts now (3.5x the triangles each), so fewer of them.
   // `--dbg-off grass|grasshalf` (desktop measurement aid, Phase 7.1).
   const grassCut = envDbgOff() === 'grass' ? 0.001 : (envDbgOff() === 'grasshalf' ? 0.5 : 1);
-  const GRASS_INSTANCE_COUNT_MAX = Math.floor((ANDROID ? 3000 : (MOBILE ? 36000 : 80000)) * grassCut);
+  const GRASS_INSTANCE_COUNT_MAX = Math.floor((lowTier() ? 3000 : (TV ? 24000 : (SMALL_GPU ? 36000 : 80000))) * grassCut);
   const GRASS_INSTANCE_FLOATS    = 9;
   const GRASS_INSTANCES = new Array<number>(GRASS_INSTANCE_COUNT_MAX * GRASS_INSTANCE_FLOATS);
   let GRASS_INSTANCE_COUNT = 0;
@@ -800,7 +803,7 @@ export function initGiProxies(
     // frame the plaza, the far density is what was killing fill.
     // SH-055 — measured: forest cost main_hdr_pass ~nothing on Android either.
     // Same moderate-cap reasoning as grass above.
-    const forestCount = ANDROID ? Math.min(W.FOREST_COUNT, 24) : W.FOREST_COUNT;
+    const forestCount = lowTier() ? Math.min(W.FOREST_COUNT, 24) : W.FOREST_COUNT;
     for (let i = 0; i < forestCount; i++) {
       const v = treeVariants[W.FOREST_VAR[i]];
       for (let mIdx = 0; mIdx < treeGlbParts; mIdx++) {

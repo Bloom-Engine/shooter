@@ -254,6 +254,53 @@ def compress_assets():
 from assets_bundle import prune_assets  # noqa: E402
 
 
+# Platforms whose devices cannot hold the 4K model textures. An Apple TV 4K (2nd generation, 3 GB)
+# ends an app at 2.1 GB: with the 4K ASTC models (1.75 GB of them) build 0.1.0 (6) was killed half
+# way through loading (Jetsam report: per-process-limit at 2098 MB, 2026-11-15).
+TEX_MAX = {"tvos": 1024}
+# ... and whose GPU cannot draw the models' full triangle counts. Measured on that Apple TV
+# (A12) with `--harness drawsweep`, 2026-11-16: of 64 ms of GPU time a frame the props were 18
+# and the trees 13, at any resolution. A creature is 60k triangles, a crate 24k. The same cut
+# the Android low tier gets (simplify_glb_meshes.py: creatures 30 %, weapons 50 %, props ~6000).
+MESH_SIMPLIFY = {"tvos"}
+COOK = BLOOM / "tools/bloom-cook/target/release/bloom-cook"
+
+
+def small_models(models, max_px, simplify_meshes=False):
+    """Replace every <model>.astc.glb in a bundle's models folder with one cut from textures
+    capped at max_px. The small copies are kept in build/release/models-<max_px> and only
+    redone when the model in assets/models is newer."""
+    from concurrent.futures import ThreadPoolExecutor
+    from shrink_glb_textures import shrink_glb
+    from simplify_glb_meshes import ratio_for, simplify, triangles
+    cache = WORK / (f"models-{max_px}" + ("-simple" if simplify_meshes else ""))
+    cache.mkdir(parents=True, exist_ok=True)
+    if not COOK.exists():
+        run(["cargo", "build", "--release"], cwd=COOK.parents[2])
+
+    def cook(src):
+        done = cache / f"{src.stem}.astc.glb"
+        if not done.exists() or done.stat().st_mtime < src.stat().st_mtime:
+            tmp = cache / src.name
+            shutil.copy(src, tmp)
+            if simplify_meshes:   # before the textures: see simplify_glb_meshes.py
+                ratio = ratio_for(tmp.name, triangles(tmp))
+                if ratio < 0.98:
+                    simplify(tmp, ratio)
+            shrink_glb(tmp, max_px)
+            subprocess.run([str(COOK), "glb-compress", str(tmp), str(done), "--astc", "4x4",
+                            "--normal-astc", "4x4"], check=True, stdout=subprocess.DEVNULL)
+            tmp.unlink()
+        return done
+
+    sources = sorted(p for p in (ROOT / "assets/models").glob("*.glb") if not p.name.endswith(".astc.glb"))
+    print(f"  models with textures <= {max_px} px ({len(sources)}, cache: {cache.relative_to(ROOT)})", flush=True)
+    with ThreadPoolExecutor(4) as pool:
+        for done in pool.map(cook, sources):
+            if (models / done.name.replace(".astc.glb", ".glb")).exists():
+                shutil.copy(done, models / done.name)
+
+
 def perry_compile(platform, out_path):
     compress_assets()
     target = PLATFORMS[platform][0]
@@ -295,6 +342,8 @@ def build_apple_mobile(platform, version, build, team):
         sys.exit(f"expected {app}")
     if not (app / "assets").is_dir():
         sys.exit(f"{app} has no assets/")
+    if platform in TEX_MAX:
+        small_models(app / "assets/models", TEX_MAX[platform], platform in MESH_SIMPLIFY)
     prune_assets(app / "assets")
     icon_keys = compile_catalog(platform, app)
     finish_plist(app / "Info.plist", platform, version, build, icon_keys)

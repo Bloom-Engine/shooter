@@ -19,5 +19,12 @@ object BloomGameBridge {
     @JvmStatic external fun nativeOnTouch(action: Int, x: Double, y: Double, pointerIndex: Int)
 
     /** Signal the engine to close (sets windowShouldClose = true). */
+    /** The surface is going away (background, or finishing): the game thread lets go of it and
+     *  waits; a later nativeSetSurface resumes it. From SurfaceHolder.Callback.surfaceDestroyed. */
+    @JvmStatic external fun nativeSurfaceLost()
+
+    /** Whether the GPU is in the engine's low tier (SH-069); callable before any surface. */
+    @JvmStatic external fun nativeIsLowTier(): Boolean
+
     @JvmStatic external fun nativeOnDestroy()
 }

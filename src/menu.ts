@@ -26,6 +26,7 @@ import {
 import { drawTextureProRaw } from 'bloom/textures';
 import { setLocalLightShadows } from 'bloom/scene';
 import {
+  getPhysicalHeight,
   setOutputScale, setRenderScale, setShadowsEnabled, setMotionBlurEnabled, setAutoResolution,
   setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
   setPathTracing, isPathTracingSupported, setPresentMode, setTargetFPS, toggleFullscreen,
@@ -41,7 +42,7 @@ import * as UI from './ui';
 import * as B from './binds';
 import * as STR from './strings';
 import { T, fmt } from './strings';
-import { MOBILE, WEB } from './input';
+import { MOBILE, WEB, SMALL_GPU } from './input';
 import { KIND_NAME } from './enemies';
 import { ARENAS, ARENA_COUNT, ARENA_INDEX, selectArena } from './world-runtime';
 import {
@@ -170,7 +171,7 @@ function buildRows(): void {
   choice(TAB_VIDEO, SET.SET_PRESET, STR.S_PRESET, STR.S_PRESET_0, 5, F_DESKTOP);
   choice(TAB_VIDEO, SET.SET_WINDOW, STR.S_WINDOW_MODE, STR.S_WINDOW_0, 2, F_DESKTOP);
   // One option per display; the row is hidden while there is only one (rowHidden).
-  choice(TAB_VIDEO, SET.SET_MONITOR, STR.S_MONITOR, -2, MOBILE || WEB ? 1 : getMonitorCount(), F_DESKTOP);
+  choice(TAB_VIDEO, SET.SET_MONITOR, STR.S_MONITOR, -2, SMALL_GPU || WEB ? 1 : getMonitorCount(), F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_VSYNC, STR.S_VSYNC, F_DESKTOP);
   choice(TAB_VIDEO, SET.SET_FPS_CAP, STR.S_FPS_CAP, STR.S_FPS_0, 5, F_DESKTOP);
   slider(TAB_VIDEO, SET.SET_OUTPUT_SCALE, STR.S_OUT_SCALE, 0.5, 1.0, 0.05, F_DESKTOP);
@@ -214,7 +215,7 @@ function buildRows(): void {
 
 function rowHidden(r: number): boolean {
   const f = R_FLAGS[r];
-  if ((f & F_DESKTOP) !== 0 && (MOBILE || WEB)) return true;
+  if ((f & F_DESKTOP) !== 0 && (SMALL_GPU || WEB)) return true;
   if ((f & F_NOTOUCH) !== 0 && MOBILE) return true;
   if (R_IDX[r] === SET.SET_MONITOR && R_KIND[r] === ROW_CHOICE && R_MAX[r] < 1) return true;
   return false;
@@ -424,7 +425,7 @@ function applyLive(idx: number): void {
 /// (The lit fog's row needs nothing here: main.ts watches the setting, because the fog's
 /// numbers are the arena's and live there.)
 export function applyLampShadows(): void {
-  if (MOBILE || WEB) return;
+  if (SMALL_GPU || WEB) return;
   const on = SET.get(SET.SET_SHADOWS) !== 0 && SET.get(SET.SET_LAMP_SHADOWS) !== 0;
   setLocalLightShadows(on ? 4 : 0, 512);
 }
@@ -432,7 +433,7 @@ export function applyLampShadows(): void {
 /// The render passes, from the settings. Phones and the browser never get global
 /// illumination, reflections or path tracing whatever the file says (see settings.ts).
 function pushGraphics(): void {
-  const small = MOBILE || WEB;
+  const small = SMALL_GPU || WEB;
   setRenderScale(SET.get(SET.SET_RENDER_SCALE));
   setShadowsEnabled(SET.get(SET.SET_SHADOWS) !== 0);
   setSsaoEnabled(SET.get(SET.SET_SSAO) !== 0);
@@ -448,7 +449,17 @@ function pushGraphics(): void {
 /// the browser used to ignore the file; their profile is now the file's default).
 export function applyGraphicsSettings(): void {
   pushGraphics();
-  if (!MOBILE && !WEB) {
+  // The Apple TV draws for a 720p screen whatever the television is, and the television scales
+  // it up. On a 4K set the surface is 3840 x 2160: every output-resolution target at that size
+  // was part of what took the game past tvOS's 2.1 GB limit while loading (2026-11-15), and an
+  // A12 cannot fill it. 1080p was tried first; 720p with the same 960 x 540 internal picture
+  // (render scale 0.75, settings.ts) was 6 ms a frame cheaper (--harness drawsweep, 2026-11-16).
+  if (isTV()) {
+    const tvH = getPhysicalHeight();
+    if (tvH > 1500) setOutputScale(0.3333);
+    else if (tvH > 800) setOutputScale(0.6667);
+  }
+  if (!SMALL_GPU && !WEB) {
     setOutputScale(SET.get(SET.SET_OUTPUT_SCALE));
     applyAutoRes();
     applyFrameCap();

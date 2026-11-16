@@ -11,8 +11,9 @@ Until 2026-11-14 only release.py pruned; the web and Android builds copied the w
 build inputs and unused models included. Always point this at a COPY: it deletes files.
 
 --no-astc: drop the <model>.astc.glb copies instead of shipping them under the plain names.
-Desktop GPUs and browsers do not decode ASTC, so the web build wants the plain GLBs; Android
-keeps them too until the ASTC path has been tested on a device there.
+Desktop GPUs and browsers do not decode ASTC, so the web build wants the plain GLBs. Android
+ships ASTC (Pixel 4a, 2026-11-15), cut by build-android.sh from 1024 px copies of the models
+(tools/release/shrink_glb_textures.py), not the 4K .astc.glb files.
 """
 import shutil, sys
 from pathlib import Path

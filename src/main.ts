@@ -27,15 +27,15 @@ import {
   // risk on a per-frame FFI path (perry-quirks #2), and only this one is
   // exported from bloom/core anyway.
   beginMode2DRaw,
-  setVignette, setFilmGrain,
+  setVignette, setFilmGrain, setSharpenStrength, setChromaticAberration,
   setEnvIntensity, setAutoExposure, setAutoExposureKey, setFog, setSunShafts, setWind,
   setVolumetricFog, setVolumetricFogLight,
   setCloudShadows, setTonemap, setColorSaturation, setDepthOfField, setMotionBlurEnabled,
   setAutoResolution, getPhysicalWidth, getPhysicalHeight,
-  setTaaEnabled, setRenderScale, setCasStrength,
+  setTaaEnabled, setRenderScale, setOutputScale, setCasStrength,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
-  setShadowsEnabled, setBloomEnabled,
+  setShadowsEnabled, setBloomEnabled, setShadowDistance, setShadowCascadeStagger, isLowTierGpu, getRendererCapabilities,
   writeFile, readFile, setCrashReportPath,
 } from 'bloom/core';
 import { addPointLight, addPointLightWithShadow, enableShadows, setLocalLightShadows } from 'bloom/scene';
@@ -54,7 +54,8 @@ import {
   TEX_ARRAY_FORMAT_SRGB, TEX_ARRAY_FORMAT_LINEAR,
   createRagdoll, activateRagdoll, pushRagdoll, updateRagdoll, releaseRagdoll,
 } from 'bloom/models';
-import { initInput, readInput, drawTouchControls, MOBILE, ANDROID, WEB } from './input';
+import { initInput, readInput, drawTouchControls, setTouchControlsActive, MOBILE, ANDROID, WEB, SMALL_GPU, TV } from './input';
+import { TIER } from './tier';
 import {
   createPlayer, updatePlayerController, playerPosition,
   playerGrounded, playerSpeed, startDodge, isDodging, dodgeCooldownFrac, isSprinting, isCrouching,
@@ -144,6 +145,31 @@ import { initFlow, flowBlockedAt } from './flow';
 // resizes its swapchain + all render targets on the WM_SIZE this triggers).
 // The 1024×640 size is the windowed-mode fallback the engine restores to.
 initWindow(1024, 640, 'Bloom Shooter', true);
+// SH-069: the low tier (input.ts TIER) is the engine's answer, known from here on.
+TIER[0] = isLowTierGpu() ? 1 : 0;
+// SH-068: an older Apple GPU is the mid tier (tier.ts midTier). Its adapter is "Apple A12Z GPU"
+// and the like; the M-series and A15 onward keep the mobile profile.
+if (TIER[0] === 0 && MOBILE && !ANDROID) {
+  const gpuName = getRendererCapabilities().adapter.name;
+  const ai = gpuName.indexOf('Apple A');
+  if (ai >= 0) {
+    const gen = parseInt(gpuName.substring(ai + 7, ai + 9));
+    if (gen > 0 && gen <= 14) TIER[0] = 2;
+  }
+  console.log('[tier] ' + gpuName + ' -> ' + (TIER[0] === 2 ? 'mid' : 'mobile'));
+}
+// `--game-tier 0|1|2` overrides the game's half of that answer for one launch (content budget and
+// passes), leaving the engine's shading to its own decision (BLOOM_LOW_TIER): an A/B of the two
+// halves. Read from argv directly: cliArg's Android branch reads a const declared further down.
+for (let i = 0; i < process.argv.length - 1; i++) {
+  if (process.argv[i] === '--game-tier') {
+    const t = process.argv[i + 1];
+    TIER[0] = t === '1' ? 1 : (t === '2' ? 2 : 0);
+  }
+}
+const LOW_TIER = TIER[0] === 1;
+// The Apple TV (an A12, as the older iPads) takes the mid tier's content budget outright.
+const MID_TIER = TIER[0] === 2 || TV;
 
 // Crash reports (engine, 2026-11-15). A panic or a fatal signal writes what it knows to
 // crash-report.txt; text in that file at start-up means the LAST run crashed. It is moved to
@@ -173,7 +199,7 @@ SET.loadSettings();
 // at 75% a fight runs near 57 fps against 41. (Until the engine fix of 2026-11-15 a lower
 // output scale was SLOWER than native, which is why this default was 1.) The settings row
 // puts it back.
-if (FIRST_RUN && !MOBILE && !WEB && getPhysicalWidth() * getPhysicalHeight() > 6000000) {
+if (FIRST_RUN && !SMALL_GPU && !WEB && getPhysicalWidth() * getPhysicalHeight() > 6000000) {
   SET.set(SET.SET_OUTPUT_SCALE, 0.75);
 }
 // Phase 6 - what the player has earned (credits, upgrades, stars). After the settings: a first
@@ -191,14 +217,18 @@ PROFILE.loadProfile();
 // Android starts the game from an Activity: there is no argv. For a harness or an A/B on a phone,
 // put the arguments on one line in the app's data folder and relaunch:
 //   adb shell "run-as com.bloomengine.shooter sh -c 'echo --harness fpsprobe > files/launch-args.txt'"
+// The Apple TV gets no argv either (arguments after the bundle id in `devicectl ... launch` never
+// reach process.argv there, 2026-11-16): `tools/deploy-tvos.sh --args "..."` puts the same file
+// into the development copy of the bundle, where a relative path resolves.
 // Read once here, at load (perry-quirks #5: never split an FFI string on a per-frame path).
-const ANDROID_ARGS: string[] = (ANDROID && fileExists('launch-args.txt'))
+const FILE_ARGS_ON = ANDROID || TV;
+const FILE_ARGS: string[] = (FILE_ARGS_ON && fileExists('launch-args.txt'))
   ? readFile('launch-args.txt').trim().split(' ')
   : [];
 function cliArg(name: string): string {
-  if (ANDROID) {
-    const m = ANDROID_ARGS.length;
-    for (let i = 0; i < m - 1; i++) if (ANDROID_ARGS[i] === name) return ANDROID_ARGS[i + 1];
+  if (FILE_ARGS_ON) {
+    const m = FILE_ARGS.length;
+    for (let i = 0; i < m - 1; i++) if (FILE_ARGS[i] === name) return FILE_ARGS[i + 1];
     return '';
   }
   if (WEB) return ''; // a browser page has no argv
@@ -211,12 +241,18 @@ function cliArg(name: string): string {
 function cliScaleOverride(name: string, idx: number): void {
   const v = cliArg(name);
   if (v === '0.25') SET.override(idx, 0.25);
+  else if (v === '0.35') SET.override(idx, 0.35);
+  else if (v === '0.4') SET.override(idx, 0.4);
   else if (v === '0.5' || v === '0.50') SET.override(idx, 0.5);
   else if (v === '0.75') SET.override(idx, 0.75);
   else if (v === '1' || v === '1.0') SET.override(idx, 1.0);
 }
 cliScaleOverride('--render-scale', SET.SET_RENDER_SCALE);
 cliScaleOverride('--output-scale', SET.SET_OUTPUT_SCALE);
+// `--shadows 0|1` turns the sun's shadows off or on for this launch (an A/B, mostly on a phone).
+const cliShadows = cliArg('--shadows');
+if (cliShadows === '0') SET.override(SET.SET_SHADOWS, 0);
+else if (cliShadows === '1') SET.override(SET.SET_SHADOWS, 1);
 // `--pt off|prog|rt` overrides the persisted path-tracing mode for this
 // launch. Applied with the rest of the graphics settings below (and
 // inert on devices without ray query, same as the menu row).
@@ -237,9 +273,26 @@ else if (cliMonitor === '3') SET.override(SET.SET_MONITOR, 3);
 // input state), and pass-bisection from a script is exactly how the leaf
 // snow-dots (GTAO, engine #95) and the house-interior shadow leak were
 // isolated. Debug aid — costs nothing when absent.
-const cliDbgOff = cliArg('--dbg-off');
+let cliDbgOff = cliArg('--dbg-off');   // `let`: the drawsweep harness walks it through the draw groups
 // `--debughud 1` starts with the developer overlays showing (F1 toggles them in a run).
 if (cliArg('--debughud') === '1') GS.debugHud = true;
+// `--terrain-lite 1`: the low tier's terrain shader (terrain_mobile.wgsl) without the rest of it.
+// The mid tier (tier.ts) draws props only this near: small ones within 25 m, big ones and tree
+// models within 45 m. On the A12Z the props were 20 of 68 ms on the title screen, 6 after this.
+const MID_SMALL_PROP_DIST = 25;
+const MID_PROP_DIST = 45;
+// Where a harness capture goes. On iOS a relative path resolves into the app bundle,
+// which is read-only, so captures go to the app's Documents folder (fetch them with
+// `xcrun devicectl device copy from --domain-type appDataContainer`).
+const APPLE_MOBILE = MOBILE && !ANDROID;
+const SHOT_DIR = (APPLE_MOBILE && process.env.HOME) ? process.env.HOME + '/Documents/' : '';
+function shotPath(name: string): string { return SHOT_DIR + name; }
+// `--perflog 1`: one `[perf]` line every two seconds on stdout (frames per second over the
+// window and its slowest frame), for a device whose screen nobody can read off: a phone or
+// tablet launched with `devicectl ... --console`. With BLOOM_MEM_STATS=1 in the environment the
+// engine prints the memory footprint once a second beside it.
+const PERF_LOG = cliArg('--perflog') === '1';
+const PERF_LOG_W = [0, 0, 0, 0]; // window start, frames in it, previous frame time, slowest ms
 // `--ragdoll 1`: creatures die by the engine's ragdoll instead of their authored clip (see
 // DEATH_RAGDOLL). A switch for looking at it, not a setting.
 const cliRagdoll = cliArg('--ragdoll') === '1';
@@ -535,7 +588,7 @@ let vfogFrame = 0;
 const VFOG_ARENA = W.lookNum('vfog', 0) > 0.5;
 let vfogLive = false;
 function vfogWanted(): boolean {
-  if (MOBILE || WEB || VFOG_FORCE === 0) return false;
+  if (SMALL_GPU || WEB || VFOG_FORCE === 0) return false;
   if (VFOG_FORCE === 1) return true;
   if (VFOG_FORCE === 2) return vfogFrame < 15 || vfogFrame >= 100;
   return VFOG_ARENA && SET.get(SET.SET_VFOG) !== 0;
@@ -546,7 +599,7 @@ function applyFogMedium(on: boolean): void {
   const shafts0 = W.lookNum('shafts', 0.18);
   setFog(W.ENV_FOG_R, W.ENV_FOG_G, W.ENV_FOG_B, on ? W.lookNum('vfog_fog_density', dens0) : dens0,
          W.lookNum('fog_height', -0.6), W.lookNum('fog_falloff', 6.0));
-  if (!MOBILE && !WEB) {
+  if (!SMALL_GPU && !WEB) {
     const vfogAmb = W.lookNum('vfog_ambient', 1.0);
     setVolumetricFog(on, W.lookNum('vfog_density', 0.012), W.lookNum('vfog_height', 0.0),
                      W.lookNum('vfog_falloff', 0.12), W.lookNum('vfog_range', 80));
@@ -638,7 +691,7 @@ if (!MOBILE) setCasStrength(0.45);
 // Render scale stays at 0.5 (TSR reconstructs to native in the TAA pass), which
 // on a 2622x1206 iPhone means a ~1311x603 internal buffer — the same
 // pixel-bound cost as a 720p desktop frame.
-if (MOBILE) {
+if (SMALL_GPU) {   // phones and the Apple TV (input.ts)
   setSsgiEnabled(false);
   setSsrEnabled(false);
   setSsaoEnabled(true);
@@ -657,7 +710,16 @@ if (MOBILE) {
 // Cut the heaviest full-scene / full-screen passes and drop the internal buffer
 // harder (TAA/TSR still reconstruct toward native). This is deliberately a
 // separate, blunt tier — the seed of the hardware-tier auto-detect (SH-056).
-if (ANDROID) {
+// Apple TV (A12): the sun's shadows stay, at a shorter reach and with the far cascades on
+// alternate frames. At full reach they were 7 ms of its frame (--harness drawsweep, 2026-11-16).
+// The mid tier (an older Apple GPU, tier.ts) takes the same shadows.
+if (TV || MID_TIER) {
+  setShadowDistance(40);
+  setShadowCascadeStagger(true);
+  setSsaoEnabled(SET.get(SET.SET_SSAO) !== 0);   // off by default there (settings.ts), 3 ms
+  setRenderScale(SET.get(SET.SET_RENDER_SCALE));   // 0.75 of a 720p surface by default (menu.ts)
+}
+if (LOW_TIER) {
   setShadowsEnabled(false);   // second full-scene pass — the biggest single win
   setSsaoEnabled(false);
   setBloomEnabled(false);
@@ -667,6 +729,10 @@ if (ANDROID) {
   // shared shader/ABI code.
   setRenderScale(0.5);
   setSunShafts(0, 0.90, 1.0, 0.95, 0.7);
+  // When the player turns sun shadows on (or the platform default does, settings.ts): a short
+  // reach and the far cascades on alternate frames keep them affordable.
+  setShadowDistance(30);
+  setShadowCascadeStagger(true);
 }
 
 // SH-054 — web (WebGPU) profile. The renderer is the same one the desktop
@@ -706,8 +772,8 @@ applyGraphicsSettings();
 // on or off from the settings (menu.ts applyLampShadows). `--lamp-shadows 0` forces them off
 // for this launch and `--lamp-shadows 1` on, for an A/B or a capture.
 const cliLampShadows = cliArg('--lamp-shadows');
-if (!MOBILE && !WEB && cliLampShadows === '0') setLocalLightShadows(0, 0);
-if (!MOBILE && !WEB && cliLampShadows === '1') setLocalLightShadows(4, 512);
+if (!SMALL_GPU && !WEB && cliLampShadows === '0') setLocalLightShadows(0, 0);
+if (!SMALL_GPU && !WEB && cliLampShadows === '1') setLocalLightShadows(4, 512);
 // --dbg-off (see the CLI block above) applies after the persisted settings
 // so it always wins for the launch it was asked for.
 if (cliDbgOff === 'shadows') setShadowsEnabled(false);
@@ -774,10 +840,17 @@ for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
 const FOLIAGE_SHADOW_MOTION = false;
 
 bootStage(BOOT_TREES);
+// The low tier loads <tree>_low.glb when the bundle has it (tools/release/lowtier_trees.py: half
+// the leaf cards, the ones facing out of the crown); the near trees were the largest share of a
+// Pixel 4a frame.
+function treeModelPath(name: string): string {
+  const low = 'assets/models/' + name + '_low.glb';
+  return (LOW_TIER && fileExists(low)) ? low : 'assets/models/' + name + '.glb';
+}
 const treeVariants = [
-  loadModel('assets/models/prop_tree.glb'),
-  loadModel('assets/models/prop_tree2.glb'),
-  loadModel('assets/models/prop_tree3.glb'),
+  loadModel(treeModelPath('prop_tree')),
+  loadModel(treeModelPath('prop_tree2')),
+  loadModel(treeModelPath('prop_tree3')),
 ];
 // SH-013 / EN-041 - the trees are plants, so let the wind bend them.
 //
@@ -817,6 +890,17 @@ const FOREST_ORD = new Array<number>(W.FOREST_COUNT);
 // Copied into flat arrays so the per-frame draw loop stays a single pass over
 // numbers (see the Perry conventions in CLAUDE.md).
 const FOREST_COUNT = W.FOREST_COUNT;
+// Android (the low tier, SH-069): how far from the camera a forest tree is drawn as a model (m).
+// A Pixel 4a pays ~0.7 ms per tree on screen; beyond this the tree is an impostor card.
+// `--tree-dist 8|12|15|20|25|30|40|0` in launch-args.txt tries another (0 = no limit).
+// Apple TV: the same, at TV_TREE_DIST. The 88 trees were 13 ms of an A12's 64 ms frame
+// (--harness drawsweep, 2026-11-16), drawn four times over (depth, colour, shadow, mirror).
+const TV_TREE_DIST = 32;
+const LOW_TIER_TREE_DIST = !LOW_TIER ? (TV ? TV_TREE_DIST : 0)
+  : cliArg('--tree-dist') === '8' ? 8 : cliArg('--tree-dist') === '12' ? 12
+  : cliArg('--tree-dist') === '15' ? 15 : cliArg('--tree-dist') === '20' ? 20
+  : cliArg('--tree-dist') === '30' ? 30 : cliArg('--tree-dist') === '40' ? 40
+  : cliArg('--tree-dist') === '0' ? 0 : 25;
 const FOREST_X = W.FOREST_X;
 const FOREST_Y = W.FOREST_Y;
 const FOREST_Z = W.FOREST_Z;
@@ -864,6 +948,11 @@ for (let i = 0; i < FOREST_COUNT; i++) {
 // cylinders — lives in src/camera.ts now, with the orbit follow it feeds.)
 
 let treePropIdx = -1;
+// 1 for every tree model (prop_tree, prop_tree2, prop_tree3) a static_mesh may use.
+const MODEL_IS_TREE = new Array<number>(W.UNIQUE_MODEL_COUNT);
+for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
+  MODEL_IS_TREE[i] = W.UNIQUE_MODELS[i].indexOf('assets/models/prop_tree') === 0 ? 1 : 0;
+}
 let terrainPropIdx = -1;
 let cratePropIdx = -1;      // the crate model doubles as the ammo cache and the field dressing
 for (let i = 0; i < W.UNIQUE_MODEL_COUNT; i++) {
@@ -915,6 +1004,13 @@ function drawContact(x: number, y: number, z: number, size: number, strength: nu
 }
 const DOFS = [0, 14];        // depth of field last sent: aperture, focus distance
 const PROP_DRAW_DIST = 46;   // metres; small drawn-only props (river stones) beyond this are skipped
+// Android (the low tier, SH-069): props are the largest share of a Pixel 4a frame (a crate is
+// 24k triangles, the house furniture 16-24k a piece), so there every prop has a draw distance:
+// small ones LOW_TIER_SMALL_PROP_DIST, big ones LOW_TIER_PROP_DIST, and the static tree models
+// (no impostor card stands in for them) LOW_TIER_STATIC_TREE_DIST.
+const LOW_TIER_SMALL_PROP_DIST = 18;
+const LOW_TIER_PROP_DIST = 30;
+const LOW_TIER_STATIC_TREE_DIST = 45;
 const MESH_POS = new Array<any>(W.MESH_COUNT);
 for (let i = 0; i < W.MESH_COUNT; i++) {
   MESH_POS[i] = vec3(W.MESH_X[i], W.MESH_Y[i], W.MESH_Z[i]);
@@ -1087,7 +1183,11 @@ function paintedHardGround(x: number, z: number): boolean {
 //   grass_dry rgb  pad   grass_mid rgb  pad   grass_deep rgb pad   dirt rgb pad
 //   noise_freq, slope_threshold, ridge_height, pale_strength
 bootStage(BOOT_TERRAIN);
-const matTerrain = compileMaterialFromFile('assets/materials/terrain.wgsl', 'opaque');
+// Android draws the ground with a lighter shader (same inputs, a fraction of the texture
+// taps: assets/materials/terrain_mobile.wgsl says what it leaves out). Every other platform
+// keeps terrain.wgsl.
+const matTerrain = compileMaterialFromFile(
+  (LOW_TIER || MID_TIER) ? 'assets/materials/terrain_mobile.wgsl' : 'assets/materials/terrain.wgsl', 'opaque');
 
 // SH-009 — four splat layers + their normals, as texture ARRAYS. The layer
 // order IS the ABI (terrain.wgsl indexes by it); it matches the emit order in
@@ -1471,7 +1571,7 @@ WPN.initWeapons();
 
 
 initEnvironment();
-initFlora();
+initFlora(LOW_TIER_TREE_DIST);
 
 // SH-051 — build the vertical-navigation tables (walkable building boxes + the
 // stair flights) from the world data. Must run before the director's first
@@ -1528,6 +1628,13 @@ let dbgShadow = true;
 // Called once at startup — these are cheap, always-on stylistic passes.
 setVignette(W.lookNum('vignette', 0.4), 0.55);    // darken frame edges
 setFilmGrain(0.018);       // barely-there noise — 0.05+ reads as heavy speckle
+// Android (the low tier, SH-069): the final composite runs at the screen's full resolution, and
+// on a Pixel 4a it cost 10 ms; the sharpen alone is five taps a pixel. Off there.
+if (LOW_TIER) {
+  setSharpenStrength(0);
+  setFilmGrain(0);
+  setChromaticAberration(0);
+}
                            // over sky/shadow areas (phase-0 calibration).
 
 bootStage(BOOT_SCENE);
@@ -1694,7 +1801,131 @@ const P2 = [-1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 // it could see, and holds the trigger. Health is held full. What it proves is flow, not feel:
 // that waves of hunting creatures find the player, fight, die and the arena clears, with the
 // larger pool, in a few minutes, without a stall or a crash. MUST be false in shipped builds.
+// STORESHOT (App Store pictures, store/): a real run (the HUD shows a real wave, score and
+// ammo), staged for the camera. Each take turns the player down the most open line of sight
+// from where they stand (no tree, wall or prop within a few metres of it, no river), stands
+// the wave's live creatures 7-11 m along it (the boss at 13), aware and charging, and holds the trigger; it
+// captures the moment with the HUD (shooter_store_NN_hud.png) and two frames later without it
+// (shooter_store_NN_clean.png). Every other take is shoulder-aimed. `--wave N` (2..10) and
+// `--weapon N` (1..6) as for P2BOT; `--shots 8|16|24|32` (default 16) takes, then it ends.
+const STORESHOT = HARNESS === 'storeshot';
 const P2BOT = HARNESS === 'p2bot';
+//   0 takes done  1 frame the current take started (-1 none)  2 1 = shoulder-aim this take
+//   3 take limit  4 yaw of the take  5 weapon asked for (-1 none)  6 lines tried so far
+const SS = [0, -1, 0, cliArg('--shots') === '8' ? 8 : cliArg('--shots') === '24' ? 24
+  : cliArg('--shots') === '32' ? 32 : 16, 0, -1, 0];
+let storeHideHud = false;
+/// How open the line from (x, z) along yaw is, 2.5..22 m out: higher is better.
+function storeLineScore(x: number, z: number, yaw: number): number {
+  const fx = Math.sin(yaw), fz = -Math.cos(yaw);
+  let score = 0;
+  for (let d = 2.5; d <= 22; d += 1.5) {
+    const px = x + fx * d, pz = z + fz * d;
+    let blocked = false;
+    for (let i = 0; i < FOREST_COUNT && !blocked; i++) {
+      if (Math.hypot(FOREST_X[i] - px, FOREST_Z[i] - pz) < 2.6) blocked = true;
+    }
+    for (let i = 0; i < W.MESH_COUNT && !blocked; i++) {
+      if (Math.hypot(W.MESH_X[i] - px, W.MESH_Z[i] - pz) < 2.2) blocked = true;
+    }
+    for (let i = 0; i < W.COLLIDER_COUNT && !blocked; i++) {
+      if (Math.abs(W.COLLIDER_X[i] - px) < W.COLLIDER_HALF_X[i] + 1.5
+          && Math.abs(W.COLLIDER_Z[i] - pz) < W.COLLIDER_HALF_Z[i] + 1.5) blocked = true;
+    }
+    if (wadingAt(px, terrainHeightAt(px, pz), pz)) blocked = true;
+    if (blocked) return score;
+    score = score + 1;
+  }
+  return score + 10;
+}
+function storeDrive(): boolean {
+  const f = testFrame;
+  if (f === 20 && GS.gameState === 0) {
+    startRun(); cursorLocked = true;
+    for (let n = 2; n <= 10; n++) if (cliArg('--wave') === '' + n) DIR.waveIdx = n - 1;
+    // a score that belongs to the waves skipped
+    if (DIR.waveIdx > 0) SCORE.addPoints(DIR.waveIdx * 640 + 135);
+    for (let n = 1; n <= WPN.WEAPON_COUNT; n++) {
+      if (cliArg('--weapon') === '' + n) { WPN.unlock(n - 1); WPN.selectWeapon(n - 1); SS[5] = n - 1; }
+    }
+  }
+  if (GS.gameState !== 1) return false;
+  if (SS[5] >= 0 && WPN.currentWeapon() !== SS[5]) WPN.selectWeapon(SS[5]);
+  GS.playerHP = PLAYER_HP_MAX * 0.8; GS.gameOver = false;
+  GS.damageFlashT = 0; GS.lastHitT = 0;
+  WPN.addAmmo(WPN.currentWeapon(), 1);
+  const pp = playerPosition();
+  if (SS[1] < 0) {
+    if (f < 200) return false;
+    let alive = 0;
+    for (let i = 0; i < MAX_ENEMIES; i++) if (enAlive[i] === 1 && enDying[i] === 0) alive = alive + 1;
+    if (alive < 3 && !(BOSS[0] > 0 && BOSS[7] >= 0 && enAlive[BOSS[7]] === 1)) return false;
+    // An objective wave is framed on its objective: inside the hold ring, or nine metres from
+    // a standing nest (on the side of the arena's middle), facing it.
+    let px = pp.x, py = pp.y, pz = pp.z, nestYaw = -100;
+    if (OBJ.type === 1 && !OBJ.done) {
+      px = W.HOLD_SITE[0] + 2.5; pz = W.HOLD_SITE[2] + 2.5; py = terrainHeightAt(px, pz) + 1.2;
+      movePlayerTo(px, py, pz);
+    }
+    if (OBJ.type === 2 && !OBJ.done) {
+      let ni = -1;
+      for (let k = 0; k < W.NEST_COUNT && ni < 0; k++) {
+        const j = (k + SS[0]) % W.NEST_COUNT;
+        if (nestStanding(j)) ni = j;
+      }
+      if (ni >= 0) {
+        const nl = Math.hypot(W.NEST_X[ni], W.NEST_Z[ni]);
+        const ox = nl > 0.1 ? -W.NEST_X[ni] / nl * 9.0 : 9.0;
+        const oz = nl > 0.1 ? -W.NEST_Z[ni] / nl * 9.0 : 0;
+        px = W.NEST_X[ni] + ox; pz = W.NEST_Z[ni] + oz; py = terrainHeightAt(px, pz) + 1.2;
+        movePlayerTo(px, py, pz);
+        nestYaw = Math.atan2(-ox, oz);
+      }
+    }
+    // otherwise the most open line, starting the search somewhere new each take
+    let bestYaw = 0, bestS = -1;
+    for (let k = 0; k < 24 && nestYaw < -50; k++) {
+      const yaw = ((k * 7 + SS[6] * 5) % 24) / 24 * Math.PI * 2;
+      const sc = storeLineScore(px, pz, yaw);
+      if (sc > bestS) { bestS = sc; bestYaw = yaw; }
+    }
+    if (nestYaw > -50) { bestYaw = nestYaw; bestS = 99; }
+    SS[6] = SS[6] + 1;
+    SS[4] = bestYaw; SS[1] = f; SS[2] = (SS[0] % 2) === 1 ? 1 : 0;
+    const fx = Math.sin(bestYaw), fz = -Math.cos(bestYaw);
+    let n = 0;
+    for (let i = 0; i < MAX_ENEMIES && n < 5; i++) {
+      if (enAlive[i] === 0 || enDying[i] !== 0) continue;
+      const boss = enKind[i] === 7;
+      const d = boss ? 13 : 7.5 + (n % 3) * 1.8;
+      const side = boss ? 0 : (n === 0 ? -1.6 : n === 1 ? 2.0 : n === 2 ? -3.4 : n === 3 ? 3.6 : 0.4);
+      const x = px + fx * d - fz * side, z = pz + fz * d + fx * side;
+      const hp = enHP[i];
+      p2Place(i, x, z, Math.atan2(-fx, fz));
+      enHP[i] = hp;
+      enAware[i] = 1; enSearchT[i] = 0; enReactT[i] = 0;
+      enLastX[i] = px; enLastY[i] = py; enLastZ[i] = pz;
+      n = n + 1;
+    }
+    console.log('STORESHOT take ' + SS[0] + ' yaw=' + bestYaw.toFixed(2) + ' open=' + bestS + ' placed=' + n);
+  }
+  const t = f - SS[1];
+  CAM[0] = SS[4];
+  CAM[1] = SS[2] === 1 ? 0.05 : 0.14;
+  const nm = 'shooter_store_' + (SS[0] < 10 ? '0' : '') + SS[0];
+  if (t === 55) takeScreenshot(nm + '_hud.png');
+  if (t === 56) storeHideHud = true;
+  if (t === 58) takeScreenshot(nm + '_clean.png');
+  if (t === 60) {
+    storeHideHud = false;
+    console.log('STORESHOT ' + nm + ' wave=' + (DIR.waveIdx + 1) + ' score=' + SCORE.score());
+  }
+  if (t === 110) {
+    SS[1] = -1; SS[0] = SS[0] + 1;
+    if (SS[0] >= SS[3]) { console.log('STORESHOT done'); aitestDone = true; }
+  }
+  return t > 22;
+}
 //   0 last wave index logged  1 most alive at once  2 most mid-attack at once  3 hits taken
 //   4 HP last frame
 //   5 nest to be put beside this frame (-1 none)   6 last boss picture taken (phase * 10 + special)
@@ -1943,6 +2174,17 @@ let grassAbT0 = 0;
 const grassAbSum = [0, 0];
 const grassAbMin = [9999, 9999];
 const grassAbMax = [0, 0];
+// DRAWSWEEP: what each group of draws costs on the device in hand, in one run, as GPU time
+// from the profiler (wall-clock frame times snap to the display's refresh on a phone or an
+// Apple TV and cannot tell 3 ms from nothing). Title screen, fixed camera, the platform's own
+// profile. Each stage leaves one thing out for DRAWSWEEP_FRAMES frames and prints
+// `DRAWSWEEP <what is left out> gpu_ms cpu_ms wall_ms`; the difference to `none` is its price.
+const DRAWSWEEP = HARNESS === 'drawsweep';
+const DRAWSWEEP_FRAMES = 135;   // the profiler keeps 120 frames: the average is all this stage
+const DRAWSWEEP_NAMES = ['none', 'grass', 'flora', 'trees', 'stattrees', 'props', 'house', 'terrain',
+  'water', 'shadows', 'ssao', 'bloom', 'taa', 'scale035', 'scale025', 'none'];
+let drawSweepT0 = 0;
+let drawSweepDone = false;
 const FPSPROBE_SETTLE = 240;   // frames to let boot + TAA + the GI clipmap settle
 const FPSPROBE_MEASURE = 240;  // frames in the measured window
 let fpsProbeT0 = 0;
@@ -1993,6 +2235,10 @@ let perfMsB = 0;
 let perfMsC = 0;
 let perfMsD = 0;
 let perfMsE = 0;
+// Phones and tablets: the phase times summed over a perftest window, printed as one PERFPH line
+// with it (begin = loop-around incl. present, A..D as above, end = E; [5] counts the frames), to
+// see where a phone's frame goes.
+const PERF_PH = [0, 0, 0, 0, 0, 0, 0];
 let perfPrevAlive = 0;
 
 // Scripted kill for mode 1 — mirrors the rifle-kill death path exactly so
@@ -2495,6 +2741,24 @@ function gameFrame(_hostDt: number): void {
   // The self-test harnesses end the run by closing the window (native: the
   // runGame loop sees windowShouldClose and exits; web: the glue stops rAF).
   if (aitestDone || animDbgDone) { closeWindow(); return; }
+  if (PERF_LOG) {
+    const t = getTime();
+    if (PERF_LOG_W[2] > 0) {
+      const ms = (t - PERF_LOG_W[2]) * 1000;
+      if (ms > PERF_LOG_W[3]) PERF_LOG_W[3] = ms;
+      PERF_LOG_W[1] = PERF_LOG_W[1] + 1;
+    } else {
+      PERF_LOG_W[0] = t;
+    }
+    PERF_LOG_W[2] = t;
+    if (t - PERF_LOG_W[0] >= 2) {
+      console.log('[perf] fps ' + (PERF_LOG_W[1] / (t - PERF_LOG_W[0])).toFixed(1)
+        + ' worst ' + PERF_LOG_W[3].toFixed(0) + ' ms');
+      PERF_LOG_W[0] = t;
+      PERF_LOG_W[1] = 0;
+      PERF_LOG_W[3] = 0;
+    }
+  }
   if (PERFTEST) {
     const nowTop = getTime();
     perfMsBegin = perfPrevEnd > 0 ? (nowTop - perfPrevEnd) * 1000 : 0;
@@ -2674,6 +2938,34 @@ function gameFrame(_hostDt: number): void {
       fpsProbeDone = true;
       closeWindow();
       return;
+    }
+  }
+
+  if (DRAWSWEEP && !drawSweepDone) {
+    if (testFrame === 2) setProfilerEnabled(true);
+    const sf = testFrame - FPSPROBE_SETTLE;
+    if (sf >= 0) {
+      const st = Math.floor(sf / DRAWSWEEP_FRAMES), ph = sf % DRAWSWEEP_FRAMES;
+      if (ph === 0 && st > 0) {
+        const hist = getProfilerFrameHistory();
+        let g = 0, c = 0;
+        for (let i = 0; i < hist.length; i++) { g = g + hist[i].gpuUs; c = c + hist[i].cpuUs; }
+        const hn = hist.length > 0 ? hist.length : 1;
+        console.log('DRAWSWEEP ' + DRAWSWEEP_NAMES[st - 1] + ' gpu_ms=' + (g / hn / 1000).toFixed(2)
+          + ' cpu_ms=' + (c / hn / 1000).toFixed(2)
+          + ' wall_ms=' + (1000 * (getTime() - drawSweepT0) / DRAWSWEEP_FRAMES).toFixed(1));
+      }
+      if (ph === 0) {
+        drawSweepT0 = getTime();
+        if (st >= DRAWSWEEP_NAMES.length) { perfDumpProfiler(); console.log('DRAWSWEEP done'); drawSweepDone = true; closeWindow(); return; }
+        const what = DRAWSWEEP_NAMES[st];
+        cliDbgOff = what;
+        setShadowsEnabled(what !== 'shadows');
+        setSsaoEnabled(what !== 'ssao');
+        setBloomEnabled(what !== 'bloom');
+        setTaaEnabled(what !== 'taa');
+        setRenderScale(what === 'scale035' ? 0.35 : (what === 'scale025' ? 0.25 : SET.get(SET.SET_RENDER_SCALE)));
+      }
     }
   }
 
@@ -2955,7 +3247,7 @@ function gameFrame(_hostDt: number): void {
   if (GS.gameState === 1 && (GS.gameOver || DIR.gameWon)) {
     if (!menuOpen() && endRunT >= 0) {
       endRunT = endRunT + dtReal;
-      if (endRunT > (DIR.gameWon ? 3.4 : 2.3) && !UISHOT && !P2BOT && !P2TEST && !PLAYERSHOT && !COMBATSHOT) {
+      if (endRunT > (DIR.gameWon ? 3.4 : 2.3) && !UISHOT && !P2BOT && !STORESHOT && !P2TEST && !PLAYERSHOT && !COMBATSHOT) {
         setResultsTime(GS.runElapsed);
         openResults(DIR.gameWon, DIR.waveIdx + 1, wavePlan.length,
                     SCORE.score() > 0 && SCORE.score() >= SET.bestScore(W.ARENA_INDEX));
@@ -3051,7 +3343,7 @@ function gameFrame(_hostDt: number): void {
       takeScreenshot('tools/.testout/eng_w' + perfWindows
         + '_f' + perfStageFrame + '.png');
     }
-    if (perfWindows === 25 && perfStageFrame === 1) setProfilerEnabled(true);
+    if (perfWindows === (ANDROID ? 2 : 25) && perfStageFrame === 1) setProfilerEnabled(true);
     perfStageFrame = perfStageFrame + 1;
     if (perfStageFrame === 1) { perfT0 = getTime(); perfDtMax = 0; }
     if (perfStageFrame > 1 && dt > perfDtMax) perfDtMax = dt;
@@ -3063,9 +3355,16 @@ function gameFrame(_hostDt: number): void {
         + ' max_ms=' + (perfDtMax * 1000).toFixed(1)
         + ' alive=' + countAlive()
         + ' wave=' + DIR.waveIdx);
+      if (MOBILE && PERF_PH[5] > 0) {
+        const k = 1 / PERF_PH[5];
+        console.log('PERFPH begin=' + (PERF_PH[0] * k).toFixed(1) + ' sim=' + (PERF_PH[1] * k).toFixed(1)
+          + ' logic=' + (PERF_PH[2] * k).toFixed(1) + ' draw3d=' + (PERF_PH[3] * k).toFixed(1)
+          + ' hud=' + (PERF_PH[4] * k).toFixed(1) + ' end=' + (PERF_PH[6] * k).toFixed(1));
+        for (let q = 0; q < 7; q++) PERF_PH[q] = 0;
+      }
       perfStageFrame = 0;
       perfWindows = perfWindows + 1;
-      if (perfWindows === 35) {
+      if (perfWindows === (ANDROID ? 6 : 35)) {   // a phone runs each window ~10x slower
         perfDumpProfiler();
         perfDone = true;
       }
@@ -3078,6 +3377,7 @@ function gameFrame(_hostDt: number): void {
   // COMBATSHOT: shoulder-aim for the last stretch, so the final capture is a close-up of the
   // player, the weapon in hand and whatever is being shot (the orbit camera pulls in to 2.6 m).
   if (COMBATSHOT && testFrame >= 160) input.aimDown = true;
+  if (STORESHOT && SS[2] === 1 && SS[1] >= 0) input.aimDown = true;
   // LOCOPROBE (SH-048) — force a strafe and log the locomotion tier from the
   // REAL keys (Shift / C are left untouched, so a synthetic hold changes them).
   // Logs LAST frame's player state, which is what a 15-frame cadence wants.
@@ -3458,6 +3758,10 @@ function gameFrame(_hostDt: number): void {
   let forceFire = false;
   if (P2TEST) forceFire = p2Late();
   if (P2BOT) forceFire = p2Bot();
+  if (STORESHOT) {
+    forceFire = storeDrive();
+    if (forceFire) input.fireDown = true;      // the chaingun spools only on a held trigger
+  }
   if (CROWDSHOT) {
     if (testFrame === 20 && GS.gameState === 0) {
       startRun();
@@ -3536,7 +3840,7 @@ function gameFrame(_hostDt: number): void {
     }
     // Captures (macOS/Linux: takeScreenshot works; on Windows use the external shot tools).
     if (testFrame === 70 || testFrame === 110 || testFrame === 150 || testFrame === 230) {
-      takeScreenshot('shooter_combat_f' + testFrame + '.png');
+      takeScreenshot(shotPath('shooter_combat_f' + testFrame + '.png'));
     }
     if (testFrame === 260) {
       console.log('COMBATSHOT done  score=' + SCORE.score()
@@ -3640,7 +3944,7 @@ function gameFrame(_hostDt: number): void {
         }
       }
       if (ph === 44) console.log('SCENEFPS view=' + vi + ' fps=' + getFPS().toFixed(1));
-      if (ph === 45) takeScreenshot('shooter_scene_' + vi + '.png');
+      if (ph === 45) takeScreenshot(shotPath('shooter_scene_' + vi + '.png'));
     }
     if (testFrame >= 30 && vi >= nViews) {
       console.log('SCENESHOT done fps=' + getFPS().toFixed(1));
@@ -3777,7 +4081,7 @@ function gameFrame(_hostDt: number): void {
   // 1800-cube tessellated grid. Shader handles Gerstner-wave
   // displacement, per-vertex normal, Fresnel-blended refraction (from
   // the scene-colour snapshot), sky reflection, and foam on crests.
-  if (ENV.matWater > 0) {
+  if (ENV.matWater > 0 && cliDbgOff !== 'water') {
     drawMeshWithMaterial(ENV.matWater, ENV.matWaterMesh,
       vec3(ENV.WATER_CX, ENV.WATER_Y, ENV.WATER_CZ), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
@@ -3803,7 +4107,7 @@ function gameFrame(_hostDt: number): void {
   // times against the per-instance pos/rot/scale/tint buffer. Wind
   // sway reads frame.wind (EN-013); cascade shadows come through
   // sample_sun_shadow (EN-016) — both folded into the material.
-  if (ENV.matGrass > 0 && ENV.matGrassInstances > 0) {
+  if (ENV.matGrass > 0 && ENV.matGrassInstances > 0 && cliDbgOff !== 'grass') {
     drawMeshWithMaterialInstanced(ENV.matGrass, ENV.matGrassMesh, 0,
       ENV.matGrassInstances, ENV.GRASS_INSTANCE_COUNT);
   }
@@ -3813,7 +4117,7 @@ function gameFrame(_hostDt: number): void {
   // category-1 boxes; the noise + horizontal-band material in
   // the fragment turns them from flat beige into something that
   // reads as plastered stone.
-  if (ENV.matBuilding > 0) {
+  if (ENV.matBuilding > 0 && cliDbgOff !== 'house') {
     drawMeshWithMaterial(ENV.matBuilding, ENV.matBuildingMesh,
       vec3(0, 0, 0), 1.0,
       { r: 255, g: 255, b: 255, a: 255 });
@@ -3855,13 +4159,16 @@ function gameFrame(_hostDt: number): void {
   }
   for (let n = 0; n < FOREST_COUNT && cliDbgOff !== 'trees'; n++) {
     const i = FOREST_ORD[n];
+    // Android (low tier): real trees only out to LOW_TIER_TREE_DIST; past it the impostor cards
+    // stand in (flora.ts). The order is near to far, so the first tree past it ends the loop.
+    if (LOW_TIER_TREE_DIST > 0 && FOREST_D[i] > LOW_TIER_TREE_DIST * LOW_TIER_TREE_DIST) break;
     drawModelRotated(treeVariants[FOREST_VAR[i]], FOREST_POS[i],
                      FOREST_SCALE[i], FOREST_YAW[i], FOREST_TINTO[i]);
   }
   // Static meshes — either drawModel for real GLBs, or coloured drawCube
   // for placeholder _gizmo_box.glb entries. MESH_CATEGORY drives the cube
   // tint (0 generic / 1 building / 2 terrain / 3 prop).
-  for (let i = 0; i < W.MESH_COUNT; i++) {
+  for (let i = 0; i < W.MESH_COUNT && cliDbgOff !== 'props'; i++) {
     const mi = W.MESH_MODEL_IDX[i];
     // Buildings (category 1) are rendered through the baked ENV.matBuilding
     // mesh below — skip them here to avoid a coplanar double-draw. This
@@ -3873,10 +4180,12 @@ function gameFrame(_hostDt: number): void {
     // flicker on the building).
     if (W.MESH_CATEGORY[i] === 1 && ENV.matBuilding > 0) continue;
     if (W.MODEL_IS_BOX[mi] === 1) {
+      if (cliDbgOff === 'cubes') continue;
       drawCube(MESH_POS[i],
                W.MESH_COLLIDER_HX[i] * 2, W.MESH_COLLIDER_HY[i] * 2, W.MESH_COLLIDER_HZ[i] * 2,
                MESH_COLS[W.MESH_CATEGORY[i]]);
     } else if (mi === terrainPropIdx && matTerrain > 0) {
+      if (cliDbgOff === 'terrain') continue;
       // Tier 2a — terrain via the colour-variation material. The
       // material runs in the opaque pass; passes Lambert against
       // PerView's directional sun + ambient, then writes both
@@ -3884,6 +4193,11 @@ function gameFrame(_hostDt: number): void {
       drawMeshWithMaterial(matTerrain, meshModelHandles[mi] as any,
                 MESH_POS[i], W.MESH_SCALE[i], WHITE);
     } else if (mi === treePropIdx) {
+      if (cliDbgOff === 'stattrees') continue;
+      if (LOW_TIER) {
+        const tdx = W.MESH_X[i] - CAM[2], tdz = W.MESH_Z[i] - CAM[4];
+        if (tdx * tdx + tdz * tdz > LOW_TIER_STATIC_TREE_DIST * LOW_TIER_STATIC_TREE_DIST) continue;
+      }
       // World-authored trees — variant + yaw + scale jitter from a
       // stable index hash so the same world always lays out the same.
       const v = treeVariants[i % 3];
@@ -3898,6 +4212,17 @@ function gameFrame(_hostDt: number): void {
       const pd2 = pdx * pdx + pdz * pdz;
       const big = W.MESH_COLLIDER_HX[i] + W.MESH_COLLIDER_HZ[i] > 1.2 || W.MESH_COLLIDER[i] === 1;
       if (!big && pd2 > PROP_DRAW_DIST * PROP_DRAW_DIST) continue;
+      if (LOW_TIER) {
+        const lim = MODEL_IS_TREE[mi] === 1 ? LOW_TIER_STATIC_TREE_DIST
+          : big ? LOW_TIER_PROP_DIST : LOW_TIER_SMALL_PROP_DIST;
+        if (pd2 > lim * lim) continue;
+      }
+      if (MID_TIER) {
+        const lim = (big || MODEL_IS_TREE[mi] === 1) ? MID_PROP_DIST : MID_SMALL_PROP_DIST;
+        if (pd2 > lim * lim) continue;
+      }
+      if (cliDbgOff === 'smallprops' && !big) continue;
+      if (cliDbgOff === 'bigprops' && big) continue;
       if (pd2 > 36 && pdx * (CAM[5] - CAM[2]) + pdz * (CAM[7] - CAM[4]) < -0.35 * Math.sqrt(pd2) *
           Math.sqrt((CAM[5] - CAM[2]) * (CAM[5] - CAM[2]) + (CAM[7] - CAM[4]) * (CAM[7] - CAM[4]))) continue;
       if (W.MESH_YAW[i] > -999) {
@@ -4555,8 +4880,10 @@ function gameFrame(_hostDt: number): void {
   // The in-run HUD - crosshair/spread, hit marker, damage vignette + arc,
   // HP + dodge, score + combo, render-toggle status, ammo/reload/charge,
   // wave banner + report card, unlock banner - hud.ts (gated on a run inside).
-  drawHud(sw, sh, input.padActive || uiShotPad, dbgSsgi, dbgSsao, dbgSsr, dbgShadow,
-          ptSupported, SET.get(SET.SET_PT));
+  if (!storeHideHud) {
+    drawHud(sw, sh, input.padActive || uiShotPad, dbgSsgi, dbgSsao, dbgSsr, dbgShadow,
+            ptSupported, SET.get(SET.SET_PT));
+  }
 
   // (The title screen used to live here: a wordmark and "press any key". It is
   // now the MAIN MENU — same live-world backdrop, but with somewhere to go. It
@@ -4659,6 +4986,8 @@ function gameFrame(_hostDt: number): void {
   // The touch controls are drawn *outside* the scaled camera, in raw pixels —
   // they have to land on exactly the coordinates input.ts hit-tests, and it
   // reads touches in the pixel space the platform delivers them in.
+  // Buttons only in a run (also what the next frame's touch read hit-tests).
+  setTouchControlsActive(GS.gameState === 1 && !GS.gameOver && !DIR.gameWon && !menuOpen());
   drawTouchControls();
 
   // (There used to be an `if (isKeyPressed(Key.ESCAPE)) break;` here — a
@@ -4678,6 +5007,10 @@ function gameFrame(_hostDt: number): void {
     perfMsC = (perfTC - perfTB) * 1000;
     perfMsD = (perfTD - perfTC) * 1000;
     perfMsE = (perfPrevEnd - perfTD) * 1000;
+    if (MOBILE) {
+      PERF_PH[0] += perfMsBegin; PERF_PH[1] += perfMsA; PERF_PH[2] += perfMsB;
+      PERF_PH[3] += perfMsC; PERF_PH[4] += perfMsD; PERF_PH[5] += 1; PERF_PH[6] += perfMsE;
+    }
   }
   if (PERFTEST && perfDone) { closeWindow(); return; }
 }

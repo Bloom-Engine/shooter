@@ -1,0 +1,135 @@
+{
+ "_comment": "Marketing caption per store screenshot, by language then by shot id (the raw capture is store/screenshots/raw/<shot>.png). Short: one line on a phone, at most two. frame_screenshots.py draws them; the order of SHOTS there is the order in the store.",
+ "captions": {
+  "en": {
+   "01-fight": "Hold the line against the swarm",
+   "02-boss": "Bring down the Matriarch",
+   "03-arenas": "Five arenas, fifty waves",
+   "04-night": "From misty dawn to deep night",
+   "05-weapons": "Six weapons, every move you need",
+   "06-objective": "Hold ground, destroy the nests",
+   "07-armory": "Earn credits, upgrade your guns",
+   "08-world": "A world built to look real"
+  },
+  "de": {
+   "01-fight": "Halte den Schwarm auf",
+   "02-boss": "Bezwinge die Matriarch",
+   "03-arenas": "Fünf Arenen, fünfzig Wellen",
+   "04-night": "Vom Morgennebel zur Nacht",
+   "05-weapons": "Sechs Waffen, jede Bewegung",
+   "06-objective": "Halten und Nester zerstören",
+   "07-armory": "Credits verdienen, aufrüsten",
+   "08-world": "Eine Welt, die echt wirkt"
+  },
+  "es": {
+   "01-fight": "Resiste contra el enjambre",
+   "02-boss": "Derriba a la Matriarch",
+   "03-arenas": "Cinco arenas, 50 oleadas",
+   "04-night": "De la niebla a la noche",
+   "05-weapons": "Seis armas, cada movimiento",
+   "06-objective": "Resiste y destruye los nidos",
+   "07-armory": "Gana créditos, mejora armas",
+   "08-world": "Un mundo que parece real"
+  },
+  "fr": {
+   "01-fight": "Tenez bon face à l'essaim",
+   "02-boss": "Abattez la Matriarch",
+   "03-arenas": "Cinq arènes, 50 vagues",
+   "04-night": "De l'aube brumeuse à la nuit",
+   "05-weapons": "Six armes, tous les gestes",
+   "06-objective": "Défendez, brûlez les nids",
+   "07-armory": "Crédits et armes améliorées",
+   "08-world": "Un monde qui paraît vrai"
+  },
+  "it": {
+   "01-fight": "Resisti contro lo sciame",
+   "02-boss": "Abbatti la Matriarch",
+   "03-arenas": "Cinque arene, 50 ondate",
+   "04-night": "Dalla nebbia alla notte",
+   "05-weapons": "Sei armi, ogni mossa",
+   "06-objective": "Difendi e brucia i nidi",
+   "07-armory": "Crediti e armi potenziate",
+   "08-world": "Un mondo che sembra vero"
+  },
+  "ja": {
+   "01-fight": "群れから防衛線を守れ",
+   "02-boss": "Matriarch を倒せ",
+   "03-arenas": "5つのアリーナ、50ウェーブ",
+   "04-night": "霧の朝から深い夜まで",
+   "05-weapons": "6つの武器、自在な動き",
+   "06-objective": "拠点を守り、巣を潰せ",
+   "07-armory": "稼いで武器を強化",
+   "08-world": "リアルに作られた世界"
+  },
+  "ko": {
+   "01-fight": "무리를 막아 내라",
+   "02-boss": "Matriarch 처치",
+   "03-arenas": "아레나 5개, 웨이브 50개",
+   "04-night": "새벽 안개부터 깊은 밤까지",
+   "05-weapons": "여섯 무기, 모든 움직임",
+   "06-objective": "거점 사수, 둥지 파괴",
+   "07-armory": "크레딧으로 무기 강화",
+   "08-world": "실감 나게 만든 세계"
+  },
+  "pt": {
+   "01-fight": "Resista ao enxame",
+   "02-boss": "Derrube a Matriarch",
+   "03-arenas": "Cinco arenas, 50 ondas",
+   "04-night": "Da névoa da manhã à noite",
+   "05-weapons": "Seis armas, todos os golpes",
+   "06-objective": "Defenda e queime os ninhos",
+   "07-armory": "Créditos e armas melhores",
+   "08-world": "Um mundo que parece real"
+  },
+  "th": {
+   "01-fight": "ยืนหยัดต้านฝูงเอเลี่ยน",
+   "02-boss": "โค่น Matriarch ให้ได้",
+   "03-arenas": "5 อารีน่า 50 ระลอก",
+   "04-night": "จากเช้าหมอกจนถึงค่ำคืน",
+   "05-weapons": "อาวุธ 6 แบบ ครบทุกท่วงท่า",
+   "06-objective": "ยึดพื้นที่ ทำลายรัง",
+   "07-armory": "สะสมเครดิต อัปเกรดปืน",
+   "08-world": "โลกที่สร้างให้สมจริง"
+  },
+  "tr": {
+   "01-fight": "Sürüye karşı hattı koru",
+   "02-boss": "Matriarch'ı alaşağı et",
+   "03-arenas": "Beş arena, elli dalga",
+   "04-night": "Sisli şafaktan gece yarısına",
+   "05-weapons": "Altı silah, her hareket",
+   "06-objective": "Mevziyi tut, yuvaları yak",
+   "07-armory": "Kredi kazan, silah geliştir",
+   "08-world": "Gerçekçi bir dünya"
+  },
+  "vi": {
+   "01-fight": "Giữ vững trước bầy quái",
+   "02-boss": "Hạ gục Matriarch",
+   "03-arenas": "Năm đấu trường, 50 đợt",
+   "04-night": "Từ sương sớm đến đêm khuya",
+   "05-weapons": "Sáu vũ khí, đủ mọi động tác",
+   "06-objective": "Giữ vị trí, phá tổ quái",
+   "07-armory": "Kiếm tín dụng, nâng cấp súng",
+   "08-world": "Thế giới chân thực"
+  },
+  "id": {
+   "01-fight": "Tahan serbuan kawanan",
+   "02-boss": "Tumbangkan Matriarch",
+   "03-arenas": "Lima arena, 50 gelombang",
+   "04-night": "Dari pagi berkabut ke malam",
+   "05-weapons": "Enam senjata, semua gerakan",
+   "06-objective": "Bertahan, hancurkan sarang",
+   "07-armory": "Kredit untuk upgrade senjata",
+   "08-world": "Dunia yang terasa nyata"
+  },
+  "zh": {
+   "01-fight": "坚守防线，抵御虫群",
+   "02-boss": "击倒 Matriarch",
+   "03-arenas": "五座竞技场，五十波敌人",
+   "04-night": "从雾晨到深夜",
+   "05-weapons": "六种武器，身法自如",
+   "06-objective": "坚守阵地，摧毁巢穴",
+   "07-armory": "赚取信用点，升级武器",
+   "08-world": "逼真打造的世界"
+  }
+ }
+}

@@ -59,6 +59,12 @@ depends on `../engine`, which lies outside the repo.
 images: `icons/icon-src.png` (square) and `icons/keyart-src.png` (wide). Their prompts are in
 `art/style/keyart/`; regenerate with `tools/gen/codex_image.sh`, then re-run `make_icons.py`.
 
+## Store listing
+
+The App Store page (copy in 13 languages, screenshots, age rating, price, review notes) is
+`store/`: see `store/README.md`. The store versions are 1.0.0, so the first release build is
+`release.py --bump major`.
+
 ## Perry patches
 
 The Perry checkout in `PERRY_HOME` is release 0.5.1665 plus two uncommitted runtime patches:

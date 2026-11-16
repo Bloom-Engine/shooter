@@ -22,7 +22,8 @@ import {
 } from 'bloom/models';
 import * as W from './world-runtime';
 import { terrainHeightAt } from './terrain';
-import { ANDROID, MOBILE } from './input';
+import { SMALL_GPU } from './input';
+import { lowTier } from './tier';
 
 const SLICE_FERN = 0;
 const SLICE_SHRUB = 1;
@@ -285,6 +286,19 @@ function scAdd(x: number, y: number, z: number, scale: number, tr: number, tg: n
   SCN[0] = SCN[0] + 1;
 }
 
+/// scAdd with a fixed yaw and a tint alpha (card_instanced_mobile.wgsl reads an alpha above 1
+/// as the distance inside which the card is not drawn).
+function scAddA(x: number, y: number, z: number, yaw: number, scale: number,
+                tr: number, tg: number, tb: number, ta: number): void {
+  if (SCN[0] >= SC_MAX) return;
+  let o = SCN[0] * 9;
+  SC[o++] = x; SC[o++] = y; SC[o++] = z;
+  SC[o++] = yaw;
+  SC[o++] = scale;
+  SC[o++] = tr; SC[o++] = tg; SC[o++] = tb; SC[o++] = ta;
+  SCN[0] = SCN[0] + 1;
+}
+
 function scUpload(kind: number): void {
   const n = SCN[0];
   FL_COUNT[kind] = n;
@@ -295,10 +309,13 @@ function scUpload(kind: number): void {
   SCN[0] = 0;
 }
 
-export function initFlora(): void {
+/// `nearTreeDist` > 0 (low tier, main.ts LOW_TIER_TREE_DIST): every forest tree also gets an
+/// impostor card, which the Android card shader hides inside that distance, where the model is.
+export function initFlora(nearTreeDist: number): void {
   const src = readFile('assets/materials/card_instanced.wgsl');
   const matNear = compileMaterialInstanced(src);
-  const matFar = compileMaterialInstanced(src);
+  const matFar = compileMaterialInstanced(nearTreeDist > 0
+    ? readFile('assets/materials/card_instanced_mobile.wgsl') : src);
   if (matNear <= 0 || matFar <= 0) { console.log('[flora] card material failed to compile'); return; }
   const tex = createTextureArrayFromFiles([
     'assets/textures/flora_fern.png',
@@ -340,7 +357,7 @@ export function initFlora(): void {
   FL_MESH[SLICE_TALLGRASS] = buildFan(SLICE_TALLGRASS, 3, 1.10, 0.70, 0.14, 0);
   FL_MESH[SLICE_HERB] = buildFan(SLICE_HERB, 2, 0.62, 0.68, 0.04, 0);
 
-  const DENS = ANDROID ? 0 : (MOBILE ? 0.4 : 1.0);
+  const DENS = lowTier() ? 0 : (SMALL_GPU ? 0.4 : 1.0);
 
   // Ferns: the forest floor. Two to five round each tree, between the roots and the drip line.
   SCN[0] = 0;
@@ -433,7 +450,7 @@ export function initFlora(): void {
 
   // Grass clumps: the meadow itself. Everywhere a plant may stand, thinner on painted mud and
   // rock and in the deepest shade right at a trunk.
-  const grassMax = ANDROID ? 0 : (MOBILE ? 2500 : 11500);
+  const grassMax = lowTier() ? 0 : (SMALL_GPU ? 2500 : 11500);
   for (let t = 0; t < grassMax * 3 && SCN[0] < grassMax; t++) {
     const x = -38 + rnd() * 76, z = -38 + rnd() * 76;
     if (blocked(x, z, 0.1)) continue;
@@ -509,7 +526,7 @@ export function initFlora(): void {
   // The far tree line: the hills outside the arena, wooded in copses that thin toward the
   // horizon. A card is 1 m square at scale 1 with its root at the origin; the scale is the
   // tree's height.
-  const farMax = ANDROID ? 350 : (MOBILE ? 900 : 2400);
+  const farMax = lowTier() ? 350 : (SMALL_GPU ? 900 : 2400);
   for (let t = 0; t < farMax * 12 && SCN[0] < farMax; t++) {
     const x = -134 + rnd() * 268, z = -134 + rnd() * 268;
     const edge = Math.max(Math.abs(x), Math.abs(z));
@@ -520,6 +537,17 @@ export function initFlora(): void {
     const h = 7.5 + rnd() * 6.5;
     const g = 0.62 + rnd() * 0.30;
     scAdd(x, groundAt(x, z) - 0.25, z, h, g * 0.94, g, g * 0.86);
+  }
+  // Android: the arena's own trees as cards too, seen only beyond nearTreeDist. Heights are the
+  // three tree models' (prop_tree, 2, 3: 9.1, 6.4, 10.8 m) times the tree's scale.
+  if (nearTreeDist > 0) {
+    for (let i = 0; i < W.FOREST_COUNT; i++) {
+      const v = W.FOREST_VAR[i];
+      const h = (v === 1 ? 6.4 : v === 2 ? 10.8 : 9.1) * W.FOREST_SCALE[i];
+      scAddA(W.FOREST_X[i], W.FOREST_Y[i] - 0.25, W.FOREST_Z[i], W.FOREST_YAW[i] * 0.01745, h,
+             0.80 * W.FOREST_TINT_R[i] / 255, 0.80 * W.FOREST_TINT_G[i] / 255,
+             0.80 * W.FOREST_TINT_B[i] / 255, nearTreeDist);
+    }
   }
   scUpload(SLICE_TREE);
 

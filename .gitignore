@@ -101,4 +101,13 @@ android/local.properties
 android/app/build/
 android/app/src/main/assets/
 android/app/src/main/jniLibs/
+android/gamedata/build/
+android/gamedata/src/main/assets/
 __pycache__/
+
+# Store screenshots: harness captures and framed output are rebuilt on demand (store/README.md)
+store/screenshots/raw/captures/
+store/screenshots/out/
+
+# Google Play listing graphics: rebuilt by android/play/build_listing.py
+android/play/metadata/*/images/
