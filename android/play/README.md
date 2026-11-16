@@ -76,6 +76,16 @@ takes days.
    account made after November 2023 also needs a closed test with 12 testers for 14 days first;
    an organisation account does not.
 
+## State (2026-11-16)
+
+Every Play Console setup task is done: all App content declarations, the content rating
+(PEGI 12, USK 16; violence against humans and fantasy creatures, often close up, fantastical
+setting, mild ichor blood on creatures, frequent scary elements), category Action, the listing
+in 13 languages. Version 1.0.0 is live on Internal testing for the email list "Bloom Shooter
+internal"; opt in at https://play.google.com/apps/internaltest/4700784802029688558.
+Internal testing needs no review. Play only accepts "Send app for review" once a closed, open
+or production release exists; that is the launch step.
+
 ## Screenshots
 
 `build_listing.py` frames the App Store captures (`store/screenshots/raw`, desktop renders) at
