@@ -83,8 +83,16 @@ Every Play Console setup task is done: all App content declarations, the content
 setting, mild ichor blood on creatures, frequent scary elements), category Action, the listing
 in 13 languages. Version 1.0.0 is live on Internal testing for the email list "Bloom Shooter
 internal"; opt in at https://play.google.com/apps/internaltest/4700784802029688558.
-Internal testing needs no review. Play only accepts "Send app for review" once a closed, open
-or production release exists; that is the launch step.
+Internal testing needs no review. Production 1.0.0 (version code 2) (full rollout, 178 countries plus rest of
+world) was sent for review the same day, together with the listing and all declarations.
+A never-published app's first production release can only be a draft through the API; it was
+saved and submitted in Play Console. Managed publishing is off, so approval publishes it.
+
+Version code 1 failed Play's pre-review check, "Invalid data safety declaration (Email address
+not declared)", although the app has no permissions at all, not even INTERNET: the scan read
+unused androidx.core code (ContextCompat's account-service map, PatternsCompat's e-mail pattern)
+as e-mail collection. The app needs no dependencies; keep `dependencies {}` empty, or turn on R8
+(`isMinifyEnabled`) if one is ever added, so dead library code does not ship.
 
 ## Screenshots
 

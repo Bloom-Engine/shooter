@@ -84,6 +84,8 @@ android {
     }
 }
 
+// No dependencies. androidx.core was here unused, and Play's pre-review scan read its code (the
+// account-service map in ContextCompat, the e-mail pattern in PatternsCompat) as the app sending
+// e-mail addresses off the device: "Invalid data safety declaration" on 1.0.0 (2026-11-16).
 dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
 }
