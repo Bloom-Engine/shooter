@@ -360,7 +360,8 @@ function applyPreset(p: number): void {
   const lamps    = [0,    0,     1,    1];
   const fog      = [0,    1,     1,    1];
   const water    = [0,    1,     1,    1];
-  const textures = [0,    1,     1,    2];   // 1024, 2048, 2048, as authored (next start)
+  const textures = [0,    1,     1,    1];   // 1024, then 2048 (next start); full size only by hand:
+                                             // it doubles memory (10.9 GB vs 5.0 on the 760M) and looks the same
   SET.set(SET.SET_RENDER_SCALE, scale[p]);
   SET.set(SET.SET_SHADOWS, 1);
   SET.set(SET.SET_SSAO, ssao[p]);

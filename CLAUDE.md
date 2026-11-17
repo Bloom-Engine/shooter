@@ -223,8 +223,8 @@ the view moves, and the phone has no headroom to absorb the stall.
   start: engine #253 `setMaxTextureSize`) halves a model texture at load until it fits. The
   models are authored at 4K and decode to RGBA8 with mips (85 MB per 4K texture). On the 760M,
   full, 2048 and 1024 used 10.9, 5.0 and 2.5 GB of GPU memory (dedicated plus shared) at the same
-  fight fps, and a close-up at 2048 looks like full size. Low is 1024, Medium and High 2048,
-  Ultra full. The water row only unlinks the probe
+  fight fps, and a close-up at 2048 looks like full size. Low is 1024 and every other preset 2048,
+  so auto-tune never fills an 8 GB card with textures; full size is a manual choice. The water row only unlinks the probe
   from the water material: the engine renders a probe nothing on screen samples for free.
   Measure with nothing compiling in the background; a cargo build cost ~3 fps.
 - `tools/check.sh` runs under Git Bash; it calls `python3`, which on this box is the

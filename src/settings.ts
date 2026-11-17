@@ -361,7 +361,7 @@ export function loadSettings(): void {
   V[SET_MONITOR] = num(vd, 'monitor', V[SET_MONITOR]);
   V[SET_GPU_ID] = num(vd, 'gpuId', V[SET_GPU_ID]);
   // A file from before the row: what the preset would give (low 1024, ultra as authored).
-  V[SET_TEXTURES] = num(vd, 'textures', V[SET_PRESET] === 0 ? 0 : (V[SET_PRESET] === 3 ? 2 : 1));
+  V[SET_TEXTURES] = num(vd, 'textures', V[SET_PRESET] === 0 ? 0 : 1);
 
   const ac: any = o['access'];
   V[SET_SHAKE]      = num(ac, 'shake',      V[SET_SHAKE]);
