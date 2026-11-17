@@ -35,7 +35,8 @@ import {
   setTaaEnabled, setRenderScale, setCasStrength,
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
-  setShadowsEnabled, setBloomEnabled,
+  setShadowsEnabled, setBloomEnabled, setShadowCascadeStagger, getRendererCapabilities,
+  setMaxTextureSize,
   writeFile, readFile, setCrashReportPath,
 } from 'bloom/core';
 import { addPointLight, addPointLightWithShadow, enableShadows, setLocalLightShadows } from 'bloom/scene';
@@ -117,10 +118,11 @@ import * as WPN from './weapons';
 import * as MIX from './audio-mix';
 import * as SFX from './sfx';
 import * as SET from './settings';
+import * as AT from './autotune';
 import * as SCORE from './score';
 import {
   initMenus, menuOpen, openPause, openMain, closeMenu, updateMenu, drawMenu, currentMenu, MENU_NONE,
-  applyGraphicsSettings, applyWaterReflections, applySlowGpuProfile, openResults, setResultsTime, openSettingsTab, openLevels, openCredits,
+  applyGraphicsSettings, applyWaterReflections, applyQualityRung, applyFrameCap, applyAutoRes, openResults, setResultsTime, openSettingsTab, openLevels, openCredits,
   openArmory, openRecord, armoryWeapon,
   selectRow, MENU_RESULTS, menuRow, menuTab,
 } from './menu';
@@ -167,6 +169,11 @@ initInput();
 // audio volumes, FOV, shake). A missing file is a first run, not an error.
 const FIRST_RUN = !fileExists('settings.json');
 SET.loadSettings();
+// The texture cap must be set before the first model loads (the engine applies it at decode).
+// 4096 px textures with mips are 85 MB each, and the models carry about 6.4 GB of them as
+// authored; at 2048 that is a quarter, which a 4 GB card or an integrated GPU sharing system
+// memory can hold. Changing the TEXTURES row therefore applies at the next start.
+setMaxTextureSize(SET.TEXTURE_CAPS[SET.get(SET.SET_TEXTURES)]);
 // A first run on a desktop panel past six megapixels starts at 75% output resolution. At
 // native, the passes that run at output resolution (anti-aliasing, sharpening, the final
 // composite, the HUD) cost about 8 ms of a 16.7 ms frame on an M1 Max at 3456 x 2168;
@@ -258,15 +265,40 @@ const cliPerfSpin = cliArg('--spin') === '1';
 // `const X = false` and a source edit; tools/check.sh drives them now. A harness run never
 // banks a score or a profile (see `DIR.bank` below).
 const HARNESS = cliArg('--harness');
-// First-run output calibration (desktop). The 75% default above is chosen from the panel's size
-// alone; on an integrated GPU driving a 4K panel (a Radeon 760M) that is still 25 fps on the
-// title screen, against 36 at 50%. So a first run times the title screen once it has settled and,
-// if it is well under 60, steps the output scale down and saves it. Never under a harness, never
-// over a command-line scale, and only on the title screen: leaving it cancels the measurement.
-// The settings row still says what was chosen and puts it back.
-const CAL_FROM = 240, CAL_TO = 480;
-let calT0 = 0;
-let calDone = !FIRST_RUN || MOBILE || WEB || HARNESS !== '' || cliArg('--output-scale') !== '';
+// Auto-tune (autotune.ts): pick the best graphics settings this PC holds the frame rate with.
+// It runs on the title screen on a first run, when the settings file was tuned on a different
+// GPU (a new graphics card, or the file copied from another PC), with `--recalibrate 1`, and
+// from the DETECT BEST SETTINGS row. Never under another harness or over a command-line output
+// scale. A file from before the GPU was recorded keeps its settings and only records it: the
+// player chose them. `./main --harness autotune` runs it, logs every rung and quits (it saves
+// nothing; add `--autotune-easy 1` to walk UP the ladder on a slow GPU, for a test).
+// GPU_ID: vendor * 65536 + device from the engine's adapter report (read once, at load).
+const GPU_ID = [0];
+if (!MOBILE && !WEB) {
+  const capsAdapter: any = getRendererCapabilities().adapter;
+  if (capsAdapter) {
+    const gv: number = capsAdapter.vendor_id;
+    const gd: number = capsAdapter.device_id;
+    if (gv > 0 || gd > 0) GPU_ID[0] = gv * 65536 + gd;
+    console.log('[autotune] GPU ' + capsAdapter.name + ' (' + capsAdapter.device_type + ') id ' + GPU_ID[0]);
+  }
+}
+const AUTOTUNE_HARNESS = HARNESS === 'autotune';
+const atShot = [0];
+if (!MOBILE && !WEB && GPU_ID[0] !== 0 && cliArg('--output-scale') === ''
+    && (HARNESS === '' || AUTOTUNE_HARNESS)) {
+  const storedGpu = SET.get(SET.SET_GPU_ID);
+  // Panels up to 1440 lines start at High native, larger ones at High 75%.
+  const startRung = getPhysicalHeight() <= 1440 ? 1 : 2;
+  if (cliArg('--autotune-easy') === '1') AT.setEasy();
+  if (AUTOTUNE_HARNESS || FIRST_RUN || cliArg('--recalibrate') === '1'
+      || (storedGpu !== 0 && storedGpu !== GPU_ID[0])) {
+    AT.request(startRung);
+  } else if (storedGpu === 0) {
+    SET.set(SET.SET_GPU_ID, GPU_ID[0]);
+    SET.saveSettings();
+  }
+}
 const cliAudioTest = cliArg('--audiotest');
 const AUDIOTEST = cliAudioTest === 'orbit' || cliAudioTest === 'flyby' || cliAudioTest === 'river';
 const audioTestMode = cliAudioTest === 'orbit' ? 1 : (cliAudioTest === 'flyby' ? 2 : 0);
@@ -717,6 +749,11 @@ applyGraphicsSettings();
 const cliLampShadows = cliArg('--lamp-shadows');
 if (!MOBILE && !WEB && cliLampShadows === '0') setLocalLightShadows(0, 0);
 if (!MOBILE && !WEB && cliLampShadows === '1') setLocalLightShadows(4, 512);
+// `--shadow-stagger 0|1`: the far two sun cascades on alternate frames or every frame, for this
+// launch only (an A/B; the presets decide otherwise, menu.ts applyShadowStagger).
+const cliStagger = cliArg('--shadow-stagger');
+if (cliStagger === '0') setShadowCascadeStagger(false);
+if (cliStagger === '1') setShadowCascadeStagger(true);
 // --dbg-off (see the CLI block above) applies after the persisted settings
 // so it always wins for the launch it was asked for.
 if (cliDbgOff === 'shadows') setShadowsEnabled(false);
@@ -2603,26 +2640,31 @@ function gameFrame(_hostDt: number): void {
 
   const input = readInput(dtReal);
   testFrame = testFrame + 1;
-  if (!calDone) {
-    if (GS.gameState !== 0) calDone = true;
-    else if (testFrame === CAL_FROM) calT0 = getTime();
-    else if (testFrame === CAL_TO) {
-      calDone = true;
-      const fps = (CAL_TO - CAL_FROM) / (getTime() - calT0);
-      const cur = SET.get(SET.SET_OUTPUT_SCALE);
-      let next = cur;
-      if (fps < 30) next = 0.5;
-      else if (fps < 48) next = cur - 0.15 < 0.5 ? 0.5 : cur - 0.15;
-      // Under 30 even the output scale cannot make it fluid: the frame is the scene itself.
-      const slow = fps < 30;
-      if (slow) applySlowGpuProfile();
-      if (next < cur) {
-        SET.set(SET.SET_OUTPUT_SCALE, next);
-        setOutputScale(next);
+  if (AT.active()) {
+    const act = AT.update(getTime(), GS.gameState === 0);
+    if (act === AT.ACT_APPLY) {
+      // Timed with no cap, no vsync and a fixed resolution, or every rung reads the same.
+      setPresentMode(3);
+      setTargetFPS(400);
+      setAutoResolution(60, false);
+    }
+    if (act !== AT.ACT_NONE) {
+      const r = AT.current();
+      applyQualityRung(AT.rungPreset(r), AT.rungOut(r), AT.rungSun(r));
+    }
+    if (act === AT.ACT_FINISH) {
+      applyFrameCap();
+      applyAutoRes();
+      let line = '[autotune] title fps by rung:';
+      for (let i = 0; i < AT.RUNG_COUNT; i++) {
+        if (AT.fpsOf(i) >= 0) line = line + ' ' + i + '=' + AT.fpsOf(i).toFixed(1);
       }
-      if (slow || next < cur) SET.saveSettings();
-      console.log('[calibrate] title ' + fps.toFixed(1) + ' fps at output ' + cur.toFixed(2)
-        + ' -> ' + next.toFixed(2) + (slow ? ', LOW preset, sun shadows off' : ''));
+      console.log(line + ' -> rung ' + AT.current() + ' (preset ' + AT.rungPreset(AT.current())
+        + ', output ' + AT.rungOut(AT.current()).toFixed(2)
+        + (AT.rungSun(AT.current()) === 0 ? ', sun shadows off)' : ')'));
+      if (AUTOTUNE_HARNESS) { closeWindow(); return; }
+      SET.set(SET.SET_GPU_ID, GPU_ID[0]);
+      SET.saveSettings();
     }
   }
   // The LIT FOG settings row (see applyFogMedium).
@@ -4602,6 +4644,14 @@ function gameFrame(_hostDt: number): void {
   // SH-038 — the pause / settings menu draws LAST so it sits over the HUD.
   drawMenu(sw, sh);
   drawArenaNotice(sw, sh);
+  if (AT.measuring() && GS.gameState === 0) {
+    UIK.textCS(STR.T(STR.S_AUTOTUNE_NOTE), sw / 2, sh * 0.955, 20, UIK.C_ACCENT, 230);
+    // The harness keeps one picture of the notice over the title (drawn this frame).
+    if (AUTOTUNE_HARNESS && AT.current() === 3 && atShot[0] === 0) {
+      atShot[0] = 1;
+      takeScreenshot('shooter_autotune.png');
+    }
+  }
 
   // Diagnostic HUD — helps verify input is reaching the game. The desktop
   // version is a full-width bar along the bottom, which on a phone lands

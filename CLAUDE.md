@@ -208,8 +208,23 @@ the view moves, and the phone has no headroom to absorb the stall.
   `main.pdb` lands next to the exe — crash reports then symbolize.
 - An integrated GPU on a 4K panel (Radeon 760M, 2026-11-16): a fight at 50% output runs
   29 fps on HIGH, 36 on LOW, 50 on LOW with the sun's shadows off, 58 with the WATER
-  REFLECTIONS row off as well. A first run under 30 fps on the title screen picks that last
-  profile itself (`applySlowGpuProfile` in `menu.ts`). The water row only unlinks the probe
+  REFLECTIONS row off as well. **Auto-tune** (`src/autotune.ts`, 2026-11-17): a first run, a
+  settings file tuned on another GPU (`gpuId` in its video block), `--recalibrate 1` or the
+  DETECT BEST SETTINGS row times the title screen uncapped on a ladder of rungs (Ultra native …
+  Low with the sun's shadows off) and keeps the best rung that holds 60 in a fight (title ≥ 75),
+  else 30 (title ≥ 38); the 760M lands on Low at 50% output. `./main --harness autotune` logs the
+  walk and quits without saving (`--autotune-easy 1` makes it climb, to test the upward path).
+  A file from before `gpuId` existed keeps the player's settings and only records the GPU. The
+  far two sun cascades redraw on alternate frames on every preset but Ultra
+  (`applyShadowStagger`; `--shadow-stagger 0|1` for an A/B). The engine picks a discrete GPU
+  over an integrated one and never the CPU rasteriser over a real GPU (engine #252; before it,
+  a GPU without ray query got Microsoft Basic Render Driver); `BLOOM_ADAPTER=<part of a name>`
+  forces one. The TEXTURES row (1024 / 2048 / full, read once at boot, so it applies on the next
+  start: engine #253 `setMaxTextureSize`) halves a model texture at load until it fits. The
+  models are authored at 4K and decode to RGBA8 with mips (85 MB per 4K texture). On the 760M,
+  full, 2048 and 1024 used 10.9, 5.0 and 2.5 GB of GPU memory (dedicated plus shared) at the same
+  fight fps, and a close-up at 2048 looks like full size. Low is 1024 and every other preset 2048,
+  so auto-tune never fills an 8 GB card with textures; full size is a manual choice. The water row only unlinks the probe
   from the water material: the engine renders a probe nothing on screen samples for free.
   Measure with nothing compiling in the background; a cargo build cost ~3 fps.
 - `tools/check.sh` runs under Git Bash; it calls `python3`, which on this box is the
