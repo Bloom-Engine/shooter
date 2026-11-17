@@ -100,7 +100,12 @@ export const SET_WATER_REFL = 44;  // 0/1
 // The GPU the graphics settings were last chosen for (autotune.ts): vendor id * 65536 + device
 // id from the engine's adapter report, 0 = not recorded yet. Not a row.
 export const SET_GPU_ID     = 45;
-export const SET_COUNT      = 46;
+// The largest model texture, as a level: 0 = 1024 px, 1 = 2048, 2 = as authored (4096). Read
+// before the models load, so a change applies at the next start. Part of the presets.
+export const SET_TEXTURES   = 46;
+export const SET_COUNT      = 47;
+/// Pixels for each SET_TEXTURES level; 0 = no cap.
+export const TEXTURE_CAPS = [1024, 2048, 0];
 
 /// Frames per second for each SET_FPS_CAP option; 0 = no limit.
 export const FPS_CAPS = [30, 60, 120, 144, 0];
@@ -171,6 +176,7 @@ function defaults(): void {
   V[SET_VIBRATION]  = 1;
   V[SET_PRESET]     = 2;
   V[SET_GPU_ID]     = 0;
+  V[SET_TEXTURES]   = 1;
   V[SET_WINDOW]     = 0;
   V[SET_VSYNC]      = 1;
   V[SET_FPS_CAP]    = 1;
@@ -354,6 +360,8 @@ export function loadSettings(): void {
   V[SET_WATER_REFL] = num(vd, 'waterReflections', V[SET_PRESET] === 0 ? 0 : 1);
   V[SET_MONITOR] = num(vd, 'monitor', V[SET_MONITOR]);
   V[SET_GPU_ID] = num(vd, 'gpuId', V[SET_GPU_ID]);
+  // A file from before the row: what the preset would give (low 1024, ultra as authored).
+  V[SET_TEXTURES] = num(vd, 'textures', V[SET_PRESET] === 0 ? 0 : (V[SET_PRESET] === 3 ? 2 : 1));
 
   const ac: any = o['access'];
   V[SET_SHAKE]      = num(ac, 'shake',      V[SET_SHAKE]);
@@ -382,6 +390,7 @@ function clampChoices(): void {
   clampChoice(SET_LANG, 4);
   clampChoice(SET_CURVE, 3);
   clampChoice(SET_PRESET, 5);
+  clampChoice(SET_TEXTURES, 3);
   clampChoice(SET_WINDOW, 2);
   clampChoice(SET_FPS_CAP, 5);
   clampChoice(SET_CAPTION_SIZE, 3);
@@ -437,6 +446,7 @@ export function saveSettings(): void {
         + ', "litFog": ' + P(SET_VFOG)
         + ', "lampShadows": ' + P(SET_LAMP_SHADOWS)
         + ', "waterReflections": ' + P(SET_WATER_REFL)
+        + ', "textures": ' + P(SET_TEXTURES)
         + ', "monitor": ' + P(SET_MONITOR)
         + ', "gpuId": ' + V[SET_GPU_ID] + ' },\n';
   s = s + '  "access": { "shake": ' + V[SET_SHAKE]

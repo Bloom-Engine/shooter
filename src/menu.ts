@@ -183,6 +183,8 @@ function buildRows(): void {
   toggle(TAB_VIDEO, SET.SET_LAMP_SHADOWS, STR.S_LAMP_SHADOWS, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_VFOG, STR.S_VFOG, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_WATER_REFL, STR.S_WATER_REFL, F_DESKTOP);
+  // Options reuse LOW / MEDIUM / HIGH: 1024 px, 2048 px, as authored. Applies at the next start.
+  choice(TAB_VIDEO, SET.SET_TEXTURES, STR.S_TEXTURES, STR.S_PRESET_0, 3, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_SSAO, STR.S_SSAO, 0);
   toggle(TAB_VIDEO, SET.SET_SSR, STR.S_SSR, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_SSGI, STR.S_SSGI, F_DESKTOP);
@@ -344,7 +346,7 @@ function isPresetRow(idx: number): boolean {
   return idx === SET.SET_RENDER_SCALE || idx === SET.SET_SHADOWS || idx === SET.SET_SSAO
       || idx === SET.SET_SSR || idx === SET.SET_SSGI || idx === SET.SET_BLOOM
       || idx === SET.SET_MOTION_BLUR || idx === SET.SET_LAMP_SHADOWS || idx === SET.SET_VFOG
-      || idx === SET.SET_WATER_REFL;
+      || idx === SET.SET_WATER_REFL || idx === SET.SET_TEXTURES;
 }
 
 /// Plan 4.3 - quality presets. Reflections stay off in all four: screen-space reflections
@@ -358,6 +360,7 @@ function applyPreset(p: number): void {
   const lamps    = [0,    0,     1,    1];
   const fog      = [0,    1,     1,    1];
   const water    = [0,    1,     1,    1];
+  const textures = [0,    1,     1,    2];   // 1024, 2048, 2048, as authored (next start)
   SET.set(SET.SET_RENDER_SCALE, scale[p]);
   SET.set(SET.SET_SHADOWS, 1);
   SET.set(SET.SET_SSAO, ssao[p]);
@@ -368,6 +371,7 @@ function applyPreset(p: number): void {
   SET.set(SET.SET_LAMP_SHADOWS, lamps[p]);
   SET.set(SET.SET_VFOG, fog[p]);
   SET.set(SET.SET_WATER_REFL, water[p]);
+  SET.set(SET.SET_TEXTURES, textures[p]);
   pushGraphics();
 }
 

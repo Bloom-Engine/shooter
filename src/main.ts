@@ -36,6 +36,7 @@ import {
   setPresentMode, setSsgiEnabled, setSsaoEnabled, setSsrEnabled,
   setPathTracing, isPathTracingSupported,
   setShadowsEnabled, setBloomEnabled, setShadowCascadeStagger, getRendererCapabilities,
+  setMaxTextureSize,
   writeFile, readFile, setCrashReportPath,
 } from 'bloom/core';
 import { addPointLight, addPointLightWithShadow, enableShadows, setLocalLightShadows } from 'bloom/scene';
@@ -168,6 +169,11 @@ initInput();
 // audio volumes, FOV, shake). A missing file is a first run, not an error.
 const FIRST_RUN = !fileExists('settings.json');
 SET.loadSettings();
+// The texture cap must be set before the first model loads (the engine applies it at decode).
+// 4096 px textures with mips are 85 MB each, and the models carry about 6.4 GB of them as
+// authored; at 2048 that is a quarter, which a 4 GB card or an integrated GPU sharing system
+// memory can hold. Changing the TEXTURES row therefore applies at the next start.
+setMaxTextureSize(SET.TEXTURE_CAPS[SET.get(SET.SET_TEXTURES)]);
 // A first run on a desktop panel past six megapixels starts at 75% output resolution. At
 // native, the passes that run at output resolution (anti-aliasing, sharpening, the final
 // composite, the HUD) cost about 8 ms of a 16.7 ms frame on an M1 Max at 3456 x 2168;
