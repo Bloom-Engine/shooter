@@ -28,11 +28,12 @@ import { drawTextureProRaw } from 'bloom/textures';
 import { setLocalLightShadows } from 'bloom/scene';
 import {
   setOutputScale, setRenderScale, setShadowsEnabled, setMotionBlurEnabled, setAutoResolution,
-  setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled,
+  setSsaoEnabled, setSsrEnabled, setSsgiEnabled, setBloomEnabled, setShadowCascadeStagger,
   setPathTracing, isPathTracingSupported, setPresentMode, setTargetFPS, toggleFullscreen,
   getMonitorCount, getMonitorWidth, getMonitorHeight, getCurrentMonitor, setMonitor,
 } from 'bloom/core';
 import * as SET from './settings';
+import { request as autotuneRequest } from './autotune';
 import * as MIX from './audio-mix';
 import * as FEEL from './feel';
 import * as SCORE from './score';
@@ -78,6 +79,7 @@ const F_NOTOUCH = 2;    // not on phones (mouse and keyboard rows)
 // Special R_IDX values of action rows.
 const IDX_BACK = -1;
 const IDX_RESET_BINDS = -2;
+const IDX_AUTOTUNE = -3;
 
 //   0 current menu   1 selected row   2 stick-repeat cooldown
 //   3 where SETTINGS / ARENAS / CREDITS go back TO (they open from both the title and pause)
@@ -189,6 +191,9 @@ function buildRows(): void {
   toggle(TAB_VIDEO, SET.SET_MOTION_BLUR, STR.S_MOTION_BLUR, F_DESKTOP);
   toggle(TAB_VIDEO, SET.SET_AUTO_RES, STR.S_AUTO_RES, F_DESKTOP);
   choice(TAB_VIDEO, SET.SET_PT, STR.S_PT, STR.S_PT_0, 3, F_DESKTOP);
+  // Times this PC on the title screen and picks the best settings that hold the frame rate
+  // (autotune.ts). From the pause menu it starts once the player is back on the title.
+  addRow(TAB_VIDEO, ROW_ACTION, IDX_AUTOTUNE, STR.S_AUTOTUNE_ROW, 0, 0, 0, 0, F_DESKTOP);
   // AUDIO
   slider(TAB_AUDIO, SET.SET_MASTER_VOL, STR.S_MASTER_VOL, 0, 1, 0.05, 0);
   slider(TAB_AUDIO, SET.SET_MUSIC_VOL, STR.S_MUSIC_VOL, 0, 1, 0.05, 0);
@@ -366,17 +371,23 @@ function applyPreset(p: number): void {
   pushGraphics();
 }
 
-/// A slow GPU's first run (the calibration in main.ts): the LOW preset with the sun's shadows
-/// off as well, which is CUSTOM. On a Radeon 760M at 50% output a fight runs 29 fps on HIGH,
-/// 36 on LOW and 50 with the shadows off too (57 with the water reflection off; LOW has it off).
-export function applySlowGpuProfile(): void {
-  applyPreset(0);
-  SET.set(SET.SET_SHADOWS, 0);
-  SET.set(SET.SET_PRESET, 4);
-  pushGraphics();
+/// One rung of the auto-tune ladder (autotune.ts): a quality preset, an output scale, and the
+/// sun's shadows on or off (off makes it CUSTOM).
+export function applyQualityRung(preset: number, out: number, sun: number): void {
+  SET.set(SET.SET_PRESET, preset);
+  applyPreset(preset);
+  if (sun === 0) {
+    SET.set(SET.SET_SHADOWS, 0);
+    SET.set(SET.SET_PRESET, 4);
+    pushGraphics();
+  }
+  if (!MOBILE && !WEB && SET.get(SET.SET_OUTPUT_SCALE) !== out) {
+    SET.set(SET.SET_OUTPUT_SCALE, out);
+    setOutputScale(out);
+  }
 }
 
-function applyFrameCap(): void {
+export function applyFrameCap(): void {
   const v = SET.get(SET.SET_VSYNC) !== 0;
   // 0 = Fifo (vsync), 3 = AutoNoVsync. The cap is a sleep, so it holds with either.
   setPresentMode(v ? 0 : 3);
@@ -433,6 +444,16 @@ function applyLive(idx: number): void {
   }
   if (isPresetRow(idx)) SET.set(SET.SET_PRESET, 4);
   if (isPresetRow(idx)) applyLampShadows();
+  if (isPresetRow(idx)) applyShadowStagger();
+}
+
+/// The sun's two far shadow cascades are redrawn on alternate frames (the nearest one every
+/// frame) on every preset but ULTRA. Resolution and filtering are untouched; a moving caster
+/// beyond the first cascade casts a shadow one frame old every other frame. Radeon 760M, HIGH
+/// fight: shadows 2.85 -> 2.1 ms, +1.6 fps (2026-11-17). `--shadow-stagger 0|1` overrides it
+/// for one launch (main.ts).
+export function applyShadowStagger(): void {
+  setShadowCascadeStagger(SET.get(SET.SET_PRESET) !== 3);
 }
 
 /// Lamps that cast shadows on the house and the ground (engine EN-068). The four work lights
@@ -459,6 +480,7 @@ function pushGraphics(): void {
   setBloomEnabled(SET.get(SET.SET_BLOOM) !== 0);
   if (!small) setMotionBlurEnabled(SET.get(SET.SET_MOTION_BLUR) !== 0);
   applyLampShadows();
+  applyShadowStagger();
   applyWaterReflections();
 }
 
@@ -494,7 +516,7 @@ export function applyGraphicsSettings(): void {
 
 /// Dynamic resolution: on, the engine steps the render scale between 0.5 and 1.0 to hold
 /// 60 Hz; off, the scale goes back to the player's own slider.
-function applyAutoRes(): void {
+export function applyAutoRes(): void {
   const on = SET.get(SET.SET_AUTO_RES) !== 0;
   setAutoResolution(60, on);
   if (!on) setRenderScale(SET.get(SET.SET_RENDER_SCALE));
@@ -624,6 +646,7 @@ function confirm(): void {
     const kind = R_KIND[r];
     if (kind === ROW_ACTION) {
       if (R_IDX[r] === IDX_RESET_BINDS) { B.resetBinds(); MIX.uiSelect(); }
+      else if (R_IDX[r] === IDX_AUTOTUNE) { autotuneRequest(2); MIX.uiSelect(); }
       else back();
     } else if (kind === ROW_BIND) {
       const pad = S[8] === 1;
